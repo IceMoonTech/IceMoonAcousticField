@@ -2,7 +2,7 @@
 
 **实时、低成本的声学场模拟系统，用于 Unreal Engine 5.6 的动态音频**
 
-**此插件依赖于个人内部库 IceMoonDataInterface，因此无法在外部环境中编译。当然你可以吧关键位置删掉 就一个stat统计 和 一个编辑器/pie打包都可靠的getcameraPosition工具函数**
+**此插件依赖于个人内部库 IceMoonDataInterface，因此无法在外部环境中编译。当然你可以吧关键位置删掉 就一个stat统计 和 一个编辑器/pie打包都可靠的GetCameraPosition工具函数**
 ---
 
 ## 核心价值
