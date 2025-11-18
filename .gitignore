@@ -1,0 +1,14 @@
+# Unreal Engine generated files
+Binaries/
+Intermediate/
+Saved/
+DerivedDataCache/
+
+# Visual Studio files
+*.sln
+*.suo
+.vs/
+
+# Rider files
+.idea/
+Developer
