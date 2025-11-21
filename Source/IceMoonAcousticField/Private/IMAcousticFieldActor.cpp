@@ -4,7 +4,7 @@
 #include "DA_IM_MaterialMap.h"
 #include "DA_IM_AcousticFieldConfig.h"
 #include "IMMathUtils.h"
-#include "IM_Common/Public/Gameplay/IM_WorldUtils.h"
+#include "IM_Common/Public/Gameplay/IMWorldUtils.h"
 #include "Kismet/GameplayStatics.h"
 #include "Runtime/PhysicsCore/Public/PhysicalMaterials/PhysicalMaterial.h" 
 
