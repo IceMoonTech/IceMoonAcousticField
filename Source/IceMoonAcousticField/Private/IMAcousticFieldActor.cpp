@@ -8,6 +8,16 @@
 #include "Kismet/GameplayStatics.h"
 #include "Runtime/PhysicsCore/Public/PhysicalMaterials/PhysicalMaterial.h" 
 
+static TAutoConsoleVariable<int32> CVar_DebugLevelStat(
+	TEXT("Icemoon.AcousticField.debug"),
+	0, // 默认关闭  
+	TEXT(" 1是输出事件驱动Debug 2是输出TickDebug"),
+	ECVF_RenderThreadSafe
+);
+#define ICEMOON_LOG_DEBUG_TICK(Format, ...) if (CVar_DebugLevelStat.GetValueOnAnyThread() >= 2) UE_LOG(LogTemp, Log, TEXT("[DEBUG-TICK][%s:%d] ") TEXT(Format), ANSI_TO_TCHAR(__FILE__), __LINE__, ##__VA_ARGS__);
+#define ICEMOON_LOG_DEBUG(Format, ...) if (CVar_DebugLevelStat.GetValueOnAnyThread() >= 1) UE_LOG(LogTemp, Log, TEXT("[DEBUG][%s:%d] ") TEXT(Format), ANSI_TO_TCHAR(__FILE__), __LINE__, ##__VA_ARGS__);
+#define ICEMOON_LOG_WARN(Format, ...) UE_LOG(LogTemp, Warning, TEXT("[WARN][%s:%d] ") TEXT(Format), ANSI_TO_TCHAR(__FILE__), __LINE__, ##__VA_ARGS__)
+#define ICEMOON_LOG_ERROR(Format, ...) UE_LOG(LogTemp, Error, TEXT("[ERROR][%s:%d] ") TEXT(Format), ANSI_TO_TCHAR(__FILE__), __LINE__, ##__VA_ARGS__)
 
 static TWeakObjectPtr<AIceMoonAcousticField> GWorldAcousticActor; // 静态实例指针，用于快速访问
 
@@ -82,7 +92,7 @@ void AIceMoonAcousticField::Tick(float DeltaTime)
 		break;
 	}
 #if WITH_EDITOR
-	if(bDebug){
+	if(CVar_DebugLevelStat.GetValueOnGameThread() > 0){
 		// 显示状态和统计信息
 		FString DebugText = FString::Printf(TEXT("IMAcoustic Field State: %d | Active Cells: %d"),
 			static_cast<int32>(CurrentState),
@@ -155,17 +165,59 @@ void AIceMoonAcousticField::Tick(float DeltaTime)
 
 AIceMoonAcousticField* AIceMoonAcousticField::GetAcousticFieldActor(const UObject* WorldContextObject)
 {
+	// 1. 安全获取 World (防御性原则：Context 可能无效)
+	UWorld* World = GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull);
+	if (!World) return nullptr;
+
+	// 2. 缓存命中检查 (关键修正：必须校验 World 是否匹配，防止 PIE 跨世界引用错误)
 	if (GWorldAcousticActor.IsValid())
 	{
-		return GWorldAcousticActor.Get();
-	}
-    
-	if (UWorld* World = GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull))
-	{
-		return Cast<AIceMoonAcousticField>(UGameplayStatics::GetActorOfClass(World, AIceMoonAcousticField::StaticClass()));
+		// 如果缓存的 Actor 属于当前 World，直接返回
+		if (GWorldAcousticActor->GetWorld() == World){ return GWorldAcousticActor.Get();
+		}else{
+			// 缓存失效或属于其他 World (如从 PIE 切回 Editor)，重置
+			GWorldAcousticActor.Reset();
+		}
 	}
 
-	return nullptr;
+	// 3. 场景查找 (慢速路径)
+	AIceMoonAcousticField* ResultActor = Cast<AIceMoonAcousticField>(
+		UGameplayStatics::GetActorOfClass(World, AIceMoonAcousticField::StaticClass())
+	);
+
+	// 4. 不存在则创建 (新增逻辑)
+	if (!ResultActor)
+	{
+		// 防御性：避免在构建脚本(Construction Script)或不安全的时机生成
+		if (!World->IsGameWorld())
+		{
+			// 这里的 Log 很重要，避免在预览界面意外生成垃圾对象
+			UE_LOG(LogTemp, Warning, TEXT("[IM] GetAcousticFieldActor: Attempting to spawn in non-game world context."));
+		}
+
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		SpawnParams.Name = FName("IM_AutoCreatedAcousticField_Singleton"); // 具名以便调试
+		SpawnParams.ObjectFlags = RF_Transient; // 如果该 Actor 不需要随关卡保存，加上此标记
+
+		// 核心创建接口
+		ResultActor = World->SpawnActor<AIceMoonAcousticField>(
+			AIceMoonAcousticField::StaticClass(), 
+			FVector::ZeroVector, 
+			FRotator::ZeroRotator, 
+			SpawnParams
+		);
+
+		UE_LOG(LogTemp, Log, TEXT("[IM] Created new AcousticField Actor in World: %s"), *World->GetName());
+	}
+
+	// 5. 更新全局缓存
+	if (ResultActor)
+	{
+		GWorldAcousticActor = ResultActor;
+	}
+
+	return ResultActor;
 }
 
 
@@ -188,7 +240,7 @@ void AIceMoonAcousticField::AsyncFireProbes( FVector Origin, int32 NumTraces, fl
 		const FVector End = Origin + RandomDir * Radius;
 
 #if WITH_EDITOR
-		if (bDebug)
+		if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)
 		{
 			DrawDebugLine(World, Origin, Origin + RandomDir * 50.0f, FColor::Blue, false, 0.5f);
 		}
@@ -220,7 +272,7 @@ void AIceMoonAcousticField::OnAsyncTraceComplete(const FTraceHandle& TraceHandle
 		{
 			const FHitResult& Hit = TraceDatum.OutHits[i];
 #if WITH_EDITOR
-			if (bDebug)
+			if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)
 			{
 				AActor* HitActor = Hit.GetActor();
 				const FString ActorName = HitActor ? HitActor->GetName() : TEXT("None");
@@ -238,7 +290,7 @@ void AIceMoonAcousticField::OnAsyncTraceComplete(const FTraceHandle& TraceHandle
 		MissResult.TraceEnd = TraceDatum.End;
 		MissResult.bBlockingHit = false;
 #if WITH_EDITOR
-		if (bDebug)
+		if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)
 		{
 			UE_LOG(LogTemp, Warning, TEXT("  [未命中] 射向开阔空间"));
 			DrawDebugLine(GetWorld(), TraceDatum.Start, TraceDatum.End, FColor::Red, false, 0.5f);
@@ -262,7 +314,7 @@ void AIceMoonAcousticField::AddProbeFromHitResultOnlayWorldStatic(const FHitResu
 			{
 				// TODO: 灰名单容错机制（中优先级）- 临时屏蔽错误配置的Movable Actor
 #if WITH_EDITOR
-				if (bDebug)
+				if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)
 				{
 					UE_LOG(LogTemp, Warning, TEXT("IMAcousticField: 忽略可移动物体 - %s"), *HitActor->GetName());
 				}
@@ -309,7 +361,7 @@ void AIceMoonAcousticField::AddAudioFieldForLod(const FHitResult& HitResult)
 		AcousticGridArray[LodIndex].FindOrAdd(GridCoord).AddProbeData(HitLocation, Distance, bIsValidHit, DirecitonVar, AudioData, CurrentTime);
 #if WITH_EDITOR
 		// 只输出新建 Cell 的信息（使用不同的标记便于区分）
-		if (bDebug && bIsNewCell)
+		if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)
 		{
 			UE_LOG(LogTemp, Display, TEXT("  [新建Cell] LOD%d @ %s (总数:%d)"),
 				LodIndex, *GridCoord.ToString(), AcousticGridArray[LodIndex].Num());
@@ -442,7 +494,7 @@ bool AIceMoonAcousticField::QueryAcousticField(FVector QueryLocation, FIM_AudioR
 	}
 
 #if WITH_EDITOR
-	if (bDebug)
+	if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)
 	{
 		// 绘制查询位置
 		DrawDebugSphere(GetWorld(), QueryLocation, 20.0f, 12, FColor::Magenta, false, 0.5f, 0, 3.0f);
@@ -458,7 +510,7 @@ bool AIceMoonAcousticField::QueryAcousticField(FVector QueryLocation, FIM_AudioR
 	const int32 TopLod = LodCellSizes.Num() - 1;
 
 #if WITH_EDITOR
-	if (bDebug)
+	if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)
 	{
 		// [调试] 显示LOD配置和坐标转换过程
 		UE_LOG(LogTemp, Warning, TEXT("IMAcousticField: [多LOD加权查询] QueryLocation=%s"), *QueryLocation.ToString());
@@ -515,7 +567,7 @@ bool AIceMoonAcousticField::QueryAcousticField(FVector QueryLocation, FIM_AudioR
 			bFoundData = true;
 
 #if WITH_EDITOR
-			if (bDebug)
+			if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)
 			{
 				const float HitRate = Probes > 0 ? static_cast<float>(Hits) / static_cast<float>(Probes) : 0.0f;
 				UE_LOG(LogTemp, Log, TEXT("IMAcousticField: -> LOD %d: W=%.2f, Wet=%.2f [C=%d, P=%d, H=%d, HR=%.2f]"),
@@ -524,7 +576,7 @@ bool AIceMoonAcousticField::QueryAcousticField(FVector QueryLocation, FIM_AudioR
 #endif
 		}
 #if WITH_EDITOR
-		else if (bDebug)
+		else if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)
 		{
 			UE_LOG(LogTemp, Warning, TEXT("IMAcousticField: -> LOD %d 无数据"), LodIndex);
 		}
@@ -544,7 +596,7 @@ bool AIceMoonAcousticField::QueryAcousticField(FVector QueryLocation, FIM_AudioR
 		OutResponse.Dampening = AccumulatedResponse.Dampening * NormalizeFactor;
 
 #if WITH_EDITOR
-		if (bDebug)
+		if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)
 		{
 			UE_LOG(LogTemp, Log, TEXT("IMAcousticField: [最终结果] Wet=%.2f (归一化因子=%.2f)"),
 				OutResponse.Wet, NormalizeFactor);
@@ -557,7 +609,7 @@ bool AIceMoonAcousticField::QueryAcousticField(FVector QueryLocation, FIM_AudioR
 		OutResponse = FIM_AudioReverbParameters();
 		bFoundData = false;
 #if WITH_EDITOR
-		if (bDebug) UE_LOG(LogTemp, Warning, TEXT("IMAcousticField: -> 所有LOD均无数据，返回默认值"));
+		if(CVar_DebugLevelStat.GetValueOnGameThread() > 0) UE_LOG(LogTemp, Warning, TEXT("IMAcousticField: -> 所有LOD均无数据，返回默认值"));
 #endif
 	}
 
@@ -771,7 +823,7 @@ bool AIceMoonAcousticField::InterpolateAtLod(const int32 LodIndex, const FVector
 	{
 		OutInterpolatedResponse = FIM_AudioReverbParameters();
 #if WITH_EDITOR
-		if (bDebug)
+		if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)
 		{
 			UE_LOG(LogTemp, Warning, TEXT("IMAcousticField: InterpolateAtLod LOD %d: No nearby cells found within %.1fcm"), LodIndex, SearchRadius);
 		}
@@ -802,7 +854,7 @@ bool AIceMoonAcousticField::InterpolateAtLod(const int32 LodIndex, const FVector
 		{
 			OutInterpolatedResponse = CalculateCellReverbParameters(QueryLocation, Cell);
 #if WITH_EDITOR
-			if (bDebug)
+			if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)
 			{
 				const float HitRate = Cell.RayRes.ProbeCount > 0
 					? static_cast<float>(Cell.RayRes.RayHitCount) / static_cast<float>(Cell.RayRes.ProbeCount)
@@ -846,7 +898,7 @@ bool AIceMoonAcousticField::InterpolateAtLod(const int32 LodIndex, const FVector
 		TotalHits += Cell.RayRes.RayHitCount;
 		CellsUsed++;
 #if WITH_EDITOR
-		if (bDebug)
+		if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)
 		{
 			// 绘制插值使用的cell（使用半透明颜色，线条粗细反映权重）
 			const float LineThickness = FMath::Clamp(Weight * 2.0f, 0.5f, 3.0f);
@@ -903,7 +955,7 @@ void AIceMoonAcousticField::TickTrimAudioFieldForLod(const float GameTime)
 			// 1. 移除Cell数据
 			It.RemoveCurrent();
 #if WITH_EDITOR
-			// if (bDebug)UE_LOG(LogTemp, Log, TEXT("IMAcousticField: 有声场元素移除 LOD %d - REMOVING Cell at Coord %s (Age: %.2fs > Max: %.2fs)."), LodIndex, *(It.Key()).ToString(), GameTime - It->Value.LastUpdateTime, CleanupAge);
+			// if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)UE_LOG(LogTemp, Log, TEXT("IMAcousticField: 有声场元素移除 LOD %d - REMOVING Cell at Coord %s (Age: %.2fs > Max: %.2fs)."), LodIndex, *(It.Key()).ToString(), GameTime - It->Value.LastUpdateTime, CleanupAge);
 #endif
 			// 2. CellSubBitMaskArray支持 0 1下标
 			if (LodIndex >= CellSubBitMaskArray.Num()) continue;
@@ -944,7 +996,7 @@ void AIceMoonAcousticField::TickTrimAudioFieldForLod(const float GameTime)
 		if (GameTime - It.Value().LastQueryTime > 30.0f)
 		{
 #if WITH_EDITOR
-			if (bDebug)
+			if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)
 			{
 				UE_LOG(LogTemp, Log, TEXT("IMAcousticField: 清理平滑查询缓存 ID=%s (Age: %.2fs)"),
 					*It.Key().ToString(), GameTime - It.Value().LastQueryTime);
@@ -963,7 +1015,7 @@ bool AIceMoonAcousticField::QueryAcousticFieldSmooth(
 	float SmoothSpeed)
 {
 #if WITH_EDITOR
-	if (bDebug)
+	if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)
 	{
 		UE_LOG(LogTemp, Log, TEXT("IMAcousticField: 查询开始 --------------------"));
 
@@ -1044,7 +1096,7 @@ bool AIceMoonAcousticField::QueryAcousticFieldSmooth(
 	Cache->LastQueryLocation = QueryLocation;
 
 #if WITH_EDITOR
-	if (bDebug)
+	if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)
 	{
 		UE_LOG(LogTemp, Log, TEXT("IMAcousticField: 查询FName Key:%s, QueryLocation:%s"), *QueryID.ToString(), *QueryLocation.ToString());
 
@@ -1130,7 +1182,7 @@ void AIceMoonAcousticField::ClearSmoothQueryCache(UObject* SourceObject, FName S
 		}
 
 #if WITH_EDITOR
-		if (bDebug)
+		if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)
 		{
 			UE_LOG(LogTemp, Log, TEXT("IMAcousticField: ClearSmoothQueryCache - 清理对象所有缓存: %s, 移除数量=%d"),
 				*SourceObject->GetName(), RemovedCount);
@@ -1147,7 +1199,7 @@ void AIceMoonAcousticField::ClearSmoothQueryCache(UObject* SourceObject, FName S
 		const int32 RemovedCount = SmoothQueryCache.Remove(QueryID);
 
 #if WITH_EDITOR
-		if (bDebug)
+		if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)
 		{
 			UE_LOG(LogTemp, Log, TEXT("IMAcousticField: ClearSmoothQueryCache - ID=%s, 移除=%d"),
 				*QueryID.ToString(), RemovedCount);

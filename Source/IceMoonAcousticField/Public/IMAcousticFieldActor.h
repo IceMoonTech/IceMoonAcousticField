@@ -198,9 +198,7 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "IM|Configuration|Override",
         meta=(EditCondition="bOverrideWetCalculation", EditConditionHides, Tooltip="此实例特定的Wet计算参数"))
     FIM_WetCalculationParameters WetCalculationParameters_Override;
-
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "IM|Debug")
-    bool bDebug = false;
+    
 private:
     /** 异步射线检测完成后的回调函数 */
     void OnAsyncTraceComplete(const FTraceHandle& TraceHandle, FTraceDatum& TraceDatum);
