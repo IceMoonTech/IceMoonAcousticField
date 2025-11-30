@@ -13,6 +13,18 @@ DECLARE_CYCLE_STAT_EXTERN(TEXT("IMAcousticField Tick"), STAT_IMAcousticField_Tic
 DECLARE_CYCLE_STAT_EXTERN(TEXT("IMAcousticField Callback"), STAT_IMAcousticField_TraceCallback, STATGROUP_IMSystem, ICEMOONACOUSTICFIELD_API);
 DECLARE_CYCLE_STAT_EXTERN(TEXT("IMAcousticField Query"), STAT_IMAcousticField_Query, STATGROUP_IMSystem, ICEMOONACOUSTICFIELD_API)
 
+static TAutoConsoleVariable<int32> CVar_DebugLevelStat(
+    TEXT("Icemoon.AcousticField.debug"),
+    0, // 默认关闭  
+    TEXT(" 1是输出事件驱动Debug 2是输出TickDebug"),
+    ECVF_RenderThreadSafe
+);
+#define ICEMOON_LOG_DEBUG_TICK(Format, ...) if (CVar_DebugLevelStat.GetValueOnAnyThread() >= 2) UE_LOG(LogTemp, Log, TEXT("[DEBUG-TICK][%s:%d] ") TEXT(Format), ANSI_TO_TCHAR(__FILE__), __LINE__, ##__VA_ARGS__);
+#define ICEMOON_LOG_DEBUG(Format, ...) if (CVar_DebugLevelStat.GetValueOnAnyThread() >= 1) UE_LOG(LogTemp, Log, TEXT("[DEBUG][%s:%d] ") TEXT(Format), ANSI_TO_TCHAR(__FILE__), __LINE__, ##__VA_ARGS__);
+#define ICEMOON_LOG_WARN(Format, ...) UE_LOG(LogTemp, Warning, TEXT("[WARN][%s:%d] ") TEXT(Format), ANSI_TO_TCHAR(__FILE__), __LINE__, ##__VA_ARGS__)
+#define ICEMOON_LOG_ERROR(Format, ...) UE_LOG(LogTemp, Error, TEXT("[ERROR][%s:%d] ") TEXT(Format), ANSI_TO_TCHAR(__FILE__), __LINE__, ##__VA_ARGS__)
+
+
 struct FHitResult;
 struct FTraceDatum; // <-- 需要为回调函数前向声明
 
