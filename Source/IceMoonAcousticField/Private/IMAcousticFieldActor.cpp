@@ -4,7 +4,7 @@
 #include "DA_IM_MaterialMap.h"
 #include "DA_IM_AcousticFieldConfig.h"
 #include "IMMathUtils.h"
-#include "IM_Common/Public/Gameplay/IMWorldUtils.h"
+#include "IM_Common/Public/Gameplay/IMViewUtils.h"
 #include "Kismet/GameplayStatics.h"
 #include "Runtime/PhysicsCore/Public/PhysicalMaterials/PhysicalMaterial.h" 
 
@@ -742,7 +742,7 @@ FIM_AudioReverbParameters AIceMoonAcousticField::CalculateCellReverbParameters(c
 	const float SaturationRate = 2.5f;
 	Reverb.Wet = WetParams.MaxWetValue * (1.0f - FMath::Exp(-SaturationRate * WetRaw));
 	
-	FVector3d camPos = IMWorldUtils::GetCameraLocation(this);
+	FVector3d camPos = IMViewUtils::GetCurrentViewPosition(this);
 	//FVector camPos = FVector();
 	float mindis = CellResults.RayRes.MinDistance;
 	FVector hitPos = CellResults.RayRes.AveHitLocation;
