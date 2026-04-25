@@ -5,13 +5,13 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "IM_AcousticTypes.h"
-#include "IM_Common/Public/Gameplay/IMSystemStats.h"
+#include "IM_Common/Public/Gameplay/IMStats.h"
 
 #include "IMAcousticFieldActor.generated.h"
 
-DECLARE_CYCLE_STAT_EXTERN(TEXT("IMAcousticField Tick"), STAT_IMAcousticField_Tick, STATGROUP_IMSystem, ICEMOONACOUSTICFIELD_API);
-DECLARE_CYCLE_STAT_EXTERN(TEXT("IMAcousticField Callback"), STAT_IMAcousticField_TraceCallback, STATGROUP_IMSystem, ICEMOONACOUSTICFIELD_API);
-DECLARE_CYCLE_STAT_EXTERN(TEXT("IMAcousticField Query"), STAT_IMAcousticField_Query, STATGROUP_IMSystem, ICEMOONACOUSTICFIELD_API)
+DECLARE_CYCLE_STAT_EXTERN(TEXT("IMAcousticField Tick"), STAT_IMAcousticField_Tick, STATGROUP_IM, ICEMOONACOUSTICFIELD_API);
+DECLARE_CYCLE_STAT_EXTERN(TEXT("IMAcousticField Callback"), STAT_IMAcousticField_TraceCallback, STATGROUP_IM, ICEMOONACOUSTICFIELD_API);
+DECLARE_CYCLE_STAT_EXTERN(TEXT("IMAcousticField Query"), STAT_IMAcousticField_Query, STATGROUP_IM, ICEMOONACOUSTICFIELD_API)
 
 static TAutoConsoleVariable<int32> CVar_DebugLevelStat(
     TEXT("Icemoon.AcousticField.debug"),
