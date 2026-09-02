@@ -860,7 +860,7 @@ bool AIceMoonAcousticField::InterpolateAtLod(const int32 LodIndex, const FVector
 		}
 
 		const float TimeSinceUpdate = GetWorld()->GetTimeSeconds() - Cell.LastUpdateTime;
-		const float TimeWeight = IMMathUtils::Remap_Sat<float>(5.0, 30.0, 1.0, 0.2, TimeSinceUpdate); //时间权重
+		const float TimeWeight = IMMathUtils::Remap_Sat<float>(5.0f, 30.0f, 1.0f, 0.2f, TimeSinceUpdate); //时间权重
 		const float ClampedVariance = Cell.RayRes.AveVariance / 2000.0;  // todo 有问题 1m平方就 10000了
 		const float Confidence = 1.0f / (1.0f + ClampedVariance *  0.0001f); // 方差越大，可信度越低 说明空间均匀性很差  todo 默认先0.0001f后面调整 暴露出来
 		const float Weight = (1.0f / DistanceSqr) * TimeWeight * Confidence;
