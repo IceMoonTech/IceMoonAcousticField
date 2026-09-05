@@ -14,7 +14,7 @@ DECLARE_CYCLE_STAT_EXTERN(TEXT("IMAcousticField Callback"), STAT_IMAcousticField
 DECLARE_CYCLE_STAT_EXTERN(TEXT("IMAcousticField Query"), STAT_IMAcousticField_Query, STATGROUP_IM, ICEMOONACOUSTICFIELD_API)
 
 static TAutoConsoleVariable<int32> CVar_DebugLevelStat(
-    TEXT("Icemoon.AcousticField.debug"),
+    TEXT("IM.AcousticField.Debug"),
     0, // 默认关闭  
     TEXT(" 1是输出事件驱动Debug 2是输出TickDebug"),
     ECVF_RenderThreadSafe
