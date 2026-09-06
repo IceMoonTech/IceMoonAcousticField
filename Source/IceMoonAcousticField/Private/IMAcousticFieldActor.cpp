@@ -953,15 +953,15 @@ void AIceMoonAcousticField::TickTrimAudioFieldForLod(const float GameTime)
 			if (GameTime - It->Value.LastUpdateTime < CleanupAge) continue;
 
 
-			// 1. 移除Cell数据
+			// 1. 移除Cell数据（先取值再删：RemoveCurrent 后迭代器失效）
+			const FIntVector RemovedGridCoord = It.Key();
+			const float RemovedAge = GameTime - It->Value.LastUpdateTime;
 			It.RemoveCurrent();
 #if WITH_EDITOR
-			// if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)UE_LOG(LogTemp, Log, TEXT("IMAcousticField: 有声场元素移除 LOD %d - REMOVING Cell at Coord %s (Age: %.2fs > Max: %.2fs)."), LodIndex, *(It.Key()).ToString(), GameTime - It->Value.LastUpdateTime, CleanupAge);
+			// if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)UE_LOG(LogTemp, Log, TEXT("IMAcousticField: 有声场元素移除 LOD %d - REMOVING Cell at Coord %s (Age: %.2fs > Max: %.2fs)."), LodIndex, *RemovedGridCoord.ToString(), RemovedAge, CleanupAge);
 #endif
 			// 2. CellSubBitMaskArray支持 0 1下标
 			if (LodIndex >= CellSubBitMaskArray.Num()) continue;
-
-			const FIntVector RemovedGridCoord = It.Key();
 			// 计算此Cell在父层级的坐标
 			const FIntVector ParentGridCoord(
 				FMath::FloorToInt(static_cast<float>(RemovedGridCoord.X) / LodFactor),
