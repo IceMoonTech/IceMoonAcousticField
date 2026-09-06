@@ -620,6 +620,7 @@ bool AIceMoonAcousticField::GetAcousticFieldExtentCells(int32 LodIndex, FVector 
 	TArray<FIM_GridAudioCell>& OutCells)
 {
 	OutCells.Empty();
+	if (!LodCellSizes.IsValidIndex(LodIndex) || !LodCellSizesZ.IsValidIndex(LodIndex) || !AcousticGridArray.IsValidIndex(LodIndex)) { return false; }
 	const float CellSize = LodCellSizes[LodIndex];
 	const float CellSizeZ = LodCellSizesZ[LodIndex]; // Z轴钳制后的尺寸
 
