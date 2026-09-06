@@ -308,7 +308,9 @@ void AIceMoonAcousticField::AddProbeFromHitResultOnlayWorldStatic(const FHitResu
 		AActor* HitActor = HitResult.GetActor();
 		if (HitActor)
 		{
-			if (HitActor->GetRootComponent()->Mobility == EComponentMobility::Movable) // Static 和 Stationary 则添加
+			const USceneComponent* HitRoot = HitActor->GetRootComponent();
+			if (HitRoot == nullptr) { return; }
+			if (HitRoot->Mobility == EComponentMobility::Movable) // Static 和 Stationary 则添加
 			{
 				// TODO: 灰名单容错机制（中优先级）- 临时屏蔽错误配置的Movable Actor
 #if WITH_EDITOR
