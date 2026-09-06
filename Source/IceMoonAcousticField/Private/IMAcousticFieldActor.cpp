@@ -20,6 +20,17 @@ AIceMoonAcousticField::AIceMoonAcousticField()
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.bStartWithTickEnabled = true;
 }
+void AIceMoonAcousticField::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (GWorldAcousticActor.Get() == this)
+	{
+		GWorldAcousticActor.Reset();
+	}
+	AcousticGridArray.Empty();
+	CellSubBitMaskArray.Empty();
+	Super::EndPlay(EndPlayReason);
+}
+
 void AIceMoonAcousticField::BeginPlay()
 {
 	Super::BeginPlay();
