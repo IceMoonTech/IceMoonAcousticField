@@ -26,7 +26,12 @@ void AIceMoonAcousticField::BeginPlay()
 	GWorldAcousticActor = this;
 
 	int32 LodNum = LodCellSizes.Num();
-	if (LodNum < 2 )  UE_LOG(LogTemp, Error, TEXT("IMAcousticField: LodCellSizes is empty! System will not work."));
+	if (LodNum < 2)
+	{
+		UE_LOG(LogTemp, Error, TEXT("IMAcousticField: LodCellSizes is empty! System will not work."));
+		SetActorTickEnabled(false);
+		return;
+	}
 	AcousticGridArray.SetNum(LodNum);
 	CellSubBitMaskArray.SetNum(LodNum - 1);
 	LodCellSizesZ.SetNum(LodNum);
@@ -55,8 +60,11 @@ void AIceMoonAcousticField::Tick(float DeltaTime)
 	SCOPE_CYCLE_COUNTER(STAT_IMAcousticField_Tick);
 	Super::Tick(DeltaTime);
 
+	UWorld* TickWorld = GetWorld();
+	if (TickWorld == nullptr || GEngine == nullptr || AcousticGridArray.IsEmpty()) { return; }
+
 //状态机
-	float LastQueryTimeOffset = GetWorld()->GetTimeSeconds() - LastQueryTime;
+	float LastQueryTimeOffset = TickWorld->GetTimeSeconds() - LastQueryTime;
 	int32 CurrentState = -1;
 	if (LastQueryTimeOffset < ActiveStateThreshold)
 	{
