@@ -1,5 +1,9 @@
 # IceMoon Acoustic Field (IMAF)
 
+> Current V2 implementation and acceptance status: [IM_V2Usage.md](IM_V2Usage.md).
+> The material below documents the retained v1 query system. Its performance or
+> completion claims do not establish V2 baked audio routing or audition acceptance.
+
 **Real-time, Low-Cost Acoustic Field Simulation for Dynamic Audio in Unreal Engine 5.6+**
 
 ---

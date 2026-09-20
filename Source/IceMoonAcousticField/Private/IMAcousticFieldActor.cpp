@@ -22,6 +22,11 @@ AIceMoonAcousticField::AIceMoonAcousticField()
 }
 void AIceMoonAcousticField::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	// 引擎无 CancelAsyncTrace（UE 5.8 源码 FTS 零命中）：置旗 + 清记账 + 清队列；在途委托落到回调首行 early-out。
+	// 残留风险（假设）：Actor 先于 World 销毁时引擎侧委托悬空，单例常驻关卡 Actor 下不触发。
+	bAcousticFieldShuttingDown = true;
+	ActiveTraceHandles.Empty();
+	PendingProbeQueue.Empty();
 	if (GWorldAcousticActor.Get() == this)
 	{
 		GWorldAcousticActor.Reset();
@@ -65,6 +70,7 @@ void AIceMoonAcousticField::BeginPlay()
 			i, CellSizeM, ClampedHeightM, (MaxCellHeightZ > 0.0f && LodCellSizes[i] > MaxCellHeightZ));
 		#endif
 	}
+
 }
 void AIceMoonAcousticField::Tick(float DeltaTime)
 {
@@ -73,6 +79,9 @@ void AIceMoonAcousticField::Tick(float DeltaTime)
 
 	UWorld* TickWorld = GetWorld();
 	if (TickWorld == nullptr || GEngine == nullptr || AcousticGridArray.IsEmpty()) { return; }
+
+	// P0 前置唯一合同：回调只入队，此处串行落盘（含休眠态，避免队列堆积）。
+	DrainPendingProbes();
 
 //状态机
 	float LastQueryTimeOffset = TickWorld->GetTimeSeconds() - LastQueryTime;
@@ -163,9 +172,9 @@ void AIceMoonAcousticField::Tick(float DeltaTime)
 	if (CurrentState >= 2) return;
 
 	//如果激活则 启动 清理grid的cell计划  TODO目前写的随意
-	if (GetWorld()->TimeSince(LastCleanupTime) > 5.0f)
+	if (TickWorld->TimeSince(LastCleanupTime) > 5.0f)
 	{
-		const float CurrentTime = GetWorld()->GetTimeSeconds();
+		const float CurrentTime = TickWorld->GetTimeSeconds();
 		TickTrimAudioFieldForLod( CurrentTime );
 		LastCleanupTime = CurrentTime;
 	}
@@ -258,7 +267,8 @@ void AIceMoonAcousticField::AsyncFireProbes( FVector Origin, int32 NumTraces, fl
 		// - Visibility 通道：大部分静态几何体默认 Block，查询组件默认 Ignore
 		// - MobilityType::Static：只查询 Mobility=Static 的对象，自动过滤动态查询组件
 		// 优势：不需要手动维护忽略列表，配置更清晰
-		World->AsyncLineTraceByChannel(
+		// Handle 入记账数组：回调完成时移除，EndPlay 时清空（引擎无取消 API，以记账 + 关停旗为准）。
+		ActiveTraceHandles.Add(World->AsyncLineTraceByChannel(
 			EAsyncTraceType::Single,
 			Start,
 			End,
@@ -266,12 +276,19 @@ void AIceMoonAcousticField::AsyncFireProbes( FVector Origin, int32 NumTraces, fl
 			Params,
 			FCollisionResponseParams::DefaultResponseParam, // ByChannel 需要此参数
 			&TraceDelegate
-		);
+		));
 	}
 }
 void AIceMoonAcousticField::OnAsyncTraceComplete(const FTraceHandle& TraceHandle, FTraceDatum& TraceDatum)
 {
 	SCOPE_CYCLE_COUNTER(STAT_IMAcousticField_TraceCallback);
+	// 关键路径守卫：委托由 UWorld::ResetAsyncTrace 在 GameThread 分发（WorldCollisionAsync.cpp:716-733）。
+	ensure(IsInGameThread());
+	ActiveTraceHandles.Remove(TraceHandle);
+	// P0 前置唯一合同：回调只入队，不直接写网格；关停/无世界直接丢弃。
+	if (bAcousticFieldShuttingDown) { return; }
+	UWorld* World = GetWorld();
+	if (!World) { return; }
 
 	// 核心修复：检查 OutHits 是否为空（未命中时为空）
 	if (TraceDatum.OutHits.Num() > 0)
@@ -287,10 +304,10 @@ void AIceMoonAcousticField::OnAsyncTraceComplete(const FTraceHandle& TraceHandle
 				const FString ActorName = HitActor ? HitActor->GetName() : TEXT("None");
 				const float Dist = Hit.Distance;
 				UE_LOG(LogTemp, Log, TEXT("  [命中] %s (%.1fcm)"), *ActorName, Dist);
-				DrawDebugLine(GetWorld(), Hit.TraceStart, Hit.ImpactPoint, FColor::Yellow, false, 0.5f);
+				DrawDebugLine(World, Hit.TraceStart, Hit.ImpactPoint, FColor::Yellow, false, 0.5f);
 			}
 #endif
-			AddProbeFromHitResultOnlayWorldStatic(Hit);
+			PendingProbeQueue.Add(Hit);
 		}
 	}else{
 		// 未命中：OutHits 为空，手动创建未命中的 HitResult
@@ -302,11 +319,21 @@ void AIceMoonAcousticField::OnAsyncTraceComplete(const FTraceHandle& TraceHandle
 		if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)
 		{
 			UE_LOG(LogTemp, Warning, TEXT("  [未命中] 射向开阔空间"));
-			DrawDebugLine(GetWorld(), TraceDatum.Start, TraceDatum.End, FColor::Red, false, 0.5f);
+			DrawDebugLine(World, TraceDatum.Start, TraceDatum.End, FColor::Red, false, 0.5f);
 		}
 #endif
 		// 添加未命中记录（只增加 ProbeCount，不增加 RayHitCount）
-		AddProbeFromHitResultOnlayWorldStatic(MissResult);
+		PendingProbeQueue.Add(MissResult);
+	}
+}
+
+void AIceMoonAcousticField::DrainPendingProbes()
+{
+	if (PendingProbeQueue.Num() == 0 || bAcousticFieldShuttingDown) { return; }
+	const TArray<FHitResult> Batch(MoveTemp(PendingProbeQueue));
+	for (const FHitResult& QueuedHit : Batch)
+	{
+		AddProbeFromHitResultOnlayWorldStatic(QueuedHit);
 	}
 }
 void AIceMoonAcousticField::AddProbeFromHitResultOnlayWorldStatic(const FHitResult& HitResult)
@@ -338,6 +365,33 @@ void AIceMoonAcousticField::AddProbeFromHitResultOnlayWorldStatic(const FHitResu
 	// 无论命中与否都记录到声场
 	AddAudioFieldForLod(HitResult);
 }
+bool AIceMoonAcousticField::ResolveLodParent(int32 ChildLod, const FIntVector& ChildCoord, FIntVector& OutParentCoord, int32& OutRatioXY, int32& OutRatioZ, uint64& OutBound) const
+{
+	// P0 前置唯一合同：XY/Z 分轴比，上界 ratioXY^2*ratioZ；历史 LodFactor 写死分支已删除。
+	const int32 ParentLod = ChildLod + 1;
+	if (!LodCellSizes.IsValidIndex(ChildLod) || !LodCellSizes.IsValidIndex(ParentLod)
+		|| !LodCellSizesZ.IsValidIndex(ChildLod) || !LodCellSizesZ.IsValidIndex(ParentLod))
+	{
+		return false;
+	}
+	const float ChildXY = LodCellSizes[ChildLod];
+	const float ParentXY = LodCellSizes[ParentLod];
+	const float ChildZ = LodCellSizesZ[ChildLod];
+	const float ParentZ = LodCellSizesZ[ParentLod];
+	if (!(ChildXY > 0.0f && ParentXY > 0.0f && ChildZ > 0.0f && ParentZ > 0.0f))
+	{
+		ensure(false);
+		return false;
+	}
+	OutRatioXY = FMath::Max(1, FMath::RoundToInt(ParentXY / ChildXY));
+	OutRatioZ = FMath::Max(1, FMath::RoundToInt(ParentZ / ChildZ));
+	OutParentCoord = FIntVector(
+		FMath::FloorToInt(ChildCoord.X * ChildXY / ParentXY),
+		FMath::FloorToInt(ChildCoord.Y * ChildXY / ParentXY),
+		FMath::FloorToInt(ChildCoord.Z * ChildZ / ParentZ));
+	OutBound = static_cast<uint64>(OutRatioXY) * static_cast<uint64>(OutRatioXY) * static_cast<uint64>(OutRatioZ);
+	return true;
+}
 void AIceMoonAcousticField::AddAudioFieldForLod(const FHitResult& HitResult)
 {
 	const FVector StartPos = HitResult.TraceStart;
@@ -350,7 +404,9 @@ void AIceMoonAcousticField::AddAudioFieldForLod(const FHitResult& HitResult)
 	const float Distance = bIsValidHit ? (StartPos - HitLocation).Length() : 0.0f;
 	const FIM_AudioMaterialResponse AudioData = bIsValidHit ? GetAudioResponseForMaterial(HitResult.PhysMaterial.Get()) : FIM_AudioMaterialResponse();
 	const float DirecitonVar = bIsValidHit ? HitResult.ImpactNormal.Dot(HitResult.Normal) : 0.0f;
-	const float CurrentTime = GetWorld()->GetTimeSeconds();
+	UWorld* World = GetWorld();
+	if (!World) { return; }
+	const float CurrentTime = World->GetTimeSeconds();
 
 	if (AcousticGridArray.IsEmpty()) return;
 
@@ -378,29 +434,38 @@ void AIceMoonAcousticField::AddAudioFieldForLod(const FHitResult& HitResult)
 				LodIndex, *GridCoord.ToString(), AcousticGridArray[LodIndex].Num());
 		}
 #endif
-		// 如果不是最顶层，就需要更新其父层级的掩码
+		// 如果不是最顶层，就需要更新其父层级的掩码（分轴比 + 上界，见 ResolveLodParent）
 		if (LodIndex < CellSubBitMaskArray.Num())
 		{
-			// 计算在下一层(父层级)的坐标
-			const FIntVector ParentGridCoord(
-				FMath::FloorToInt(static_cast<float>(GridCoord.X) / LodFactor),
-				FMath::FloorToInt(static_cast<float>(GridCoord.Y) / LodFactor),
-				FMath::FloorToInt(static_cast<float>(GridCoord.Z) / LodFactor)
-			);
-            
-			// 计算在本父单元格内的局部3D坐标
-			const FIntVector LocalCoord = GridCoord - ParentGridCoord * LodFactor;
-
-			// 将3D局部坐标转换为1D索引 (0-63)
-			const uint64 LocalIndex = LocalCoord.X + (LocalCoord.Y * LodFactor) + (LocalCoord.Z * LodFactor * LodFactor);
-
-			if (LocalIndex < 64)
+			FIntVector ParentGridCoord;
+			int32 RatioXY = 0;
+			int32 RatioZ = 0;
+			uint64 ParentBound = 0;
+			if (ResolveLodParent(LodIndex, GridCoord, ParentGridCoord, RatioXY, RatioZ, ParentBound))
 			{
-				// 获取对应LOD的掩码Map
-				TMap<FIntVector, uint64>& MaskMap = CellSubBitMaskArray[LodIndex];
-                
-				// 使用位或操作来设置对应的bit为1
-				MaskMap.FindOrAdd(ParentGridCoord) |= (1ULL << LocalIndex);
+				// 计算在本父单元格内的局部3D坐标（分轴比）
+				const FIntVector ResolvedLocal(
+					GridCoord.X - ParentGridCoord.X * RatioXY,
+					GridCoord.Y - ParentGridCoord.Y * RatioXY,
+					GridCoord.Z - ParentGridCoord.Z * RatioZ);
+
+				// 单元判据：逐轴 < ratio 且索引 < 上界
+				const bool bLocalValid = ResolvedLocal.X >= 0 && ResolvedLocal.X < RatioXY
+					&& ResolvedLocal.Y >= 0 && ResolvedLocal.Y < RatioXY
+					&& ResolvedLocal.Z >= 0 && ResolvedLocal.Z < RatioZ;
+				// 将3D局部坐标转换为1D索引
+				const uint64 LocalIndex = static_cast<uint64>(ResolvedLocal.X)
+					+ static_cast<uint64>(ResolvedLocal.Y) * static_cast<uint64>(RatioXY)
+					+ static_cast<uint64>(ResolvedLocal.Z) * static_cast<uint64>(RatioXY) * static_cast<uint64>(RatioXY);
+
+				if (bLocalValid && LocalIndex < ParentBound)
+				{
+					// 获取对应LOD的掩码Map
+					TMap<FIntVector, uint64>& MaskMap = CellSubBitMaskArray[LodIndex];
+
+					// 使用位或操作来设置对应的bit为1
+					MaskMap.FindOrAdd(ParentGridCoord) |= (1ULL << LocalIndex);
+				}
 			}
 		}
 	}
@@ -433,29 +498,38 @@ void AIceMoonAcousticField::InvalidateAcousticRegion(const FBox& ChangedBounds)
 				// 1. 移除Cell
 				It.RemoveCurrent();
 
-				// 2. 更新父级的Mask (如果这不是最顶层LOD)
+				// 2. 更新父级的Mask (如果这不是最顶层LOD，分轴比 + 上界)
 				if (LodIndex < CellSubBitMaskArray.Num())
 				{
-					const FIntVector ParentGridCoord(
-						FMath::FloorToInt(static_cast<float>(RemovedGridCoord.X) / LodFactor),
-						FMath::FloorToInt(static_cast<float>(RemovedGridCoord.Y) / LodFactor),
-						FMath::FloorToInt(static_cast<float>(RemovedGridCoord.Z) / LodFactor)
-					);
-
-					if (uint64* Mask = CellSubBitMaskArray[LodIndex].Find(ParentGridCoord))
+					FIntVector ParentGridCoord;
+					int32 RatioXY = 0;
+					int32 RatioZ = 0;
+					uint64 ParentBound = 0;
+					if (ResolveLodParent(LodIndex, RemovedGridCoord, ParentGridCoord, RatioXY, RatioZ, ParentBound))
 					{
-						const FIntVector LocalCoord = RemovedGridCoord - ParentGridCoord * LodFactor;
-						const uint64 LocalIndex = LocalCoord.X + (LocalCoord.Y * LodFactor) + (LocalCoord.Z * LodFactor * LodFactor);
+						if (uint64* Mask = CellSubBitMaskArray[LodIndex].Find(ParentGridCoord))
+						{
+							const FIntVector LocalCoord(
+								RemovedGridCoord.X - ParentGridCoord.X * RatioXY,
+								RemovedGridCoord.Y - ParentGridCoord.Y * RatioXY,
+								RemovedGridCoord.Z - ParentGridCoord.Z * RatioZ);
+							const bool bLocalValid = LocalCoord.X >= 0 && LocalCoord.X < RatioXY
+								&& LocalCoord.Y >= 0 && LocalCoord.Y < RatioXY
+								&& LocalCoord.Z >= 0 && LocalCoord.Z < RatioZ;
+							const uint64 LocalIndex = static_cast<uint64>(LocalCoord.X)
+								+ static_cast<uint64>(LocalCoord.Y) * static_cast<uint64>(RatioXY)
+								+ static_cast<uint64>(LocalCoord.Z) * static_cast<uint64>(RatioXY) * static_cast<uint64>(RatioXY);
 
-						if (LocalIndex < 64)
-						{
-							// 将对应的bit清零
-							*Mask &= ~(1ULL << LocalIndex);
-						}
-						
-						if (*Mask == 0u)
-						{
-							CellSubBitMaskArray[LodIndex].Remove(ParentGridCoord);
+							if (bLocalValid && LocalIndex < ParentBound)
+							{
+								// 将对应的bit清零
+								*Mask &= ~(1ULL << LocalIndex);
+							}
+
+							if (*Mask == 0u)
+							{
+								CellSubBitMaskArray[LodIndex].Remove(ParentGridCoord);
+							}
 						}
 					}
 				}
@@ -492,11 +566,16 @@ FIM_AudioMaterialResponse AIceMoonAcousticField::GetAudioResponseForMaterial(con
 	return MatLib->Fallback_MaterialResponse;
 }
 
-
 bool AIceMoonAcousticField::QueryAcousticField(FVector QueryLocation, FIM_AudioReverbParameters& OutResponse)
 {
 	SCOPE_CYCLE_COUNTER(STAT_IMAcousticField_Query);
-	LastQueryTime = GetWorld()->GetTimeSeconds();
+	UWorld* QueryWorld = GetWorld();
+	if (!QueryWorld)
+	{
+		OutResponse = FIM_AudioReverbParameters();
+		return false;
+	}
+	LastQueryTime = QueryWorld->GetTimeSeconds();
 
 	if (AcousticGridArray.IsEmpty())
 	{
@@ -796,6 +875,9 @@ bool AIceMoonAcousticField::InterpolateAtLod(const int32 LodIndex, const FVector
 	// 详细架构方案和GPU延迟处理策略请查看：IM_AcousticTypes.h:75-155
 	// 当前使用方差检测，无法精确判断cell是否横跨多个房间/墙体
 
+	UWorld* InterpWorld = GetWorld();
+	if (!InterpWorld) { return false; }
+
 	TArray<FIM_GridAudioCell> NearbyCells;
 
 	// ========== 自适应搜索半径 ==========
@@ -881,7 +963,7 @@ bool AIceMoonAcousticField::InterpolateAtLod(const int32 LodIndex, const FVector
 			return true;
 		}
 
-		const float TimeSinceUpdate = GetWorld()->GetTimeSeconds() - Cell.LastUpdateTime;
+		const float TimeSinceUpdate = InterpWorld->GetTimeSeconds() - Cell.LastUpdateTime;
 		const float TimeWeight = IMMathUtils::Remap_Sat<float>(5.0f, 30.0f, 1.0f, 0.2f, TimeSinceUpdate); //时间权重
 		const float ClampedVariance = Cell.RayRes.AveVariance / 2000.0;  // todo 有问题 1m平方就 10000了
 		const float Confidence = 1.0f / (1.0f + ClampedVariance *  0.0001f); // 方差越大，可信度越低 说明空间均匀性很差  todo 默认先0.0001f后面调整 暴露出来
@@ -971,23 +1053,34 @@ void AIceMoonAcousticField::TickTrimAudioFieldForLod(const float GameTime)
 #if WITH_EDITOR
 			// if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)UE_LOG(LogTemp, Log, TEXT("IMAcousticField: 有声场元素移除 LOD %d - REMOVING Cell at Coord %s (Age: %.2fs > Max: %.2fs)."), LodIndex, *RemovedGridCoord.ToString(), RemovedAge, CleanupAge);
 #endif
-			// 2. CellSubBitMaskArray支持 0 1下标
+			// 2. CellSubBitMaskArray支持 0 1下标（分轴比 + 上界，见 ResolveLodParent）
 			if (LodIndex >= CellSubBitMaskArray.Num()) continue;
 			// 计算此Cell在父层级的坐标
-			const FIntVector ParentGridCoord(
-				FMath::FloorToInt(static_cast<float>(RemovedGridCoord.X) / LodFactor),
-				FMath::FloorToInt(static_cast<float>(RemovedGridCoord.Y) / LodFactor),
-				FMath::FloorToInt(static_cast<float>(RemovedGridCoord.Z) / LodFactor)
-			);
+			FIntVector ParentGridCoord;
+			int32 RatioXY = 0;
+			int32 RatioZ = 0;
+			uint64 ParentBound = 0;
+			if (!ResolveLodParent(LodIndex, RemovedGridCoord, ParentGridCoord, RatioXY, RatioZ, ParentBound))
+			{
+				continue;
+			}
 
 			// 在父LOD的Mask Map中查找
 			if (uint64* Mask = CellSubBitMaskArray[LodIndex].Find(ParentGridCoord))
 			{
-				// 计算此Cell在父Cell内的局部索引 (0-63)
-				const FIntVector LocalCoord = RemovedGridCoord - ParentGridCoord * LodFactor;
-				const uint64 LocalIndex = LocalCoord.X + (LocalCoord.Y * LodFactor) + (LocalCoord.Z * LodFactor * LodFactor);
+				// 计算此Cell在父Cell内的局部索引（分轴比 + 逐轴上界）
+				const FIntVector LocalCoord(
+					RemovedGridCoord.X - ParentGridCoord.X * RatioXY,
+					RemovedGridCoord.Y - ParentGridCoord.Y * RatioXY,
+					RemovedGridCoord.Z - ParentGridCoord.Z * RatioZ);
+				const bool bLocalValid = LocalCoord.X >= 0 && LocalCoord.X < RatioXY
+					&& LocalCoord.Y >= 0 && LocalCoord.Y < RatioXY
+					&& LocalCoord.Z >= 0 && LocalCoord.Z < RatioZ;
+				const uint64 LocalIndex = static_cast<uint64>(LocalCoord.X)
+					+ static_cast<uint64>(LocalCoord.Y) * static_cast<uint64>(RatioXY)
+					+ static_cast<uint64>(LocalCoord.Z) * static_cast<uint64>(RatioXY) * static_cast<uint64>(RatioXY);
 
-				if (LocalIndex < 64)
+				if (bLocalValid && LocalIndex < ParentBound)
 				{
 					// 使用位与非 (AND NOT) 操作，将对应的bit清零
 					*Mask &= ~(1ULL << LocalIndex);
@@ -1002,10 +1095,10 @@ void AIceMoonAcousticField::TickTrimAudioFieldForLod(const float GameTime)
 		}
 	}
 
-	// 清理超过30秒未使用的平滑查询缓存
+	// 清理超过30秒未使用的平滑查询缓存 + Owner 已失效条目（UniqueID 可回收，弱引用为准）
 	for (auto It = SmoothQueryCache.CreateIterator(); It; ++It)
 	{
-		if (GameTime - It.Value().LastQueryTime > 30.0f)
+		if (!It.Value().SourceObject.IsValid() || GameTime - It.Value().LastQueryTime > 30.0f)
 		{
 #if WITH_EDITOR
 			if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)
@@ -1059,10 +1152,21 @@ bool AIceMoonAcousticField::QueryAcousticFieldSmooth(
 	// 确定目标混响参数（找到数据用查询结果，否则用配置的默认值）
 	const FIM_AudioReverbParameters TargetResponse = bFoundData ? RawResponse : GetDefaultReverbParameters();
 
-	const float CurrentTime = GetWorld()->GetTimeSeconds();
+	UWorld* SmoothWorld = GetWorld();
+	if (!SmoothWorld)
+	{
+		OutResponse = TargetResponse;
+		return true;
+	}
+	const float CurrentTime = SmoothWorld->GetTimeSeconds();
 
-	// 查找缓存
+	// 查找缓存；UniqueID 可被 GC 回收复用，以弱引用 Owner 为准，不一致即重置条目
 	FAcousticQueryCache* Cache = SmoothQueryCache.Find(QueryID);
+	if (Cache && Cache->SourceObject.Get() != SourceObject)
+	{
+		SmoothQueryCache.Remove(QueryID);
+		Cache = nullptr;
+	}
 
 	if (!Cache)
 	{
@@ -1071,6 +1175,7 @@ bool AIceMoonAcousticField::QueryAcousticFieldSmooth(
 		NewCache.LastResult = TargetResponse;
 		NewCache.LastQueryTime = CurrentTime;
 		NewCache.LastQueryLocation = QueryLocation;
+		NewCache.SourceObject = SourceObject;
 		SmoothQueryCache.Add(QueryID, NewCache);
 
 		OutResponse = TargetResponse;

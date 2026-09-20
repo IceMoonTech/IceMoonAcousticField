@@ -128,6 +128,7 @@ public:
     UFUNCTION(BlueprintCallable, Category = "IM|Tracing")
     bool GetAcousticFieldExtentCells(int32 LodIndex, FVector QueryLocation, float SearchRadius, TArray<FIM_GridAudioCell>& OutCells);
 
+
 //辅助函数
     // 一些发声设备他在发声时候会使用一个碰撞检测 那么这个免费的射线就因该存储用于 其他地方的返回需求   需要调用者明确知晓这个射线是静态碰撞查询到的
     UFUNCTION(BlueprintCallable, Category = "IM|Acoustics")
@@ -149,6 +150,7 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "IM|Configuration",
         meta=(Tooltip="声场配置预设资产（必需）"))
     TObjectPtr<class UDA_IM_AcousticFieldConfig> ConfigAsset;
+
     
     // ========================================
     // 网格配置
@@ -213,8 +215,12 @@ public:
     FIM_WetCalculationParameters WetCalculationParameters_Override;
     
 private:
-    /** 异步射线检测完成后的回调函数 */
+    /** 异步射线检测完成后的回调函数（GameThread：引擎 UWorld::ResetAsyncTrace 内 ExecuteIfBound） */
     void OnAsyncTraceComplete(const FTraceHandle& TraceHandle, FTraceDatum& TraceDatum);
+    /** [内部] 子 LOD 坐标解析到父 LOD：XY/Z 分轴比 + 上界 ratioXY^2*ratioZ。LOD 配置非法返回 false。 */
+    bool ResolveLodParent(int32 ChildLod, const FIntVector& ChildCoord, FIntVector& OutParentCoord, int32& OutRatioXY, int32& OutRatioZ, uint64& OutBound) const;
+    /** [内部] GameThread 串行落盘：回调只入队，Tick 出队。 */
+    void DrainPendingProbes();
     
     // TODO  工具函数 对于全部周围函数计算声场遮蔽系数 理论上 应该是随机周围偏移采样
     // 我原版写的是每秒射线基于 法线法向当作z计算新的xy  然后 lerp(x -x y -y,随机方向, .035) 射 四个射线   *20m最大场 根据这几个射线的距离来  计算 回响延迟时间
@@ -246,7 +252,7 @@ private:
     TArray< TMap<FIntVector, uint64> > CellSubBitMaskArray;
     TArray<float> LodCellSizes = { 100.0f, 400.0f, 1600.0f };
     TArray<float> LodCellSizesZ; // Z轴钳制后的尺寸（应用MaxCellHeightZ）
-    int32 LodFactor = 4;
+    // 注：历史 LodFactor 写死分支已删除，父映射一律走 ResolveLodParent 分轴比（P0 前置唯一合同）。
 
     // --- 平滑查询缓存 ---
     // 查询缓存结构
@@ -255,15 +261,22 @@ private:
         FIM_AudioReverbParameters LastResult;
         float LastQueryTime;
         FVector LastQueryLocation;
+        TWeakObjectPtr<UObject> SourceObject; // 绑定 Owner：UniqueID 可回收，命中时校验，不一致即重置条目
 
         FAcousticQueryCache()
             : LastResult()
             , LastQueryTime(0.0f)
             , LastQueryLocation(FVector::ZeroVector)
+            , SourceObject(nullptr)
         {}
     };
-    // 缓存Map：Key为 "ActorUniqueID_SoundSlot"
+    // 缓存Map：Key为 "ActorUniqueID_SoundSlot"（配合 SourceObject 弱引用防回收复用）
     TMap<FName, FAcousticQueryCache> SmoothQueryCache;
+
+    // --- 探针回调串行队列（P0 前置唯一合同：回调只入队，Tick 出队；生产消费皆 GameThread） ---
+    TArray<FHitResult> PendingProbeQueue;
+    bool bAcousticFieldShuttingDown = false;
+
 
     //存储射线事件
     TArray<FTraceHandle> ActiveTraceHandles;

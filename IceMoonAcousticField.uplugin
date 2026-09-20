@@ -21,8 +21,13 @@
 			"LoadingPhase": "PostConfigInit"
 		}
 	],
-	"Plugins": [
-		{
+		"Plugins": [
+			{
+				"Name": "Metasound",
+				"Enabled": true,
+				"Optional": false
+			},
+			{
 			"Name": "IceMoonDataInterface",
 			"Enabled": true,
 			"Optional": false
