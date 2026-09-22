@@ -142,14 +142,69 @@ public:
         // Requests renew the existing 250 ms worker lease; a full ring simply
         // already contains newer work than the serial worker can drain.
         Bridge.Requests.Push({uint32(Slot), Generation, AudioId, true});
-        IM_AcousticVoiceResult Next;
-        for (uint32 Drained = 0; Drained < 8 && Bridge.Results.Pop(Next); ++Drained)
+        const uint32 IdentityInjectionKind = Context->IdentityInjection.PendingKind.exchange(0, std::memory_order_acq_rel);
+        IM_AcousticIdentityInjectionProbe* IdentityProbe =
+            IdentityInjectionKind >= 1 && IdentityInjectionKind <= 2
+            ? &Context->IdentityInjection.Probes[IdentityInjectionKind - 1] : nullptr;
+        const uint64 IdentityRenderedBefore = IdentityProbe
+            ? Device.RenderedBlocks.load(std::memory_order_acquire) : 0;
+        const uint64 IdentityRejectedBefore = IdentityProbe
+            ? Device.RejectedBlocks.load(std::memory_order_acquire) : 0;
+        uint32 IdentityRejectDetail = 0;
+        bool IdentityInjectionRejected = false;
+        auto ResultIdentityDetail = [&](const IM_AcousticVoiceResult& Candidate)
         {
-            if (Next.Frame.Generation == Generation && Next.AudioComponentId == AudioId
-                && Next.WorldGeneration == Context->Pool->WorldGeneration && Next.Frame.Sequence > Latest.Frame.Sequence) Latest = Next;
+            uint32 Detail = 0;
+            if (!Candidate.WorldGeneration) Detail |= 16u;
+            else if (Candidate.WorldGeneration != Context->Pool->WorldGeneration) Detail |= 32u;
+            if (!Candidate.Frame.Generation || Candidate.Frame.Generation != Generation) Detail |= 64u;
+            if (!Candidate.AudioComponentId || Candidate.AudioComponentId != AudioId) Detail |= 128u;
+            return Detail;
+        };
+        auto AcceptResult = [&](const IM_AcousticVoiceResult& Candidate, bool bTestInjection)
+        {
+            const uint32 Detail = ResultIdentityDetail(Candidate);
+            if (Detail)
+            {
+                // A result carrying a stale identity invalidates the previous
+                // frame. Retaining that frame would render frozen-A data while
+                // the real listener is already at B.
+                Latest = {};
+                if (bTestInjection)
+                {
+                    IdentityRejectDetail |= Detail;
+                    IdentityInjectionRejected = true;
+                }
+                return;
+            }
+            if (Candidate.Frame.Sequence > Latest.Frame.Sequence) Latest = Candidate;
+        };
+        if (IdentityProbe)
+        {
+            IM_AcousticVoiceResult FrozenA;
+            FrozenA.Frame.Generation = Context->IdentityInjection.VoiceGeneration.load(std::memory_order_acquire);
+            FrozenA.Frame.Sequence = Context->IdentityInjection.Sequence.load(std::memory_order_acquire);
+            FrozenA.Frame.Listener.origin = {
+                Context->IdentityInjection.ListenerX.load(std::memory_order_relaxed),
+                Context->IdentityInjection.ListenerY.load(std::memory_order_relaxed),
+                Context->IdentityInjection.ListenerZ.load(std::memory_order_relaxed)};
+            FrozenA.Frame.ListenerLocalDirection = {0.0f, 0.0f, -1.0f};
+            FrozenA.AudioComponentId = Context->IdentityInjection.AudioId.load(std::memory_order_acquire);
+            FrozenA.WorldGeneration = Context->IdentityInjection.WorldGeneration.load(std::memory_order_acquire);
+            FrozenA.PublishedSeconds = Now;
+            IdentityProbe->InjectedAudioId.store(FrozenA.AudioComponentId, std::memory_order_relaxed);
+            IdentityProbe->InjectedWorldGeneration.store(FrozenA.WorldGeneration, std::memory_order_relaxed);
+            IdentityProbe->InjectedVoiceGeneration.store(FrozenA.Frame.Generation, std::memory_order_relaxed);
+            IdentityProbe->InjectedSequence.store(FrozenA.Frame.Sequence, std::memory_order_relaxed);
+            AcceptResult(FrozenA, true);
+        }
+        IM_AcousticVoiceResult Next;
+        for (uint32 Drained = 0; !IdentityInjectionRejected && Drained < 8 && Bridge.Results.Pop(Next); ++Drained)
+        {
+            AcceptResult(Next, false);
         }
         const uint32 Routes = Device.RenderRoutes.load(std::memory_order_relaxed);
-        const bool Fresh = Latest.Frame.Sequence && Now >= Latest.PublishedSeconds && Now - Latest.PublishedSeconds <= .25
+        const bool Fresh = !IdentityInjectionRejected && Latest.Frame.Sequence && Now >= Latest.PublishedSeconds && Now - Latest.PublishedSeconds <= .25
             && Device.Enabled.load(std::memory_order_acquire);
         IM_AcousticProbeReject ProbeReject = IM_AcousticProbeReject::Accepted;
         if (!Fresh)
@@ -181,14 +236,33 @@ public:
         }
         else Device.RenderedBlocks.fetch_add(1, std::memory_order_relaxed);
         double InputEnergy = 0.0, OutputEnergy = 0.0;
+        bool OutputFinite = true;
         for (int32 I = 0; I < Frames; ++I)
         {
             Left->GetData()[I] = Stereo[2 * I]; Right->GetData()[I] = Stereo[2 * I + 1];
             const float In = Mono->GetData()[I];
             const float L = Left->GetData()[I], R = Right->GetData()[I];
+            OutputFinite = OutputFinite && FMath::IsFinite(L) && FMath::IsFinite(R);
             if (FMath::IsFinite(In)) InputEnergy += double(In) * double(In);
             if (FMath::IsFinite(L)) OutputEnergy += double(L) * double(L);
             if (FMath::IsFinite(R)) OutputEnergy += double(R) * double(R);
+        }
+        if (IdentityProbe)
+        {
+            IdentityProbe->ActualAudioId.store(AudioId, std::memory_order_relaxed);
+            IdentityProbe->ActualWorldGeneration.store(Context->Pool->WorldGeneration, std::memory_order_relaxed);
+            IdentityProbe->ActualVoiceGeneration.store(Generation, std::memory_order_relaxed);
+            IdentityProbe->FrozenListenerX.store(Context->IdentityInjection.ListenerX.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            IdentityProbe->FrozenListenerY.store(Context->IdentityInjection.ListenerY.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            IdentityProbe->FrozenListenerZ.store(Context->IdentityInjection.ListenerZ.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            IdentityProbe->RejectDetail.store(IdentityRejectDetail, std::memory_order_relaxed);
+            const uint64 RenderedDelta = Device.RenderedBlocks.load(std::memory_order_acquire) - IdentityRenderedBefore;
+            const uint64 RejectedDelta = Device.RejectedBlocks.load(std::memory_order_acquire) - IdentityRejectedBefore;
+            IdentityProbe->RenderedDelta.store(RenderedDelta, std::memory_order_relaxed);
+            IdentityProbe->RejectedDelta.store(RejectedDelta, std::memory_order_relaxed);
+            IdentityProbe->FiniteOutput.store(OutputFinite ? 1u : 0u, std::memory_order_relaxed);
+            IdentityProbe->Rejected.store(IdentityInjectionRejected && RejectedDelta == 1 && RenderedDelta == 0 ? 1u : 0u, std::memory_order_relaxed);
+            IdentityProbe->Observed.store(1, std::memory_order_release);
         }
         // The graph is now the production source consumer. Publish the same
         // device-level observability used by the legacy adapter so existing
@@ -252,6 +326,7 @@ public:
                 Probe.PathValid = Latest.Frame.PathValid ? 1 : 0;
                 Probe.Reject = ProbeReject;
                 Probe.Fallback = Rendered ? 0 : 1;
+                Probe.RejectDetail = IdentityRejectDetail;
                 Probe.InputEnergy = InputEnergy;
                 Probe.OutputEnergy = OutputEnergy;
                 Probe.RenderedAt = Device.RenderedBlocks.load(std::memory_order_relaxed);

@@ -70,8 +70,21 @@ public:
             if (!Source->IsPlaying()) return Finish(false, TEXT("Ordinary entry did not keep the full source playing."));
             AEnd = Frames;
             Listener->SetAudioListenerOverride(nullptr, FVector(1350,300,150), FRotator::ZeroRotator);
+            const uint64 AudioId = Source->GetAudioComponentID();
+            const uint64 WorldGeneration = Context->Pool->WorldGeneration;
+            const uint64 VoiceGeneration = Context->Device->Voices[0]->LiveGeneration.load(std::memory_order_acquire);
+            // The frozen payload carries the real A listener coordinates from
+            // this fixture, but its source identity is intentionally invalid.
+            Context->IdentityInjection.Request(1, AudioId + 1, WorldGeneration,
+                VoiceGeneration, 900001, -2.0f, -1.7f, 5.45f);
             Stage = 1;
             UE_LOG(LogTemp, Display, TEXT("IMLogs MetaSoundClosure move_B source_frame=%llu ir=%llu"), Frames, Context->LastIRSequence.load());
+        }
+        if (Stage == 1 && !IdentityMissingRequested
+            && Context->IdentityInjection.Probes[0].Observed.load(std::memory_order_acquire))
+        {
+            Context->IdentityInjection.Request(2, 0, 0, 0, 0, -2.0f, -1.7f, 5.45f);
+            IdentityMissingRequested = true;
         }
         if (Stage == 1 && Frames >= 6ull * 1352448 + 48000)
         {
@@ -81,16 +94,35 @@ public:
         }
         if (Stage == 2 && Now - StopSeconds >= 4)
         {
-            const bool Valid = Context->Device->ReverbNonzeroBlocks.load() > 100
+            const bool IdentityPass = IdentityNegativePass();
+            const bool Valid = IdentityPass && Context->Device->ReverbNonzeroBlocks.load() > 100
                 && Context->LastIRSequence.load() > 1 && Context->InvalidBlocks.load() == 0
                 && Context->DuplicateConsumers.load() == 0;
             if (Context->BusUnderruns.load() != 0) return Finish(false, TEXT("Bounded acoustic bus reader underrun."));
             return Finish(Valid, Valid ? TEXT("Raw graph PCM captured; alignment/position/continuity analysis required.")
-                : TEXT("Graph output, IR, block or exclusive-consumer predicate failed."));
+                : IdentityPass ? TEXT("Graph output, IR, block or exclusive-consumer predicate failed.")
+                : TEXT("Focused ordinary freeze-A-to-move-B identity negative control failed."));
         }
         return false;
     }
 private:
+    bool IdentityProbePass(const IM_AcousticIdentityInjectionProbe& Probe, uint32 ExpectedDetail) const
+    {
+        return Probe.Observed.load(std::memory_order_acquire)
+            && Probe.Rejected.load(std::memory_order_acquire)
+            && Probe.FiniteOutput.load(std::memory_order_acquire)
+            && Probe.RejectDetail.load(std::memory_order_acquire) == ExpectedDetail
+            && Probe.RejectedDelta.load(std::memory_order_acquire) == 1
+            && Probe.RenderedDelta.load(std::memory_order_acquire) == 0;
+    }
+
+    bool IdentityNegativePass() const
+    {
+        return Context.IsValid()
+            && IdentityProbePass(Context->IdentityInjection.Probes[0], 128u)
+            && IdentityProbePass(Context->IdentityInjection.Probes[1], 16u | 64u | 128u);
+    }
+
     bool SaveTiming(double EndSeconds)
     {
         const auto& D = *Context->Device;
@@ -125,8 +157,12 @@ private:
     {
         Directory = FPaths::ConvertRelativePathToFull(FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("AcousticV2/MetaSoundClosure/runtime")));
         IFileManager::Get().MakeDirectory(*Directory, true);
+        FString EffectiveReason = Reason;
         if (Context)
         {
+            const bool IdentityPass = IdentityNegativePass();
+            Pass = IdentityPass && Pass;
+            if (!IdentityPass) EffectiveReason += TEXT(" Focused identity negative control was not fail-closed.");
             const uint32 S = Context->CapturedSourceFrames.load(std::memory_order_acquire);
             const uint32 E = Context->CapturedEnvironmentFrames.load(std::memory_order_acquire);
             const uint32 N = Context->CapturedBlockCount.load(std::memory_order_acquire);
@@ -145,9 +181,21 @@ private:
                 CSV += FString::Printf(TEXT("%llu,%llu,%.9f,%.9g,%.9g,%.9g,%d\n"), B.Frame, B.Sequence, B.Seconds, B.ListenerX, B.ListenerY, B.ListenerZ, B.Fresh);
             }
             Pass = FFileHelper::SaveStringToFile(CSV, *FPaths::Combine(Directory, TEXT("blocks.csv")), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM) && Pass;
+            FString SourceBlocks = TEXT("block,voice,callback_audio_id,result_audio_id,result_world_generation,result_voice_generation,result_sequence,listener_x_m,listener_y_m,listener_z_m,reject,reject_detail,fallback,input_energy,output_energy,rendered_at,rejected_at\n");
+            const uint32 SourceBlockCount = FMath::Min<uint32>(Context->CapturedSourceBlockCount.load(std::memory_order_acquire), Context->CapturedSourceBlocks.Num());
+            for (uint32 I = 0; I < SourceBlockCount; ++I)
+            {
+                const auto& B = Context->CapturedSourceBlocks[I];
+                SourceBlocks += FString::Printf(TEXT("%llu,%u,%llu,%llu,%llu,%llu,%llu,%.9g,%.9g,%.9g,%u,%u,%u,%.9g,%.9g,%llu,%llu\n"),
+                    B.Block, B.Voice, B.CallbackAudioComponentId, B.ResultAudioComponentId,
+                    B.ResultWorldGeneration, B.ResultVoiceGeneration, B.ResultSequence,
+                    B.ListenerX, B.ListenerY, B.ListenerZ, uint32(B.Reject), B.RejectDetail,
+                    B.Fallback, B.InputEnergy, B.OutputEnergy, B.RenderedAt, B.RejectedAt);
+            }
+            Pass = FFileHelper::SaveStringToFile(SourceBlocks, *FPaths::Combine(Directory, TEXT("source-blocks.csv")), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM) && Pass;
             FString JSON; auto W = TJsonWriterFactory<>::Create(&JSON); W->WriteObjectStart();
             W->WriteValue(TEXT("status"), Pass ? TEXT("CAPTURED_ANALYSIS_PENDING") : TEXT("FAIL"));
-            W->WriteValue(TEXT("reason"), Reason); W->WriteValue(TEXT("sample_rate"), int32(Context->Device->SampleRate));
+            W->WriteValue(TEXT("reason"), EffectiveReason); W->WriteValue(TEXT("sample_rate"), int32(Context->Device->SampleRate));
             W->WriteValue(TEXT("graph_frames"), int32(IM_AcousticMetaSoundContext::Frames));
             W->WriteValue(TEXT("headless_listener_adapter"), !FApp::CanEverRender());
             W->WriteValue(TEXT("source_frames"), double(S)); W->WriteValue(TEXT("environment_frames"), double(E));
@@ -168,12 +216,41 @@ private:
             W->WriteValue(TEXT("bus_max_available"), Context->BusMaxAvailable.load());
             W->WriteValue(TEXT("legacy_submix_created"), Volume.IsValid() && Volume->ReverbSubmix != nullptr);
             W->WriteValue(TEXT("dry_capture_component_gain_not_applied"), 0.7);
+            W->WriteObjectStart(TEXT("identity_negative"));
+            W->WriteValue(TEXT("status"), IdentityPass ? TEXT("PASS_FOCUSED_FAIL_CLOSED") : TEXT("FAIL_FOCUSED_FAIL_CLOSED"));
+            auto WriteIdentityProbe = [&](const TCHAR* Name, const IM_AcousticIdentityInjectionProbe& Probe, uint32 ExpectedDetail)
+            {
+                W->WriteObjectStart(Name);
+                W->WriteValue(TEXT("observed"), Probe.Observed.load(std::memory_order_acquire) != 0);
+                W->WriteValue(TEXT("rejected"), Probe.Rejected.load(std::memory_order_acquire) != 0);
+                W->WriteValue(TEXT("finite_output"), Probe.FiniteOutput.load(std::memory_order_acquire) != 0);
+                W->WriteValue(TEXT("expected_reject_detail"), double(ExpectedDetail));
+                W->WriteValue(TEXT("reject_detail"), double(Probe.RejectDetail.load(std::memory_order_acquire)));
+                W->WriteValue(TEXT("rendered_delta"), double(Probe.RenderedDelta.load(std::memory_order_acquire)));
+                W->WriteValue(TEXT("rejected_delta"), double(Probe.RejectedDelta.load(std::memory_order_acquire)));
+                W->WriteValue(TEXT("injected_audio_id"), double(Probe.InjectedAudioId.load(std::memory_order_acquire)));
+                W->WriteValue(TEXT("injected_world_generation"), double(Probe.InjectedWorldGeneration.load(std::memory_order_acquire)));
+                W->WriteValue(TEXT("injected_voice_generation"), double(Probe.InjectedVoiceGeneration.load(std::memory_order_acquire)));
+                W->WriteValue(TEXT("injected_sequence"), double(Probe.InjectedSequence.load(std::memory_order_acquire)));
+                W->WriteValue(TEXT("actual_audio_id"), double(Probe.ActualAudioId.load(std::memory_order_acquire)));
+                W->WriteValue(TEXT("actual_world_generation"), double(Probe.ActualWorldGeneration.load(std::memory_order_acquire)));
+                W->WriteValue(TEXT("actual_voice_generation"), double(Probe.ActualVoiceGeneration.load(std::memory_order_acquire)));
+                W->WriteObjectStart(TEXT("frozen_listener_sdk_m"));
+                W->WriteValue(TEXT("x"), Probe.FrozenListenerX.load(std::memory_order_acquire));
+                W->WriteValue(TEXT("y"), Probe.FrozenListenerY.load(std::memory_order_acquire));
+                W->WriteValue(TEXT("z"), Probe.FrozenListenerZ.load(std::memory_order_acquire));
+                W->WriteObjectEnd();
+                W->WriteObjectEnd();
+            };
+            WriteIdentityProbe(TEXT("bad_audio_id"), Context->IdentityInjection.Probes[0], 128u);
+            WriteIdentityProbe(TEXT("missing_fields"), Context->IdentityInjection.Probes[1], 16u | 64u | 128u);
+            W->WriteObjectEnd();
             W->WriteObjectEnd(); W->Close();
             FFileHelper::SaveStringToFile(JSON, *FPaths::Combine(Directory, TEXT("capture.json")), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
         }
-        if (!Pass) Test->AddError(Reason);
+        if (!Pass) Test->AddError(EffectiveReason);
         IM_EnableAcousticMetaSoundCaptureForTest(false);
-        UE_LOG(LogTemp, Display, TEXT("IMExitEditor %s MetaSoundClosure capture %s"), Pass ? TEXT("PASS") : TEXT("FAIL"), *Reason);
+        UE_LOG(LogTemp, Display, TEXT("IMExitEditor %s MetaSoundClosure capture %s"), Pass ? TEXT("PASS") : TEXT("FAIL"), *EffectiveReason);
         UE_LOG(LogTemp, Display, TEXT("[IM][PIE_TEST] MetaSoundClosure capture %s"), Pass ? TEXT("PASS") : TEXT("FAIL"));
         if (GEditor && GEditor->PlayWorld) GEditor->RequestEndPlayMap();
         return true;
@@ -187,6 +264,7 @@ private:
     TWeakObjectPtr<APlayerController> Listener;
     TWeakObjectPtr<UAudioComponent> Source;
     TWeakObjectPtr<AIMAcousticBakeVolume> Volume;
+    bool IdentityMissingRequested = false;
 };
 }
 
