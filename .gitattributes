@@ -1,0 +1,5 @@
+# Preserve pinned upstream SDK bytes across Git checkout and archive settings.
+/.gitattributes text eol=lf
+/Source/ThirdParty/SteamAudio/include/** -text
+/Source/ThirdParty/SteamAudio/LICENSE.md -text
+/Source/ThirdParty/SteamAudio/THIRDPARTY.md -text
