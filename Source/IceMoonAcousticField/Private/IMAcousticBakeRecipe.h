@@ -27,12 +27,12 @@ inline constexpr float ReverbSendNearDistanceM=2.0f;
 inline constexpr float ReverbSendFarDistanceM=32.0f;
 inline float ReverbSendDistanceGain(float DistanceM)
 {
-    if (!FMath::IsFinite(DistanceM)) return 0.0f;
-    if (DistanceM <= ReverbSendNearDistanceM) return 1.0f;
-    if (DistanceM >= ReverbSendFarDistanceM) return 0.0f;
-    const float T = (DistanceM - ReverbSendNearDistanceM)
-        / (ReverbSendFarDistanceM - ReverbSendNearDistanceM);
-    return 1.0f - T * T * (3.0f - 2.0f * T);
+	if (!FMath::IsFinite(DistanceM)) return 0.0f;
+	if (DistanceM <= ReverbSendNearDistanceM) return 1.0f;
+	if (DistanceM >= ReverbSendFarDistanceM) return 0.0f;
+	const float T = (DistanceM - ReverbSendNearDistanceM)
+		/ (ReverbSendFarDistanceM - ReverbSendNearDistanceM);
+	return 1.0f - T * T * (3.0f - 2.0f * T);
 }
 inline constexpr IPLint32 BakeThreads=1;
 inline constexpr IPLfloat32 IrradianceMinM=.01f;

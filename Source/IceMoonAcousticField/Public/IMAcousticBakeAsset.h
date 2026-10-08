@@ -9,43 +9,43 @@
 UCLASS()
 class ICEMOONACOUSTICFIELD_API UIMAcousticBakeAsset final : public UDataAsset
 {
-    GENERATED_BODY()
+	GENERATED_BODY()
 public:
-    static constexpr int32 CurrentFormat = 2;
-    static constexpr int32 SDKVersion = 0x040801;
+	static constexpr int32 CurrentFormat = 2;
+	static constexpr int32 SDKVersion = 0x040801;
 
-    UPROPERTY(VisibleAnywhere, Category="Bake")
-    int32 FormatVersion = 0;
+	UPROPERTY(VisibleAnywhere, Category="Bake")
+	int32 FormatVersion = 0;
 
-    UPROPERTY(VisibleAnywhere, Category="Bake")
-    int32 SteamAudioVersion = 0;
+	UPROPERTY(VisibleAnywhere, Category="Bake")
+	int32 SteamAudioVersion = 0;
 
-    UPROPERTY(VisibleAnywhere, Category="Bake")
-    FString WorldPackage;
+	UPROPERTY(VisibleAnywhere, Category="Bake")
+	FString WorldPackage;
 
-    // Includes exported geometry, transforms, explicit material coefficients and
-    // probe settings. The exporter recomputes it; file timestamps are not an oracle.
-    UPROPERTY(VisibleAnywhere, Category="Bake")
-    FString SceneFingerprint;
+	// Includes exported geometry, transforms, explicit material coefficients and
+	// probe settings. The exporter recomputes it; file timestamps are not an oracle.
+	UPROPERTY(VisibleAnywhere, Category="Bake")
+	FString SceneFingerprint;
 
-    UPROPERTY(VisibleAnywhere, Category="Bake")
-    FString PayloadDigest;
+	UPROPERTY(VisibleAnywhere, Category="Bake")
+	FString PayloadDigest;
 
-    UPROPERTY(VisibleAnywhere, Category="Bake")
-    FString MetadataJson;
+	UPROPERTY(VisibleAnywhere, Category="Bake")
+	FString MetadataJson;
 
-    UPROPERTY()
-    TArray<uint8> SceneData;
+	UPROPERTY()
+	TArray<uint8> SceneData;
 
-    UPROPERTY()
-    TArray<uint8> ProbeData;
+	UPROPERTY()
+	TArray<uint8> ProbeData;
 
-    bool Validate(const FString& ExpectedWorld, const FString& ExpectedFingerprint, FString& Failure) const;
-    bool CommitCompleteBake(const FString& InWorld, const FString& InFingerprint,
-        const FString& InMetadata, TArray<uint8>&& InScene, TArray<uint8>&& InProbes, FString& Failure);
-    bool GetProbePreview(const FString& ExpectedWorld,const FString& ExpectedFingerprint,
-        TArray<FVector4>& Out, FVector& OriginCm, FString& Failure) const;
+	bool Validate(const FString& ExpectedWorld, const FString& ExpectedFingerprint, FString& Failure) const;
+	bool CommitCompleteBake(const FString& InWorld, const FString& InFingerprint,
+		const FString& InMetadata, TArray<uint8>&& InScene, TArray<uint8>&& InProbes, FString& Failure);
+	bool GetProbePreview(const FString& ExpectedWorld,const FString& ExpectedFingerprint,
+		TArray<FVector4>& Out, FVector& OriginCm, FString& Failure) const;
 
 private:
-    static FString Digest(const FString& Metadata, const TArray<uint8>& Scene, const TArray<uint8>& Probes);
+	static FString Digest(const FString& Metadata, const TArray<uint8>& Scene, const TArray<uint8>& Probes);
 };

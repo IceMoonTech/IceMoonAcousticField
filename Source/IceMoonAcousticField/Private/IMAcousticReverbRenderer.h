@@ -29,46 +29,46 @@ struct FIMAcousticReverbMetrics { double InputEnergy=0,AmbisonicsEnergy=0; };
 class FIMAcousticReverbRenderer final
 {
 public:
-    FIMAcousticReverbRenderer() = default;
-    ~FIMAcousticReverbRenderer();
-    FIMAcousticReverbRenderer(const FIMAcousticReverbRenderer&) = delete;
-    FIMAcousticReverbRenderer& operator=(const FIMAcousticReverbRenderer&) = delete;
+	FIMAcousticReverbRenderer() = default;
+	~FIMAcousticReverbRenderer();
+	FIMAcousticReverbRenderer(const FIMAcousticReverbRenderer&) = delete;
+	FIMAcousticReverbRenderer& operator=(const FIMAcousticReverbRenderer&) = delete;
 
-    // Retains Context/HRTF, creates the convolution reflection effect
-    // (type CONVOLUTION, numChannels 4, irSize IRSizeSamples) and the order-1
-    // binaural decode effect, and preallocates all Render buffers. Returns
-    // false without partial state when any handle/rate/size is invalid or any
-    // SDK create fails. Lifecycle only; never called from steady audio.
-    bool Initialize(IPLContext Context, IPLHRTF HRTF, int SampleRateHz,
-        int BlockFrames, int IRSizeSamples);
+	// Retains Context/HRTF, creates the convolution reflection effect
+	// (type CONVOLUTION, numChannels 4, irSize IRSizeSamples) and the order-1
+	// binaural decode effect, and preallocates all Render buffers. Returns
+	// false without partial state when any handle/rate/size is invalid or any
+	// SDK create fails. Lifecycle only; never called from steady audio.
+	bool Initialize(IPLContext Context, IPLHRTF HRTF, int SampleRateHz,
+		int BlockFrames, int IRSizeSamples);
 
-    // Clears SDK history state. Safe on an uninitialized renderer.
-    void Reset();
-    // Lifecycle teardown for MetaSound operator-cache reuse across worlds.
-    void Shutdown() { Cleanup(); }
+	// Clears SDK history state. Safe on an uninitialized renderer.
+	void Reset();
+	// Lifecycle teardown for MetaSound operator-cache reuse across worlds.
+	void Shutdown() { Cleanup(); }
 
-    // Renders one block: Mono[Frames] dry into interleaved Stereo[2*Frames].
-    // EffectParams must be type CONVOLUTION with ir != null, numChannels 4,
-    // and irSize equal to the Initialize IRSizeSamples; the IR handle is
-    // borrowed only for this call. Listener provides the decode orientation.
-    // Frames must equal the Initialize BlockFrames. Rejects null pointers and
-    // non-finite dry samples; on any failure Stereo is cleared (when the
-    // pointer and frame count allow it), effects are reset, and false returns.
-    // No allocation, lock, file, or UObject access inside.
-    bool Render(const float* Mono, int Frames,
-        const IPLReflectionEffectParams& EffectParams,
-        const IPLCoordinateSpace3& Listener, float* Stereo, FIMAcousticReverbMetrics* Metrics=nullptr);
+	// Renders one block: Mono[Frames] dry into interleaved Stereo[2*Frames].
+	// EffectParams must be type CONVOLUTION with ir != null, numChannels 4,
+	// and irSize equal to the Initialize IRSizeSamples; the IR handle is
+	// borrowed only for this call. Listener provides the decode orientation.
+	// Frames must equal the Initialize BlockFrames. Rejects null pointers and
+	// non-finite dry samples; on any failure Stereo is cleared (when the
+	// pointer and frame count allow it), effects are reset, and false returns.
+	// No allocation, lock, file, or UObject access inside.
+	bool Render(const float* Mono, int Frames,
+		const IPLReflectionEffectParams& EffectParams,
+		const IPLCoordinateSpace3& Listener, float* Stereo, FIMAcousticReverbMetrics* Metrics=nullptr);
 
 private:
-    void Cleanup();
+	void Cleanup();
 
-    IPLContext Context = nullptr;
-    IPLHRTF HRTF = nullptr;
-    IPLReflectionEffect ReflectionEffect = nullptr;
-    IPLAmbisonicsDecodeEffect DecodeEffect = nullptr;
-    int BlockFrames = 0;
-    int IRSizeSamples = 0;
-    std::vector<float> Input;
-    std::array<std::vector<float>, 4> Ambi;
-    std::array<std::vector<float>, 2> Decoded;
+	IPLContext Context = nullptr;
+	IPLHRTF HRTF = nullptr;
+	IPLReflectionEffect ReflectionEffect = nullptr;
+	IPLAmbisonicsDecodeEffect DecodeEffect = nullptr;
+	int BlockFrames = 0;
+	int IRSizeSamples = 0;
+	std::vector<float> Input;
+	std::array<std::vector<float>, 4> Ambi;
+	std::array<std::vector<float>, 2> Decoded;
 };
