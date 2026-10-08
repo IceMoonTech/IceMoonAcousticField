@@ -9,10 +9,10 @@
 // only after its last Apply using that IR. Queue pressure skips an update.
 // The pool outlives worker and audio effects. Sources are never released from
 // a steady callback. SDK's internal read-buffer swap belongs to that one effect.
-enum class IM_AcousticIRState : unsigned char { Free, Writing, Ready, Reading };
-struct IM_AcousticReverbSlot
+enum class EIMAcousticIRState : unsigned char { Free, Writing, Ready, Reading };
+struct FIMAcousticReverbSlot
 {
-    std::atomic<IM_AcousticIRState> State{IM_AcousticIRState::Free};
+    std::atomic<EIMAcousticIRState> State{EIMAcousticIRState::Free};
     IPLSource Source=nullptr;
     // Protected by the slot state lease. Only a successful SDK Apply consumes
     // its pending TripleBuffer IR. Free alone does not acknowledge that buffer.
@@ -21,12 +21,12 @@ struct IM_AcousticReverbSlot
     IPLCoordinateSpace3 Listener{};
     std::uint64_t Sequence=0;
     double CapturedSeconds=0;
-    ~IM_AcousticReverbSlot(){if(Source)iplSourceRelease(&Source);}
+    ~FIMAcousticReverbSlot(){if(Source)iplSourceRelease(&Source);}
 };
-struct IM_AcousticReverbPool
+struct FIMAcousticReverbPool
 {
-    explicit IM_AcousticReverbPool(std::uint64_t Epoch):WorldGeneration(Epoch){}
+    explicit FIMAcousticReverbPool(std::uint64_t Epoch):WorldGeneration(Epoch){}
     const std::uint64_t WorldGeneration;
     std::atomic<bool> Stopped{false};
-    std::array<IM_AcousticReverbSlot,3> Slots;
+    std::array<FIMAcousticReverbSlot,3> Slots;
 };

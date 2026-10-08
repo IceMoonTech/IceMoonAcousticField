@@ -1,13 +1,13 @@
-// AcousticIdentifier/Source/IceMoonAcousticField/Public/DA_IM_AcousticFieldConfig.h
+// AcousticIdentifier/Source/IceMoonAcousticField/Public/IMAcousticFieldConfig.h
 
 #pragma once
 
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
-#include "IM_AcousticTypes.h"
-#include "DA_IM_AcousticFieldConfig.generated.h"
+#include "IMAcousticTypes.h"
+#include "IMAcousticFieldConfig.generated.h"
 
-class UDA_IM_MaterialMap;
+class UIMMaterialMap;
 
 /**
  * 声场配置预设 - 定义场景特定的声学参数
@@ -15,7 +15,7 @@ class UDA_IM_MaterialMap;
  * 可创建多个预设：室内、室外、地下城等，供不同关卡使用
  */
 UCLASS(BlueprintType)
-class ICEMOONACOUSTICFIELD_API UDA_IM_AcousticFieldConfig : public UPrimaryDataAsset
+class ICEMOONACOUSTICFIELD_API UIMAcousticFieldConfig : public UPrimaryDataAsset
 {
 	GENERATED_BODY()
 
@@ -27,7 +27,7 @@ public:
 	/** 物理材质库（全局共享，留空则使用项目默认） */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "1. Material Library",
 		meta=(Tooltip="物理材质到音频响应的映射库（可选，留空则使用全局默认）"))
-	TObjectPtr<UDA_IM_MaterialMap> MaterialLibrary;
+	TObjectPtr<UIMMaterialMap> MaterialLibrary;
 
 	// ========================================
 	// 默认混响配置
@@ -81,7 +81,7 @@ public:
 	// ========================================
 	// 构造函数 - 设置合理的默认值
 	// ========================================
-	UDA_IM_AcousticFieldConfig()
+	UIMAcousticFieldConfig()
 	{
 		// 默认混响（室外环境）
 		DefaultReverbParameters.Wet = 0.05f;

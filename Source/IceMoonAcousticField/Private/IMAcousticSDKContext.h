@@ -3,4 +3,7 @@
 
 // Borrowed process-lifetime context; callers retain their own lease. Call only
 // during lifecycle/worker setup, never from steady audio processing.
-IPLContext IM_GetAcousticSDKContext();
+namespace IMAcousticSDKContext
+{
+IPLContext GetAcousticSDKContext();
+}

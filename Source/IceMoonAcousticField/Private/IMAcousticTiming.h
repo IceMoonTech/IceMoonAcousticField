@@ -3,16 +3,19 @@
 #include <array>
 #include <atomic>
 
-inline void IM_AcousticRecordMaximum(std::atomic<uint64>& Target,uint64 Value)
+namespace IMAcousticTiming
+{
+inline void AcousticRecordMaximum(std::atomic<uint64>& Target,uint64 Value)
 {
     uint64 Previous=Target.load(std::memory_order_relaxed);
     while(Previous<Value&&!Target.compare_exchange_weak(Previous,Value,std::memory_order_relaxed)){}
+}
 }
 
 // Opt-in diagnostic histogram. Fixed 10 us bins make p99 an explicit upper
 // bound; the final bin is overflow, never silently reported as a valid p99.
 // Multiple UE source jobs may publish concurrently. No audio-side allocation.
-struct IM_AcousticTiming
+struct FIMAcousticTiming
 {
     static constexpr uint32 BinCount=4096;
     static constexpr double BinMicroseconds=10.0;
@@ -33,10 +36,10 @@ struct IM_AcousticTiming
         Count.fetch_add(1,std::memory_order_release);
     }
 };
-struct IM_AcousticTimingScope
+struct FIMAcousticTimingScope
 {
-    IM_AcousticTiming* Timing;uint64 Started;std::atomic<uint64>* Accumulate;
-    explicit IM_AcousticTimingScope(IM_AcousticTiming* In,std::atomic<uint64>* InAccumulate=nullptr)
+    FIMAcousticTiming* Timing;uint64 Started;std::atomic<uint64>* Accumulate;
+    explicit FIMAcousticTimingScope(FIMAcousticTiming* In,std::atomic<uint64>* InAccumulate=nullptr)
         :Timing(In),Started(In?FPlatformTime::Cycles64():0),Accumulate(InAccumulate){}
-    ~IM_AcousticTimingScope(){if(Timing){const uint64 Cycles=Timing->Record(Started);if(Accumulate)Accumulate->fetch_add(Cycles,std::memory_order_relaxed);}}
+    ~FIMAcousticTimingScope(){if(Timing){const uint64 Cycles=Timing->Record(Started);if(Accumulate)Accumulate->fetch_add(Cycles,std::memory_order_relaxed);}}
 };

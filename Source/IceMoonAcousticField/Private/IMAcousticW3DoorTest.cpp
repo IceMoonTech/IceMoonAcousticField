@@ -36,7 +36,9 @@
 
 // H1-local probe exporter (same protocol as W1; snapshots CSV carries the
 // door capture columns). File-local: unity builds merge all test TUs.
-static uint64 IM_H1ExportComplete(const std::atomic<uint64>* Done, uint32 Capacity, uint64 Pushes)
+namespace IMAcousticW3DoorTestPrivate
+{
+uint64 H1ExportComplete(const std::atomic<uint64>* Done, uint32 Capacity, uint64 Pushes)
 {
     const uint64 Limit = Pushes < Capacity ? Pushes : Capacity;
     for (uint64 I = 0; I < Limit; ++I)
@@ -45,20 +47,20 @@ static uint64 IM_H1ExportComplete(const std::atomic<uint64>* Done, uint32 Capaci
     }
     return Limit;
 }
-static double IM_H1TimingP99Us(const IM_AcousticTiming& Timing)
+double H1TimingP99Us(const FIMAcousticTiming& Timing)
 {
     const uint64 Count=Timing.Count.load(std::memory_order_acquire);
     if(Count==0)return 0.0;
     const uint64 Target=(Count*99+99)/100;
     uint64 Seen=0;
-    for(uint32 I=0;I<IM_AcousticTiming::BinCount;++I)
+    for(uint32 I=0;I<FIMAcousticTiming::BinCount;++I)
     {
         Seen+=Timing.Bins[I].load(std::memory_order_relaxed);
-        if(Seen>=Target)return double(I)*IM_AcousticTiming::BinMicroseconds;
+        if(Seen>=Target)return double(I)*FIMAcousticTiming::BinMicroseconds;
     }
-    return double(IM_AcousticTiming::BinCount-1)*IM_AcousticTiming::BinMicroseconds;
+    return double(FIMAcousticTiming::BinCount-1)*FIMAcousticTiming::BinMicroseconds;
 }
-static void IM_H1ExportProbeTrace(IM_AcousticDeviceBridge* Bridge, const TArray<FString>& StateWindows, const FString& EvidenceDir,
+void H1ExportProbeTrace(FIMAcousticDeviceBridge* Bridge, const TArray<FString>& StateWindows, const FString& EvidenceDir,
     const FString& RunContextJson = TEXT("{}"))
 {
     IFileManager::Get().MakeDirectory(*EvidenceDir, true);
@@ -75,15 +77,15 @@ static void IM_H1ExportProbeTrace(IM_AcousticDeviceBridge* Bridge, const TArray<
     const uint64 SnapOverflow = Bridge->SnapshotProbeOverflows.load(std::memory_order_relaxed);
     const uint64 WorkerPushes = Bridge->WorkerProbePushes.load(std::memory_order_acquire);
     const uint64 WorkerOverflow = Bridge->WorkerProbeOverflows.load(std::memory_order_relaxed);
-    const uint64 BlockComplete = IM_H1ExportComplete(Bridge->BlockDone.data(), IM_AcousticDeviceBridge::ProbeBlockCapacity, BlockPushes);
-    const uint64 SnapComplete = IM_H1ExportComplete(Bridge->SnapshotDone.data(), IM_AcousticDeviceBridge::ProbeSnapshotCapacity, SnapPushes);
-    const uint64 WorkerComplete = IM_H1ExportComplete(Bridge->WorkerDone.data(), IM_AcousticDeviceBridge::ProbeWorkerCapacity, WorkerPushes);
+    const uint64 BlockComplete = H1ExportComplete(Bridge->BlockDone.data(), FIMAcousticDeviceBridge::ProbeBlockCapacity, BlockPushes);
+    const uint64 SnapComplete = H1ExportComplete(Bridge->SnapshotDone.data(), FIMAcousticDeviceBridge::ProbeSnapshotCapacity, SnapPushes);
+    const uint64 WorkerComplete = H1ExportComplete(Bridge->WorkerDone.data(), FIMAcousticDeviceBridge::ProbeWorkerCapacity, WorkerPushes);
     FString Blocks;
     Blocks.Reserve(128 * 1024);
     Blocks += TEXT("block,voice,cb_audio_id,result_audio_id,result_world,result_gen,result_seq,snapshot_captured,consumed,age_ms,lis_x,lis_y,lis_z,dir_x,dir_y,dir_z,occlusion,dist_gain,direct_flags,routes,direct_valid,path_valid,reject,reject_detail,render_failure,fallback,reset_reason,input_e,direct_e,path_e,output_e,rendered_at,rejected_at\n");
     for (uint64 I = 0; I < BlockComplete; ++I)
     {
-        const IM_AcousticBlockProbe& E = Bridge->BlockProbes[I];
+        const FIMAcousticBlockProbe& E = Bridge->BlockProbes[I];
         Blocks += FString::Printf(TEXT("%llu,%u,%llu,%llu,%llu,%llu,%llu,%.6f,%.6f,%.3f,%.6f,%.6f,%.6f,%.4f,%.4f,%.4f,%.6f,%.6f,%u,%u,%u,%u,%u,%u,%u,%u,%u,%.6f,%.6f,%.6f,%.6f,%llu,%llu\n"),
             E.Block, E.Voice, E.CallbackAudioComponentId, E.ResultAudioComponentId, E.ResultWorldGeneration,
             E.ResultVoiceGeneration, E.ResultSequence, E.SnapshotCaptured, E.ConsumedSeconds, E.AgeMs,
@@ -97,7 +99,7 @@ static void IM_H1ExportProbeTrace(IM_AcousticDeviceBridge* Bridge, const TArray<
     Snaps += TEXT("block,world,captured,submit,lis_ue_x,lis_ue_y,lis_ue_z,lis_sdk_x,lis_sdk_y,lis_sdk_z,src0_sdk_x,src0_sdk_y,src0_sdk_z,src0_audio_id,num_sources,submitted,fail_code,num_dynamic,dyn_skipped,door0_x,door0_y,door0_z\n");
     for (uint64 I = 0; I < SnapComplete; ++I)
     {
-        const IM_AcousticSnapshotProbe& S = Bridge->SnapshotProbes[I];
+        const FIMAcousticSnapshotProbe& S = Bridge->SnapshotProbes[I];
         Snaps += FString::Printf(TEXT("%llu,%llu,%.6f,%.6f,%.2f,%.2f,%.2f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%llu,%u,%u,%u,%u,%u,%.6f,%.6f,%.6f\n"),
             S.Block, S.WorldGeneration, S.CapturedSeconds, S.SubmitSeconds, S.ListenerUEX, S.ListenerUEY, S.ListenerUEZ,
             S.ListenerSDKX, S.ListenerSDKY, S.ListenerSDKZ, S.Source0X, S.Source0Y, S.Source0Z, S.Source0AudioId,
@@ -109,7 +111,7 @@ static void IM_H1ExportProbeTrace(IM_AcousticDeviceBridge* Bridge, const TArray<
     Workers += TEXT("block,world,loop_start,snap_captured,snap_valid,snap_reason,num_inputs,published,eval_start,eval_end,eval_ok,reverb_attempt,reverb_ok,reverb_start,reverb_end,reverb_seq,reverb_captured,push_at,push_ok,wait_end,voice,audio_id,voice_gen,seq,direct_flags,occlusion,dist_gain,path_valid0,num_dyn,applied_val\n");
     for (uint64 I = 0; I < WorkerComplete; ++I)
     {
-        const IM_AcousticWorkerProbe& R = Bridge->WorkerProbes[I];
+        const FIMAcousticWorkerProbe& R = Bridge->WorkerProbes[I];
         Workers += FString::Printf(TEXT("%llu,%llu,%.6f,%.6f,%u,%u,%u,%u,%.6f,%.6f,%u,%u,%u,%.6f,%.6f,%llu,%.6f,%.6f,%u,%.6f,%u,%llu,%llu,%llu,%u,%.6f,%.6f,%u,%u,%d\n"),
             R.Block, R.WorldGeneration, R.LoopStartSeconds, R.SnapshotCaptured, R.SnapValid, R.SnapReason, R.NumInputs, R.ResultsPublished,
             R.EvalStartSeconds, R.EvalEndSeconds, R.EvalOk, R.ReverbAttempt, R.ReverbOk, R.ReverbStartSeconds, R.ReverbEndSeconds,
@@ -119,25 +121,25 @@ static void IM_H1ExportProbeTrace(IM_AcousticDeviceBridge* Bridge, const TArray<
     FFileHelper::SaveStringToFile(Workers, *FPaths::Combine(EvidenceDir, TEXT("IM_probe_workers.csv")), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
     FString PlBase;
     if (auto Pl = IPluginManager::Get().FindPlugin(TEXT("IceMoonAcousticField"))) { PlBase = Pl->GetBaseDir(); }
-    auto IM_HashOne = [](const FString& P)->FString { return LexToString(FMD5Hash::HashFile(*P)); };
+    auto HashOne = [](const FString& P)->FString { return LexToString(FMD5Hash::HashFile(*P)); };
     const FString SrcRoot = FPaths::Combine(PlBase, TEXT("Source/IceMoonAcousticField/Private"));
-    FString FP = TEXT("{\"scene\":\"") + IM_HashOne(FPaths::Combine(EvidenceDir, TEXT("scene.bin"))) + TEXT("\",\"probes\":\"") + IM_HashOne(FPaths::Combine(EvidenceDir, TEXT("probes.bin"))) + TEXT("\"");
-    FP += TEXT(",\"dll\":\"") + IM_HashOne(FPaths::Combine(PlBase, TEXT("Binaries/ThirdParty/SteamAudio/Win64/phonon.dll"))) + TEXT("\"");
-    FP += TEXT(",\"h\":\"") + IM_HashOne(FPaths::Combine(SrcRoot, TEXT("IMAcousticSpatialization.h"))) + TEXT("\",\"bake\":\"") + IM_HashOne(FPaths::Combine(SrcRoot, TEXT("IMAcousticBakeVolume.cpp"))) + TEXT("\"");
-    FP += TEXT(",\"worker\":\"") + IM_HashOne(FPaths::Combine(SrcRoot, TEXT("IMAcousticSimulationWorker.cpp"))) + TEXT("\",\"spatial\":\"") + IM_HashOne(FPaths::Combine(SrcRoot, TEXT("IMAcousticSpatialization.cpp"))) + TEXT("\"");
-    FP += TEXT(",\"w3\":\"") + IM_HashOne(FPaths::Combine(SrcRoot, TEXT("IMAcousticW3DoorTest.cpp"))) + TEXT("\"}");
+    FString FP = TEXT("{\"scene\":\"") + HashOne(FPaths::Combine(EvidenceDir, TEXT("scene.bin"))) + TEXT("\",\"probes\":\"") + HashOne(FPaths::Combine(EvidenceDir, TEXT("probes.bin"))) + TEXT("\"");
+    FP += TEXT(",\"dll\":\"") + HashOne(FPaths::Combine(PlBase, TEXT("Binaries/ThirdParty/SteamAudio/Win64/phonon.dll"))) + TEXT("\"");
+    FP += TEXT(",\"h\":\"") + HashOne(FPaths::Combine(SrcRoot, TEXT("IMAcousticSpatialization.h"))) + TEXT("\",\"bake\":\"") + HashOne(FPaths::Combine(SrcRoot, TEXT("IMAcousticBakeVolume.cpp"))) + TEXT("\"");
+    FP += TEXT(",\"worker\":\"") + HashOne(FPaths::Combine(SrcRoot, TEXT("IMAcousticSimulationWorker.cpp"))) + TEXT("\",\"spatial\":\"") + HashOne(FPaths::Combine(SrcRoot, TEXT("IMAcousticSpatialization.cpp"))) + TEXT("\"");
+    FP += TEXT(",\"w3\":\"") + HashOne(FPaths::Combine(SrcRoot, TEXT("IMAcousticW3DoorTest.cpp"))) + TEXT("\"}");
     FFileHelper::SaveStringToFile(FP, *FPaths::Combine(EvidenceDir, TEXT("IM_fingerprints.json")), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
     FString Windows = TEXT("[");
     for (int32 W = 0; W < StateWindows.Num(); ++W) { if (W > 0) Windows += TEXT(","); Windows += StateWindows[W]; }
     Windows += TEXT("]");
-    const uint64 BlockLimit = BlockPushes < IM_AcousticDeviceBridge::ProbeBlockCapacity ? BlockPushes : IM_AcousticDeviceBridge::ProbeBlockCapacity;
-    const uint64 SnapLimit = SnapPushes < IM_AcousticDeviceBridge::ProbeSnapshotCapacity ? SnapPushes : IM_AcousticDeviceBridge::ProbeSnapshotCapacity;
-    const uint64 WorkerLimit = WorkerPushes < IM_AcousticDeviceBridge::ProbeWorkerCapacity ? WorkerPushes : IM_AcousticDeviceBridge::ProbeWorkerCapacity;
+    const uint64 BlockLimit = BlockPushes < FIMAcousticDeviceBridge::ProbeBlockCapacity ? BlockPushes : FIMAcousticDeviceBridge::ProbeBlockCapacity;
+    const uint64 SnapLimit = SnapPushes < FIMAcousticDeviceBridge::ProbeSnapshotCapacity ? SnapPushes : FIMAcousticDeviceBridge::ProbeSnapshotCapacity;
+    const uint64 WorkerLimit = WorkerPushes < FIMAcousticDeviceBridge::ProbeWorkerCapacity ? WorkerPushes : FIMAcousticDeviceBridge::ProbeWorkerCapacity;
     const bool ProbeComplete = (BlockOverflow == 0) && (SnapOverflow == 0) && (WorkerOverflow == 0)
         && (BlockComplete == BlockLimit) && (SnapComplete == SnapLimit) && (WorkerComplete == WorkerLimit);
     const uint64 TransitChecks=Bridge->ApertureTransitChecks.load(std::memory_order_acquire);
     const uint64 TransitBlocked=Bridge->ApertureTransitBlocked.load(std::memory_order_acquire);
-    const double TransitP99=IM_H1TimingP99Us(Bridge->ApertureTransitTiming);
+    const double TransitP99=H1TimingP99Us(Bridge->ApertureTransitTiming);
     const double TransitMax=FPlatformTime::ToSeconds64(Bridge->ApertureTransitTiming.MaxCycles.load(std::memory_order_relaxed))*1.e6;
     const FString Summary = FString::Printf(TEXT("{\"available\":true,\"complete\":%s,\"block_pushes\":%llu,\"block_exported\":%llu,\"block_overflow\":%llu,\"snapshot_pushes\":%llu,\"snapshot_exported\":%llu,\"snapshot_overflow\":%llu,\"worker_pushes\":%llu,\"worker_exported\":%llu,\"worker_overflow\":%llu,\"aperture_transit\":{\"checks\":%llu,\"blocked\":%llu,\"p99_us\":%.3f,\"max_us\":%.3f,\"budget_p99_us\":50.0,\"budget_max_us\":200.0},\"route_windows\":%s}"),
         ProbeComplete ? TEXT("true") : TEXT("false"), BlockPushes, BlockComplete, BlockOverflow, SnapPushes, SnapComplete, SnapOverflow, WorkerPushes, WorkerComplete, WorkerOverflow, TransitChecks, TransitBlocked, TransitP99, TransitMax, *Windows);
@@ -146,7 +148,7 @@ static void IM_H1ExportProbeTrace(IM_AcousticDeviceBridge* Bridge, const TArray<
         ProbeComplete ? 1 : 0, BlockComplete, BlockPushes, BlockOverflow, SnapComplete, SnapPushes, SnapOverflow, WorkerComplete, WorkerPushes, WorkerOverflow, *EvidenceDir);
 }
 
-static void IM_H1ExportMetaSoundTrace(const IM_AcousticMetaSoundContextPtr& Context, const FString& EvidenceDir)
+void H1ExportMetaSoundTrace(const FIMAcousticMetaSoundContextPtr& Context, const FString& EvidenceDir)
 {
     if (!Context.IsValid())
     {
@@ -161,7 +163,7 @@ static void IM_H1ExportMetaSoundTrace(const IM_AcousticMetaSoundContextPtr& Cont
     Rows.Reserve(256 * 1024);
     for (uint32 I = 0; I < Limit; ++I)
     {
-        const IM_AcousticBlockProbe& E = Context->CapturedSourceBlocks[int32(I)];
+        const FIMAcousticBlockProbe& E = Context->CapturedSourceBlocks[int32(I)];
         Rows += FString::Printf(TEXT("%llu,%u,%u,%.6f,%.6f,%.6f,%.6f,%.3f,%.6f,%.9g,%.9g,%u,%u,%llu\n"),
             E.Block, uint32(E.Reject), E.Routes, E.ListenerX, E.ListenerY, E.ListenerZ, E.DistanceGain,
             E.CallbackDistanceCm, E.DegradedGain, E.InputEnergy, E.OutputEnergy, uint32(E.DirectValid), uint32(E.PathValid), E.ResultSequence);
@@ -173,13 +175,15 @@ static void IM_H1ExportMetaSoundTrace(const IM_AcousticMetaSoundContextPtr& Cont
         Limit, Capacity, Rendered, Rejected);
     FFileHelper::SaveStringToFile(Summary, *FPaths::Combine(EvidenceDir, TEXT("IM_metasound_trace_summary.json")), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
 }
+}
 
-namespace
+
+namespace IMAcousticW3DoorTestPrivate
 {
-constexpr const TCHAR* IMH1DoorMap=TEXT("/IceMoonAcousticField/Tests/IM_H1Door");
-float IMH1DoorOriginalBackgroundVolume=1;
-bool IMH1DoorOriginalBackgroundAudio=false;
-FString IMH1DoorEvidence()
+constexpr const TCHAR* H1DoorMap=TEXT("/IceMoonAcousticField/Tests/IM_H1Door");
+float H1DoorOriginalBackgroundVolume=1;
+bool H1DoorOriginalBackgroundAudio=false;
+FString H1DoorEvidence()
 {
     static FString Dir;
     if(Dir.IsEmpty())Dir=FPaths::ConvertRelativePathToFull(FPaths::Combine(FPaths::ProjectSavedDir(),TEXT("AcousticV2/H1-UE"),FString::Printf(TEXT("IMCF_W3_%s"),*FGuid::NewGuid().ToString(EGuidFormats::Digits))));
@@ -193,14 +197,14 @@ FString IMH1DoorEvidence()
 // CLOSED/OPEN height: hole spans UE Z 0..250; center Z=125 gives 10cm overlap
 // with 270cm panel. Z=275 left a 140cm under-door gap and leaked closed-state
 // path audio (W3 07:37 run d_path=188).
-const FVector IMH1DoorClosed(-150,0,125);
-const FVector IMH1DoorClosedScale(2.2f,0.1f,2.7f);
-const FVector IMH1DoorOpen(150,0,125);
-const FVector IMH1DoorParked(0,0,600);
-bool IMBuildH1DoorMap(FString& Error)
+const FVector H1DoorClosed(-150,0,125);
+const FVector H1DoorClosedScale(2.2f,0.1f,2.7f);
+const FVector H1DoorOpen(150,0,125);
+const FVector H1DoorParked(0,0,600);
+bool BuildH1DoorMap(FString& Error)
 {
-    if(FPackageName::DoesPackageExist(IMH1DoorMap))
-        return FEditorFileUtils::LoadMap(IMH1DoorMap,false,true);
+    if(FPackageName::DoesPackageExist(H1DoorMap))
+        return FEditorFileUtils::LoadMap(H1DoorMap,false,true);
     UWorld* World=FAutomationEditorCommonUtils::CreateNewMap();
     auto* Cube=LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Cube.Cube"));
     auto* Plane=LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Plane.Plane"));
@@ -232,24 +236,24 @@ bool IMBuildH1DoorMap(FString& Error)
     Door->GetStaticMeshComponent()->SetMobility(EComponentMobility::Movable);
     Door->GetStaticMeshComponent()->SetStaticMesh(Plane);
     Door->SetActorRotation(FRotator(0.f,0.f,90.f));
-    Door->SetActorLocation(IMH1DoorParked);Door->SetActorScale3D(FVector(2.2f,2.7f,1.0f));
+    Door->SetActorLocation(H1DoorParked);Door->SetActorScale3D(FVector(2.2f,2.7f,1.0f));
     Door->GetStaticMeshComponent()->SetMaterial(0,Cube->GetMaterial(0));
     Door->Tags.Add(TEXT("IMH1Door"));
     Volume->DynamicBlockers.Add(TObjectPtr<UStaticMeshComponent>(Door->GetStaticMeshComponent()));
-    const FString File=FPackageName::LongPackageNameToFilename(IMH1DoorMap,FPackageName::GetMapPackageExtension());
+    const FString File=FPackageName::LongPackageNameToFilename(H1DoorMap,FPackageName::GetMapPackageExtension());
     IFileManager::Get().MakeDirectory(*FPaths::GetPath(File),true);
     if(!FEditorFileUtils::SaveLevel(World->PersistentLevel,File)){Error=TEXT("Cannot save plugin-owned H1 fixture map.");return false;}
     return true;
 }
-AStaticMeshActor* IMFindH1Door(UWorld* World)
+AStaticMeshActor* FindH1Door(UWorld* World)
 {
     for(TActorIterator<AStaticMeshActor> It(World);It;++It){if(It->ActorHasTag(TEXT("IMH1Door")))return *It;}
     return nullptr;
 }
-class IM_AcousticW3DoorCommand final : public IAutomationLatentCommand
+class FIMAcousticW3DoorCommand final : public IAutomationLatentCommand
 {
 public:
-    explicit IM_AcousticW3DoorCommand(FAutomationTestBase* InTest,int32 InitialStage=0):Test(InTest),Started(FPlatformTime::Seconds()),Stage(InitialStage){}
+    explicit FIMAcousticW3DoorCommand(FAutomationTestBase* InTest,int32 InitialStage=0):Test(InTest),Started(FPlatformTime::Seconds()),Stage(InitialStage){}
     bool Update() override
     {
         const double Now=FPlatformTime::Seconds();
@@ -259,11 +263,11 @@ public:
             UWorld* World=GEditor->GetEditorWorldContext().World();
             FString Error;
             // Map load applies on the next tick; find the volume only afterwards.
-            if(!bMapLoaded){ if(!IMBuildH1DoorMap(Error))return Finish(false,Error); bMapLoaded=true; return false; }
+            if(!bMapLoaded){ if(!BuildH1DoorMap(Error))return Finish(false,Error); bMapLoaded=true; return false; }
             for(TActorIterator<AIMAcousticBakeVolume> It(World);It;++It){if(Volume.IsValid())return Finish(false,TEXT("H1 fixture has multiple bake volumes."));Volume=*It;}
             if(!Volume.IsValid())return Finish(false,TEXT("H1 fixture missing bake volume."));
             // Door must exist and be registered; repair (H1-only map) then persist.
-            AStaticMeshActor* Door=IMFindH1Door(World);
+            AStaticMeshActor* Door=FindH1Door(World);
             auto* PlaneFix=LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Plane.Plane"));
             auto* CubeFix=LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Cube.Cube"));
             if(!PlaneFix||!CubeFix)return Finish(false,TEXT("Cannot load engine plane/cube for H1 door."));
@@ -277,17 +281,17 @@ public:
             // enforce the clean-quad Plane leaf on the shared fixture map.
             Door->GetStaticMeshComponent()->SetStaticMesh(PlaneFix);
             Door->SetActorRotation(FRotator(0.f,0.f,90.f));
-            Door->SetActorLocation(IMH1DoorParked);Door->SetActorScale3D(FVector(2.2f,2.7f,1.0f));
+            Door->SetActorLocation(H1DoorParked);Door->SetActorScale3D(FVector(2.2f,2.7f,1.0f));
             Door->GetStaticMeshComponent()->SetMaterial(0,CubeFix->GetMaterial(0));
             if(!Volume->DynamicBlockers.Contains(TObjectPtr<UStaticMeshComponent>(Door->GetStaticMeshComponent())))Volume->DynamicBlockers.Add(TObjectPtr<UStaticMeshComponent>(Door->GetStaticMeshComponent()));
             FString BakeError;
             if(Volume->ValidateCurrentBake(BakeError))
             {
-                const FString File=FPackageName::LongPackageNameToFilename(IMH1DoorMap,FPackageName::GetMapPackageExtension());
+                const FString File=FPackageName::LongPackageNameToFilename(H1DoorMap,FPackageName::GetMapPackageExtension());
                 if(!FEditorFileUtils::SaveLevel(World->PersistentLevel,File))return Finish(false,TEXT("Cannot persist H1 fixture binding."));
-                FString LoadError;GUnrealEd->AutomationLoadMap(IMH1DoorMap,false,&LoadError);
+                FString LoadError;GUnrealEd->AutomationLoadMap(H1DoorMap,false,&LoadError);
                 if(!LoadError.IsEmpty())return Finish(false,LoadError);
-                ADD_LATENT_AUTOMATION_COMMAND(IM_AcousticW3DoorCommand(Test,2));
+                ADD_LATENT_AUTOMATION_COMMAND(FIMAcousticW3DoorCommand(Test,2));
                 return true;
             }
             Volume->GenerateProbes();
@@ -303,15 +307,15 @@ public:
             if(!Volume.IsValid())return Finish(false,TEXT("Bake owner destroyed."));
             if(Volume->Status.Contains(TEXT("failed"),ESearchCase::IgnoreCase)||Volume->Status.Contains(TEXT("discarded")))return Finish(false,Volume->Status);
             if(!Volume->BakedField||Volume->BakedField.Get()==PreviousAsset.Get())return false;
-            IFileManager::Get().MakeDirectory(*IMH1DoorEvidence(),true);
-            FFileHelper::SaveArrayToFile(Volume->BakedField->SceneData,*FPaths::Combine(IMH1DoorEvidence(),TEXT("scene.bin")));
-            FFileHelper::SaveArrayToFile(Volume->BakedField->ProbeData,*FPaths::Combine(IMH1DoorEvidence(),TEXT("probes.bin")));
-            UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticH1DoorBake triangles=%d probes=%d evidence=%s"),Volume->ExportedTriangles,Volume->GeneratedProbes,*IMH1DoorEvidence());
-            const FString File=FPackageName::LongPackageNameToFilename(IMH1DoorMap,FPackageName::GetMapPackageExtension());
+            IFileManager::Get().MakeDirectory(*H1DoorEvidence(),true);
+            FFileHelper::SaveArrayToFile(Volume->BakedField->SceneData,*FPaths::Combine(H1DoorEvidence(),TEXT("scene.bin")));
+            FFileHelper::SaveArrayToFile(Volume->BakedField->ProbeData,*FPaths::Combine(H1DoorEvidence(),TEXT("probes.bin")));
+            UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticH1DoorBake triangles=%d probes=%d evidence=%s"),Volume->ExportedTriangles,Volume->GeneratedProbes,*H1DoorEvidence());
+            const FString File=FPackageName::LongPackageNameToFilename(H1DoorMap,FPackageName::GetMapPackageExtension());
             if(!FEditorFileUtils::SaveLevel(Volume->GetWorld()->PersistentLevel,File))return Finish(false,TEXT("Cannot persist H1 bake binding."));
-            FString Error;GUnrealEd->AutomationLoadMap(IMH1DoorMap,false,&Error);
+            FString Error;GUnrealEd->AutomationLoadMap(H1DoorMap,false,&Error);
             if(!Error.IsEmpty())return Finish(false,Error);
-            ADD_LATENT_AUTOMATION_COMMAND(IM_AcousticW3DoorCommand(Test,2));
+            ADD_LATENT_AUTOMATION_COMMAND(FIMAcousticW3DoorCommand(Test,2));
             return true;
         }
         UWorld* PIE=nullptr;
@@ -322,7 +326,7 @@ public:
         {
             for(TActorIterator<AIMAcousticBakeVolume> It(PIE);It;++It)Volume=*It;
             if(!Volume.IsValid())return Finish(false,TEXT("PIE bake volume missing."));
-            DoorActor=IMFindH1Door(PIE);
+            DoorActor=FindH1Door(PIE);
             if(!DoorActor.IsValid())return Finish(false,TEXT("PIE door actor missing."));
             // H1 W3 PIE rebind: PIE duplicates Volume with Editor DynamicBlockers
             // refs (parked transform). Rebind to PIE door so Tick snapshots follow
@@ -342,11 +346,11 @@ public:
             // not a product-side fixture constant.  The policy is conservative
             // and only blocks path output while current dynamic geometry covers
             // this volume; parked/open/no-door remain unblocked.
-            if(!Volume->IM_SetApertureTransitForTest(true,FVector(-150,0,125),FVector(110,5,135)))
+            if(!Volume->SetApertureTransitForTest(true,FVector(-150,0,125),FVector(110,5,135)))
                 return Finish(false,TEXT("Cannot enable aperture-transit validation."));
             APlayerController* Listener=PIE->GetFirstPlayerController();if(!Listener)return false;
             Listener->SetAudioListenerOverride(nullptr,FVector(100,200,150),FRotator(0,-90,0));
-            auto InitBridge=IM_AcousticTestSupport::FindBridge(PIE);
+            auto InitBridge=IMAcousticTestSupport::FindBridge(PIE);
             if(!InitBridge.IsValid())return false;
             if(!ProbeBridge.IsValid())ProbeBridge=InitBridge;
             if(!ListenerConverged(InitBridge))
@@ -358,21 +362,21 @@ public:
             if(!MetaContext.IsValid())
             {
                 if(FAudioDevice* AudioDevice=PIE->GetAudioDeviceRaw())
-                    MetaContext=IM_FindAcousticMetaSoundContext(AudioDevice->DeviceID);
+                    MetaContext=IMAcousticMetaSound::FindAcousticMetaSoundContext(AudioDevice->DeviceID);
             }
             if(MetaContext.IsValid()&&GraphGateBefore==0)GraphGateBefore=GraphSourceBlocks();
             Volume->bDirectRoute=false;Volume->bPathRoute=true;Volume->bReverbRoute=false;
             // Rendered-audio gate: the new source is a MetaSound graph, so the
             // legacy device ring's PathNonzeroBlocks is intentionally empty.
             // Gate on the graph operator's accepted path output instead.
-            auto GBridge=IM_AcousticTestSupport::FindBridge(PIE);
+            auto GBridge=IMAcousticTestSupport::FindBridge(PIE);
             if(!GBridge.IsValid())return false;
             if(!ProbeBridge.IsValid() || ProbeBridge != GBridge)ProbeBridge=GBridge;
             uint64 GraphPathBlocks=0,GraphAcceptedBlocks=0,GraphRejectedBlocks=0,GraphSeq=0;
             GraphWindow(GraphGateBefore,GraphSourceBlocks(),GraphAcceptedBlocks,GraphPathBlocks,GraphRejectedBlocks,GraphSeq);
             if(MetaContext.IsValid()&&GraphPathBlocks>0)
             {
-                DoorActor->SetActorLocation(IMH1DoorParked);
+                DoorActor->SetActorLocation(H1DoorParked);
                 UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticH1DoorInitReady t=%.3f"),Now-Started);
                 SettleUntil=Now+1.2;Stage=3;StateIndex=0;return false;
             }
@@ -389,7 +393,7 @@ public:
             return false;
         }
         const int StateCount=5;
-        auto StateLoc=[](int I)->FVector{ return (I==1||I>=3)?IMH1DoorClosed:(I==2?IMH1DoorOpen:IMH1DoorParked); };
+        auto StateLoc=[](int I)->FVector{ return (I==1||I>=3)?H1DoorClosed:(I==2?H1DoorOpen:H1DoorParked); };
         auto StateSecs=[](int I)->double{ return I==4?3.0:4.0; };
         if(Stage==3)
         {
@@ -397,18 +401,18 @@ public:
             {
                 if(OffPhase==0)
                 {
-                    if(!Volume.IsValid()||!Volume->IM_SetPathingValidationForTest(false))return Finish(false,TEXT("OFF control request failed."));
+                    if(!Volume.IsValid()||!Volume->SetPathingValidationForTest(false))return Finish(false,TEXT("OFF control request failed."));
                     OffPhase=1;OffRequestStart=Now;return false;
                 }
                 if(OffPhase==1)
                 {
-                    const int Applied=Volume.IsValid()?Volume->IM_GetAppliedPathingValidationForTest():-2;
+                    const int Applied=Volume.IsValid()?Volume->ReadAppliedPathingValidationForTest():-2;
                     if(Applied!=0){ if(Now-OffRequestStart>5)return Finish(false,TEXT("OFF control not applied.")); return false; }
                     OffPhase=2;SettleUntil=Now+1.0;return false;
                 }
             }
             if(Now<SettleUntil)return false;
-            auto QBridge=IM_AcousticTestSupport::FindBridge(PIE);if(!QBridge.IsValid())return Finish(false,TEXT("Bridge lost before state window."));
+            auto QBridge=IMAcousticTestSupport::FindBridge(PIE);if(!QBridge.IsValid())return Finish(false,TEXT("Bridge lost before state window."));
             // The recorder flushes asynchronously after StopRecordingOutput.
             // Mute the production route at that boundary so stale-result
             // fallback blocks cannot contaminate the exact-zero WAV tail.
@@ -421,10 +425,10 @@ public:
         if(Stage==4)
         {
             if(Now-WinStart<StateSecs(StateIndex))return false;
-            auto QBridge=IM_AcousticTestSupport::FindBridge(PIE);if(!QBridge.IsValid())return Finish(false,TEXT("Bridge lost in state window."));
+            auto QBridge=IMAcousticTestSupport::FindBridge(PIE);if(!QBridge.IsValid())return Finish(false,TEXT("Bridge lost in state window."));
             const FString SN=StateName(StateIndex);
-            const FString WavPath=FPaths::Combine(IMH1DoorEvidence(),SN+TEXT(".wav"));
-            if(!WavStopped){ QBridge->RenderRoutes.store(0,std::memory_order_relaxed); UAudioMixerBlueprintLibrary::StopRecordingOutput(PIE,EAudioRecordingExportType::WavFile,SN,IMH1DoorEvidence()); TArray<FString> IM_RecFiles;IFileManager::Get().FindFiles(IM_RecFiles,*IMH1DoorEvidence(),TEXT("*")); UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticH1DoorRecStop state=%s wav=%s dir_exists=%d files=%d"),*SN,*WavPath,IFileManager::Get().DirectoryExists(*IMH1DoorEvidence())?1:0,IM_RecFiles.Num()); WavStopped=true; StopTime=Now; return false; }
+            const FString WavPath=FPaths::Combine(H1DoorEvidence(),SN+TEXT(".wav"));
+            if(!WavStopped){ QBridge->RenderRoutes.store(0,std::memory_order_relaxed); UAudioMixerBlueprintLibrary::StopRecordingOutput(PIE,EAudioRecordingExportType::WavFile,SN,H1DoorEvidence()); TArray<FString> RecFiles;IFileManager::Get().FindFiles(RecFiles,*H1DoorEvidence(),TEXT("*")); UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticH1DoorRecStop state=%s wav=%s dir_exists=%d files=%d"),*SN,*WavPath,IFileManager::Get().DirectoryExists(*H1DoorEvidence())?1:0,RecFiles.Num()); WavStopped=true; StopTime=Now; return false; }
             // Recorder flush latency is environment-dependent (W1 polls unboundedly
             // inside its 120s cap); 30s bounds one state, the 300s total cap bounds all.
             // Single discriminating probe (2026-09-16): W1 records fine through the
@@ -453,14 +457,14 @@ public:
             const FVector DoorUE=DoorActor.IsValid()?DoorActor->GetActorLocation():FVector(0,0,0);
             if(!DoorActor.IsValid())return Finish(false,TEXT("Door actor lost in state window."));
             FVector Door0SDK=FVector::ZeroVector;bool bDoor0Found=false;
-            const uint64 SPushes=FMath::Min<uint64>(PushesNow,uint64(IM_AcousticDeviceBridge::ProbeSnapshotCapacity));
-            for(uint64 I=SPushes;I>0;--I){const uint64 Idx=I-1;if(QBridge->SnapshotDone[Idx].load(std::memory_order_acquire)!=Idx+1)continue;const IM_AcousticSnapshotProbe& S=QBridge->SnapshotProbes[Idx];if(S.CapturedSeconds<WinStart-0.1)break;if(S.NumDynamicMeshes==0)continue;Door0SDK=FVector(S.Door0TX,S.Door0TY,S.Door0TZ);bDoor0Found=true;break;}
+            const uint64 SPushes=FMath::Min<uint64>(PushesNow,uint64(FIMAcousticDeviceBridge::ProbeSnapshotCapacity));
+            for(uint64 I=SPushes;I>0;--I){const uint64 Idx=I-1;if(QBridge->SnapshotDone[Idx].load(std::memory_order_acquire)!=Idx+1)continue;const FIMAcousticSnapshotProbe& S=QBridge->SnapshotProbes[Idx];if(S.CapturedSeconds<WinStart-0.1)break;if(S.NumDynamicMeshes==0)continue;Door0SDK=FVector(S.Door0TX,S.Door0TY,S.Door0TZ);bDoor0Found=true;break;}
             if(!bDoor0Found)return Finish(false,FString::Printf(TEXT("%s: no captured door in window."),*SN));
             uint64 WinMaxSeq=GraphMaxSequence;
             if(!MetaContext.IsValid())
             {
-                const uint64 BPushes=FMath::Min<uint64>(QBridge->BlockProbePushes.load(std::memory_order_acquire),uint64(IM_AcousticDeviceBridge::ProbeBlockCapacity));
-                for(uint64 I=0;I<BPushes;++I){if(QBridge->BlockDone[I].load(std::memory_order_acquire)!=I+1)continue;const IM_AcousticBlockProbe& B=QBridge->BlockProbes[I];if(B.ConsumedSeconds>=WinStart&&B.ConsumedSeconds<=Now&&B.ResultSequence>WinMaxSeq)WinMaxSeq=B.ResultSequence;}
+                const uint64 BPushes=FMath::Min<uint64>(QBridge->BlockProbePushes.load(std::memory_order_acquire),uint64(FIMAcousticDeviceBridge::ProbeBlockCapacity));
+                for(uint64 I=0;I<BPushes;++I){if(QBridge->BlockDone[I].load(std::memory_order_acquire)!=I+1)continue;const FIMAcousticBlockProbe& B=QBridge->BlockProbes[I];if(B.ConsumedSeconds>=WinStart&&B.ConsumedSeconds<=Now&&B.ResultSequence>WinMaxSeq)WinMaxSeq=B.ResultSequence;}
             }
             if(PushesNow<=PushesBefore)return Finish(false,FString::Printf(TEXT("%s: snapshots did not advance."),*SN));
             if(DRen==0)return Finish(false,FString::Printf(TEXT("%s: no audio consumed in window."),*SN));
@@ -474,12 +478,12 @@ public:
             StateWindows.Add(FString::Printf(TEXT("{\"state\":\"%s\",\"win_start\":%.3f,\"win_end\":%.3f,\"d_direct\":%llu,\"d_path\":%llu,\"d_rejected\":%llu,\"rendered\":%llu,\"energy\":%.6g,\"pcm_bytes\":%u,\"door_ue\":[%.1f,%.1f,%.1f],\"door0_sdk\":[%.4g,%.4g,%.4g],\"max_seq\":%llu}"),*SN,WinStart,Now,DDirect,DPath,DRej,DRen,Energy,PcmBytes,DoorUE.X,DoorUE.Y,DoorUE.Z,Door0SDK.X,Door0SDK.Y,Door0SDK.Z,WinMaxSeq));
             UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticH1DoorState %s d_direct=%llu d_path=%llu energy=%.6g max_seq=%llu"),*SN,DDirect,DPath,Energy,WinMaxSeq);
             QBridge->RenderRoutes.store(2,std::memory_order_relaxed);
-            if(StateIndex==4){ if(Volume.IsValid())Volume->IM_SetPathingValidationForTest(true); OnRequestStart=Now; Stage=5; return false; }
+            if(StateIndex==4){ if(Volume.IsValid())Volume->SetPathingValidationForTest(true); OnRequestStart=Now; Stage=5; return false; }
             ++StateIndex;DoorActor->SetActorLocation(StateLoc(StateIndex));SettleUntil=Now+1.2;Stage=3;return false;
         }
         if(Stage==5)
         {
-            const int Applied=Volume.IsValid()?Volume->IM_GetAppliedPathingValidationForTest():-2;
+            const int Applied=Volume.IsValid()?Volume->ReadAppliedPathingValidationForTest():-2;
             if(Applied!=1){ if(Now-OnRequestStart>5)return Finish(false,TEXT("Validation restore not applied.")); return false; }
             Stage=6;return false;
         }
@@ -493,7 +497,7 @@ public:
             if((Door0PerState[0]-Door0PerState[1]).Size()<1.0)return Finish(false,TEXT("PARKED must differ from CLOSED capture."));
             if(!ProbeBridge.IsValid())return Finish(false,TEXT("Aperture-transit performance bridge missing."));
             const uint64 TransitChecks=ProbeBridge->ApertureTransitChecks.load(std::memory_order_acquire);
-            const double TransitP99=IM_H1TimingP99Us(ProbeBridge->ApertureTransitTiming);
+            const double TransitP99=H1TimingP99Us(ProbeBridge->ApertureTransitTiming);
             const double TransitMax=FPlatformTime::ToSeconds64(ProbeBridge->ApertureTransitTiming.MaxCycles.load(std::memory_order_relaxed))*1.e6;
             if(TransitChecks==0)return Finish(false,TEXT("Aperture-transit gate was never exercised."));
             if(TransitP99>50.0||TransitMax>200.0)
@@ -515,24 +519,24 @@ public:
         const uint32 First=Begin<Limit?Begin:Limit;
         for(uint32 I=First;I<Limit;++I)
         {
-            const IM_AcousticBlockProbe& E=MetaContext->CapturedSourceBlocks[int32(I)];
+            const FIMAcousticBlockProbe& E=MetaContext->CapturedSourceBlocks[int32(I)];
             if(E.ResultSequence>MaxSequence)MaxSequence=E.ResultSequence;
-            if(E.Reject!=IM_AcousticProbeReject::Accepted){++Rejected;continue;}
+            if(E.Reject!=EIMAcousticProbeReject::Accepted){++Rejected;continue;}
             ++Accepted;
             if((E.Routes&2u)!=0&&E.OutputEnergy>1e-9)++Path;
         }
     }
-    bool ListenerConverged(const TSharedPtr<IM_AcousticDeviceBridge,ESPMode::ThreadSafe>& InBridge) const
+    bool ListenerConverged(const TSharedPtr<FIMAcousticDeviceBridge,ESPMode::ThreadSafe>& InBridge) const
     {
         if(!InBridge.IsValid())return false;
         const uint64 Pushes=InBridge->SnapshotProbePushes.load(std::memory_order_acquire);
-        const uint64 Limit=Pushes<IM_AcousticDeviceBridge::ProbeSnapshotCapacity?Pushes:IM_AcousticDeviceBridge::ProbeSnapshotCapacity;
+        const uint64 Limit=Pushes<FIMAcousticDeviceBridge::ProbeSnapshotCapacity?Pushes:FIMAcousticDeviceBridge::ProbeSnapshotCapacity;
         if(Limit==0)return false;
         for(uint64 I=Limit;I>0;--I)
         {
             const uint64 Idx=I-1;
             if(InBridge->SnapshotDone[Idx].load(std::memory_order_acquire)!=Idx+1)continue;
-            const IM_AcousticSnapshotProbe& S=InBridge->SnapshotProbes[Idx];
+            const FIMAcousticSnapshotProbe& S=InBridge->SnapshotProbes[Idx];
             return FMath::Abs(double(S.ListenerUEX)-100.0)<1e-3&&FMath::Abs(double(S.ListenerUEY)-200.0)<1e-3&&FMath::Abs(double(S.ListenerUEZ)-150.0)<1e-3;
         }
         return false;
@@ -548,7 +552,7 @@ public:
         MovingSource=Audio;
         auto* Source=NewObject<UIMAcousticSourceComponent>(Actor);Actor->AddInstanceComponent(Source);Source->AudioComponent=Audio;Source->RegisterComponent();
         FString Error;
-        if(!IM_AcousticTestSupport::ConfigureGraphSource(Audio,Error)){Finish(false,Error);return false;}
+        if(!IMAcousticTestSupport::ConfigureGraphSource(Audio,Error)){Finish(false,Error);return false;}
         if(!Source->ValidateSource(Error)){Finish(false,Error);return false;}
         Audio->Play();return true;
     }
@@ -587,16 +591,16 @@ public:
         uint64 CRen=0,CRej=0,CDir=0,CPath=0;
         if(ProbeBridge.IsValid()){CRen=ProbeBridge->RenderedBlocks.load();CRej=ProbeBridge->RejectedBlocks.load();CDir=ProbeBridge->DirectNonzeroBlocks.load();CPath=ProbeBridge->PathNonzeroBlocks.load();}
         const FString RC=FString::Printf(TEXT("{\"started\":%.6f,\"states\":%d,\"windows\":%d,\"rendered\":%llu,\"rejected\":%llu,\"direct\":%llu,\"path\":%llu}"),Started,StateIndex+1,StateWindows.Num(),CRen,CRej,CDir,CPath);
-        if(ProbeBridge.IsValid()){IM_H1ExportProbeTrace(ProbeBridge.Get(),StateWindows,IMH1DoorEvidence(),RC);}
-        else{IM_H1ExportProbeTrace(nullptr,StateWindows,IMH1DoorEvidence(),RC);}
-        IM_H1ExportMetaSoundTrace(MetaContext,IMH1DoorEvidence());
+        if(ProbeBridge.IsValid()){H1ExportProbeTrace(ProbeBridge.Get(),StateWindows,H1DoorEvidence(),RC);}
+        else{H1ExportProbeTrace(nullptr,StateWindows,H1DoorEvidence(),RC);}
+        H1ExportMetaSoundTrace(MetaContext,H1DoorEvidence());
         if(!Pass)Test->AddError(Message);else Test->AddInfo(Message);
         UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticH1DoorSequence %s %s"),Pass?TEXT("PASS"):TEXT("FAIL"),*Message);
         UE_LOG(LogTemp,Display,TEXT("IMExitEditor %s"),Pass?TEXT("PASS"):TEXT("FAIL"));
         UE_LOG(LogTemp,Display,TEXT("[IM][PIE_TEST] AcousticH1DoorSequence %s"),Pass?TEXT("PASS"):TEXT("FAIL"));
-        FApp::SetUnfocusedVolumeMultiplier(IMH1DoorOriginalBackgroundVolume);
-        GetMutableDefault<ULevelEditorMiscSettings>()->bAllowBackgroundAudio=IMH1DoorOriginalBackgroundAudio;
-        IM_EnableAcousticMetaSoundCaptureForTest(false);
+        FApp::SetUnfocusedVolumeMultiplier(H1DoorOriginalBackgroundVolume);
+        GetMutableDefault<ULevelEditorMiscSettings>()->bAllowBackgroundAudio=H1DoorOriginalBackgroundAudio;
+        IMAcousticMetaSound::EnableAcousticMetaSoundCaptureForTest(false);
         if(GUnrealEd)GUnrealEd->RequestEndPlayMap();return true;
     }
     FAutomationTestBase* Test;
@@ -608,8 +612,8 @@ public:
     TArray<int16> FeedPCM;int32 FeedCursor=0;
     uint64 DirectBefore=0,PathBefore=0,RejectedBefore=0,RenderedBefore=0,PushesBefore=0,PrevMaxSeq=0,GateDry0=0;
     int GateRe=0;bool GateInit=false;
-    TSharedPtr<IM_AcousticDeviceBridge,ESPMode::ThreadSafe> ProbeBridge;
-    IM_AcousticMetaSoundContextPtr MetaContext;
+    TSharedPtr<FIMAcousticDeviceBridge,ESPMode::ThreadSafe> ProbeBridge;
+    FIMAcousticMetaSoundContextPtr MetaContext;
     uint32 GraphGateBefore=0,GraphWindowBefore=0;
     TArray<FString> StateWindows;
     TArray<FVector> Door0PerState;
@@ -623,13 +627,13 @@ public:
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FIMAcousticDoorSequenceTest,"IceMoon.AcousticField.H1.DoorSequence",EAutomationTestFlags::EditorContext|EAutomationTestFlags::ProductFilter)
 bool FIMAcousticDoorSequenceTest::RunTest(const FString&)
 {
-    FString Error;if(!IMBuildH1DoorMap(Error)){AddError(Error);return false;}
-    IM_EnableAcousticMetaSoundCaptureForTest(true);
-    IMH1DoorOriginalBackgroundVolume=FApp::GetUnfocusedVolumeMultiplier();
+    FString Error;if(!IMAcousticW3DoorTestPrivate::BuildH1DoorMap(Error)){AddError(Error);return false;}
+    IMAcousticMetaSound::EnableAcousticMetaSoundCaptureForTest(true);
+    IMAcousticW3DoorTestPrivate::H1DoorOriginalBackgroundVolume=FApp::GetUnfocusedVolumeMultiplier();
     FApp::SetUnfocusedVolumeMultiplier(1);
-    IMH1DoorOriginalBackgroundAudio=GetMutableDefault<ULevelEditorMiscSettings>()->bAllowBackgroundAudio;
+    IMAcousticW3DoorTestPrivate::H1DoorOriginalBackgroundAudio=GetMutableDefault<ULevelEditorMiscSettings>()->bAllowBackgroundAudio;
     GetMutableDefault<ULevelEditorMiscSettings>()->bAllowBackgroundAudio=true;
-    ADD_LATENT_AUTOMATION_COMMAND(IM_AcousticW3DoorCommand(this));return true;
+    ADD_LATENT_AUTOMATION_COMMAND(IMAcousticW3DoorTestPrivate::FIMAcousticW3DoorCommand(this));return true;
 }
 // H1 no-audio isolation (inc104): does the baked static scene occlude a ray
 // through the solid partition (A, expect occ>=0.99) while passing a ray through
@@ -644,7 +648,7 @@ bool FIMAcousticDoorSequenceTest::RunTest(const FString&)
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FIMAcousticStaticOcclusionTest,"IceMoon.AcousticField.H1.StaticOcclusion",EAutomationTestFlags::EditorContext|EAutomationTestFlags::ProductFilter)
 bool FIMAcousticStaticOcclusionTest::RunTest(const FString&)
 {
-    FString Error;if(!IMBuildH1DoorMap(Error)){AddError(Error);return false;}
+    FString Error;if(!IMAcousticW3DoorTestPrivate::BuildH1DoorMap(Error)){AddError(Error);return false;}
     UWorld* World=GEditor->GetEditorWorldContext().World();
     AIMAcousticBakeVolume* Volume=nullptr;
     for(TActorIterator<AIMAcousticBakeVolume> It(World);It;++It){Volume=*It;break;}
@@ -653,16 +657,16 @@ bool FIMAcousticStaticOcclusionTest::RunTest(const FString&)
     if(!Volume->ValidateCurrentBake(BakeError)){AddError(BakeError);return false;}
     UIMAcousticBakeAsset* Bake=Volume->BakedField.Get();
     if(!Bake||Bake->SceneData.Num()==0||Bake->ProbeData.Num()==0){AddError(TEXT("Bound bake payload empty."));return false;}
-    IM_AcousticBakeData Data;
+    FIMAcousticBakeData Data;
     Data.Scene.assign(Bake->SceneData.GetData(),Bake->SceneData.GetData()+Bake->SceneData.Num());
     Data.ProbeBatch.assign(Bake->ProbeData.GetData(),Bake->ProbeData.GetData()+Bake->ProbeData.Num());
-    IM_AcousticSimulation Sim;
+    FIMAcousticSimulation Sim;
     std::string SetError;
-    if(!Sim.SetPathingOptions(IM_AcousticPathingOptions::DefaultHybrid(),SetError)){AddError(TEXT("SetPathingOptions failed."));return false;}
+    if(!Sim.SetPathingOptions(FIMAcousticPathingOptions::DefaultHybrid(),SetError)){AddError(TEXT("SetPathingOptions failed."));return false;}
     std::string LoadError;
     if(!Sim.Load(Data,48000,1024,LoadError)){AddError(TEXT("Simulation Load failed."));return false;}
     const FVector Origin(0,0,150);
-    auto SpaceAt=[&](const FVector& P){return IMToSDKSpace(FTransform(FQuat::Identity,P),Origin);};
+    auto SpaceAt=[&](const FVector& P){return ToSDKSpace(FTransform(FQuat::Identity,P),Origin);};
     auto SdkToUE=[&](float x,float y,float z){return FVector(-z*100.0f,x*100.0f,y*100.0f+150.0f);};
     const float Ys[]={-2.0f,-1.5f,-1.0f,-0.5f,0.0f,0.5f,1.0f,1.5f,2.0f};
     const float Zs[]={-3.5f,-3.0f,-2.5f,-2.0f,-1.5f,-1.0f,-0.5f,0.0f,0.5f,1.0f,1.5f,2.0f,2.5f,3.0f,3.5f};
@@ -670,7 +674,7 @@ bool FIMAcousticStaticOcclusionTest::RunTest(const FString&)
     for(float Y:Ys){
         FString Row=FString::Printf(TEXT("Y=%g:"),Y);
         for(float Z:Zs){
-            IM_AcousticAudioFrame Frame;std::string Err;
+            FIMAcousticAudioFrame Frame;std::string Err;
             if(!Sim.Evaluate(7,1,SpaceAt(SdkToUE(-2.0f,Y,Z)),SpaceAt(SdkToUE(2.0f,Y,Z)),Frame,Err)){ApiOk=false;Row+=TEXT(" E");continue;}
             Row+=FString::Printf(TEXT(" %g"),Frame.Direct.occlusion);
         }
@@ -684,7 +688,7 @@ bool FIMAcousticStaticOcclusionTest::RunTest(const FString&)
     for(float Y:Ys){
         FString Row=FString::Printf(TEXT("Y=%g:"),Y);
         for(float Z:Zs){
-            IM_AcousticAudioFrame Frame;std::string Err;
+            FIMAcousticAudioFrame Frame;std::string Err;
             if(!Sim.Evaluate(7,1,SpaceAt(SdkToUE(2.0f,Y,Z)),SpaceAt(SdkToUE(-2.0f,Y,Z)),Frame,Err)){ApiOk=false;Row+=TEXT(" E");continue;}
             Row+=FString::Printf(TEXT(" %g"),Frame.Direct.occlusion);
         }
@@ -699,7 +703,7 @@ bool FIMAcousticStaticOcclusionTest::RunTest(const FString&)
     // dynamic path is broken; if CLOSED blocks here but the UE-synced door does
     // not, the UE snapshot payload is wrong. Diagnostic only, still PASS.
     {
-        IM_AcousticDynamicMeshInput HandDoor;
+        FIMAcousticDynamicMeshInput HandDoor;
         HandDoor.Key = 0x1D006;
         HandDoor.GeometryHash = 0x1D006;
         const float X0=-0.20f,X1=0.25f,Y0=-1.60f,Y1=1.10f,Z0=0.45f,Z1=2.55f;
@@ -714,14 +718,14 @@ bool FIMAcousticStaticOcclusionTest::RunTest(const FString&)
         std::string SyncErr;
         if(!Sim.SyncDynamicMeshes({HandDoor},SyncErr)){UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticH1HandDoor SYNC_FAIL %s"),UTF8_TO_TCHAR(SyncErr.c_str()));}
         else{
-            IM_AcousticAudioFrame ShutFrame;std::string ShutErr;
+            FIMAcousticAudioFrame ShutFrame;std::string ShutErr;
             const bool ShutOk = Sim.Evaluate(7,1,SpaceAt(SdkToUE(-2.0f,-0.25f,1.5f)),SpaceAt(SdkToUE(2.0f,-0.25f,1.5f)),ShutFrame,ShutErr);
             double ShutEq = 0.0, ShutSh = 0.0;
             for(float V:ShutFrame.PathEQ){ ShutEq += V; }
             for(float V:ShutFrame.PathSH){ ShutSh += double(V)*double(V); }
             UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticH1HandDoor CLOSED ok=%d occ=%g pathvalid=%d eq=%.6g sh=%.6g err=%s"),ShutOk?1:0,ShutOk?ShutFrame.Direct.occlusion:-1.0f,ShutOk?(ShutFrame.PathValid?1:0):-1,ShutEq,ShutSh,UTF8_TO_TCHAR(ShutErr.c_str()));
             std::string ClearErr;Sim.SyncDynamicMeshes({},ClearErr);
-            IM_AcousticAudioFrame OpenFrame;std::string OpenErr;
+            FIMAcousticAudioFrame OpenFrame;std::string OpenErr;
             const bool OpenOk = Sim.Evaluate(7,1,SpaceAt(SdkToUE(-2.0f,-0.25f,1.5f)),SpaceAt(SdkToUE(2.0f,-0.25f,1.5f)),OpenFrame,OpenErr);
             UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticH1HandDoor OPEN ok=%d occ=%g pathvalid=%d err=%s"),OpenOk?1:0,OpenOk?OpenFrame.Direct.occlusion:-1.0f,OpenOk?(OpenFrame.PathValid?1:0):-1,UTF8_TO_TCHAR(OpenErr.c_str()));
         }
@@ -733,7 +737,7 @@ bool FIMAcousticStaticOcclusionTest::RunTest(const FString&)
     // alone indicted. Conducts (pv=1) => instance transforms misplace sealed
     // panels in the sim (runtime door suspect), mesh data exonerated.
     {
-        IM_AcousticDynamicMeshInput TBox;
+        FIMAcousticDynamicMeshInput TBox;
         TBox.Key = 0x1D009; TBox.GeometryHash = 0x1D009;
         const float X0=-0.20f,X1=0.25f,Y0=-1.60f,Y1=1.10f,Z0=0.45f,Z1=2.55f;
         IPLVector3 LC[8]={{X0,Y0+0.25f,Z0-1.5f},{X1,Y0+0.25f,Z0-1.5f},{X1,Y1+0.25f,Z0-1.5f},{X0,Y1+0.25f,Z0-1.5f},{X0,Y0+0.25f,Z1-1.5f},{X1,Y0+0.25f,Z1-1.5f},{X1,Y1+0.25f,Z1-1.5f},{X0,Y1+0.25f,Z1-1.5f}};
@@ -748,7 +752,7 @@ bool FIMAcousticStaticOcclusionTest::RunTest(const FString&)
         std::string TErr;
         if(!Sim.SyncDynamicMeshes({TBox},TErr)){UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticH1TransBox SYNC_FAIL %s"),UTF8_TO_TCHAR(TErr.c_str()));}
         else{
-            IM_AcousticAudioFrame TFrame;std::string TOpErr;
+            FIMAcousticAudioFrame TFrame;std::string TOpErr;
             const bool TOk = Sim.Evaluate(7,1,SpaceAt(SdkToUE(-2.0f,-0.25f,1.5f)),SpaceAt(SdkToUE(2.0f,-0.25f,1.5f)),TFrame,TOpErr);
             UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticH1TransBox ok=%d occ=%g pathvalid=%d err=%s"),TOk?1:0,TOk?TFrame.Direct.occlusion:-1.0f,TOk?(TFrame.PathValid?1:0):-1,UTF8_TO_TCHAR(TOpErr.c_str()));
         }
@@ -845,7 +849,7 @@ bool FIMAcousticStaticOcclusionTest::RunTest(const FString&)
                     }
                     }
             if(Mesh && NumV>0 && NumT>0){
-                IM_AcousticDynamicMeshInput UeDoor;
+                FIMAcousticDynamicMeshInput UeDoor;
                 UeDoor.Key = 0x1D007; UeDoor.GeometryHash = 0x1D007;
                 const auto& LOD = Mesh->GetRenderData()->LODResources[0];
                 for(uint32 I=0;I<LOD.VertexBuffers.PositionVertexBuffer.GetNumVertices();++I){
@@ -871,17 +875,17 @@ bool FIMAcousticStaticOcclusionTest::RunTest(const FString&)
                     const FQuat Rigid = T.GetRotation();
                     const FVector UEAxes[3] = {FVector::ForwardVector, FVector::RightVector, FVector::UpVector};
                     for(int32 Col=0;Col<3;++Col){
-                        const IPLVector3 Axis = IMToSDKDirection(Rigid.RotateVector(UEAxes[Col]));
+                        const IPLVector3 Axis = ToSDKDirection(Rigid.RotateVector(UEAxes[Col]));
                         DoorMat4.elements[0][Col]=Axis.x;DoorMat4.elements[1][Col]=Axis.y;DoorMat4.elements[2][Col]=Axis.z;
                     }
-                    const IPLVector3 Tr = IMToSDKPosition(T.GetLocation(), Origin);
+                    const IPLVector3 Tr = ToSDKPosition(T.GetLocation(), Origin);
                     DoorMat4.elements[0][3]=Tr.x;DoorMat4.elements[1][3]=Tr.y;DoorMat4.elements[2][3]=Tr.z;DoorMat4.elements[3][3]=1.0f;
                     UeDoor.Transform = DoorMat4;
                 }
                 std::string UErr;
                 if(!Sim.SyncDynamicMeshes({UeDoor},UErr)){UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticH1UeDoor SYNC_FAIL %s"),UTF8_TO_TCHAR(UErr.c_str()));}
                 else{
-                    IM_AcousticAudioFrame UFrame;std::string UOpErr;
+                    FIMAcousticAudioFrame UFrame;std::string UOpErr;
                     const bool UOk = Sim.Evaluate(7,1,SpaceAt(SdkToUE(-2.0f,-0.25f,1.5f)),SpaceAt(SdkToUE(2.0f,-0.25f,1.5f)),UFrame,UOpErr);
                     UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticH1UeDoor SHUT ok=%d occ=%g pathvalid=%d err=%s"),UOk?1:0,UOk?UFrame.Direct.occlusion:-1.0f,UOk?(UFrame.PathValid?1:0):-1,UTF8_TO_TCHAR(UOpErr.c_str()));
                     std::string ClrErr;Sim.SyncDynamicMeshes({},ClrErr);
@@ -894,7 +898,7 @@ bool FIMAcousticStaticOcclusionTest::RunTest(const FString&)
                     std::string UCcErr;
                     if(!Sim.SyncDynamicMeshes({UeDoor},UCcErr)){UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticH1UeDoor CLOSED_CREATE SYNC_FAIL %s"),UTF8_TO_TCHAR(UCcErr.c_str()));}
                     else{
-                        IM_AcousticAudioFrame UCcF;std::string UCcOpErr;
+                        FIMAcousticAudioFrame UCcF;std::string UCcOpErr;
                         const bool UCcOk = Sim.Evaluate(7,1,SpaceAt(SdkToUE(-2.0f,-0.25f,1.5f)),SpaceAt(SdkToUE(2.0f,-0.25f,1.5f)),UCcF,UCcOpErr);
                         double UCcEq = 0.0, UCcSh = 0.0;
                         for(float V:UCcF.PathEQ){ UCcEq += V; }
@@ -913,14 +917,14 @@ bool FIMAcousticStaticOcclusionTest::RunTest(const FString&)
                             const FQuat Rigid = T.GetRotation();
                             const FVector UEAxes[3] = {FVector::ForwardVector, FVector::RightVector, FVector::UpVector};
                             for(int32 Col=0;Col<3;++Col){
-                                const IPLVector3 Axis = IMToSDKDirection(Rigid.RotateVector(UEAxes[Col]));
+                                const IPLVector3 Axis = ToSDKDirection(Rigid.RotateVector(UEAxes[Col]));
                                 ClosedT.elements[0][Col]=Axis.x;ClosedT.elements[1][Col]=Axis.y;ClosedT.elements[2][Col]=Axis.z;
                             }
                             ClosedT.elements[0][3]=0.0f;ClosedT.elements[1][3]=-0.25f;ClosedT.elements[2][3]=1.5f;ClosedT.elements[3][3]=1.0f;
                         }
                         // Variant A: no Flip, aperture ray (outward-thin-panel cell;
                         // THICK and later variants still probe the wall ray, see inc109).
-                        IM_AcousticDynamicMeshInput DoorA;
+                        FIMAcousticDynamicMeshInput DoorA;
                         DoorA.Key = 0x1D00D; DoorA.GeometryHash = 0x1D00D;
                         for(uint32 I=0;I<LOD2.VertexBuffers.PositionVertexBuffer.GetNumVertices();++I){
                             const FVector Raw(LOD2.VertexBuffers.PositionVertexBuffer.VertexPosition(I));
@@ -941,7 +945,7 @@ bool FIMAcousticStaticOcclusionTest::RunTest(const FString&)
                         std::string AErr;
                         if(!Sim.SyncDynamicMeshes({DoorA},AErr)){UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticH1UeDoor NOFLIP SYNC_FAIL %s"),UTF8_TO_TCHAR(AErr.c_str()));}
                         else{
-                            IM_AcousticAudioFrame AF;std::string AOpErr;
+                            FIMAcousticAudioFrame AF;std::string AOpErr;
                             const bool AOk = Sim.Evaluate(7,1,SpaceAt(SdkToUE(-2.0f,-0.25f,1.5f)),SpaceAt(SdkToUE(2.0f,-0.25f,1.5f)),AF,AOpErr);
                             UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticH1UeDoor NOFLIP ok=%d occ=%g pathvalid=%d err=%s"),AOk?1:0,AOk?AF.Direct.occlusion:-1.0f,AOk?(AF.PathValid?1:0):-1,UTF8_TO_TCHAR(AOpErr.c_str()));
                         }
@@ -967,7 +971,7 @@ bool FIMAcousticStaticOcclusionTest::RunTest(const FString&)
                                 if(int32* F=WlId.Find(Key)){ WlMap[I]=*F; }
                                 else{ WlMap[I]=WlV.Num(); WlId.Add(Key,WlV.Num()); WlV.Add(IPLVector3{float(P.X),float(P.Y),float(P.Z)}); }
                             }
-                            IM_AcousticDynamicMeshInput DoorWl;
+                            FIMAcousticDynamicMeshInput DoorWl;
                             DoorWl.Key = 0x1D012; DoorWl.GeometryHash = 0x1D012;
                             for(const auto& V:WlV){ DoorWl.Geometry.Vertices.push_back(V); }
                             const auto IdxWl = LODW.IndexBuffer.GetArrayView();
@@ -983,7 +987,7 @@ bool FIMAcousticStaticOcclusionTest::RunTest(const FString&)
                             std::string WlErr;
                             if(!Sim.SyncDynamicMeshes({DoorWl},WlErr)){UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticH1UeDoor WELD SYNC_FAIL %s"),UTF8_TO_TCHAR(WlErr.c_str()));}
                             else{
-                                IM_AcousticAudioFrame WlF;std::string WlOpErr;
+                                FIMAcousticAudioFrame WlF;std::string WlOpErr;
                                 const bool WlOk = Sim.Evaluate(7,1,SpaceAt(SdkToUE(-2.0f,-0.25f,1.5f)),SpaceAt(SdkToUE(2.0f,-0.25f,1.5f)),WlF,WlOpErr);
                                 double WlEq = 0.0, WlSh = 0.0;
                                 for(float V:WlF.PathEQ){ WlEq += V; }
@@ -1000,7 +1004,7 @@ bool FIMAcousticStaticOcclusionTest::RunTest(const FString&)
                         // peculiar (reopen position-level suspects, inc112 verdict
                         // was premature).
                         {
-                            IM_AcousticDynamicMeshInput DoorSd;
+                            FIMAcousticDynamicMeshInput DoorSd;
                             DoorSd.Key = 0x1D013; DoorSd.GeometryHash = 0x1D013;
                             const float SX0=-0.05f,SX1=0.05f,SY0=-1.35f,SY1=1.35f,SZ0=-1.10f,SZ1=1.10f;
                             IPLVector3 SBC[8]={{SX0,SY0,SZ0},{SX1,SY0,SZ0},{SX1,SY1,SZ0},{SX0,SY1,SZ0},{SX0,SY0,SZ1},{SX1,SY0,SZ1},{SX1,SY1,SZ1},{SX0,SY1,SZ1}};
@@ -1026,7 +1030,7 @@ bool FIMAcousticStaticOcclusionTest::RunTest(const FString&)
                             std::string SdErr;
                             if(!Sim.SyncDynamicMeshes({DoorSd},SdErr)){UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticH1UeDoor SUBDIV SYNC_FAIL %s"),UTF8_TO_TCHAR(SdErr.c_str()));}
                             else{
-                                IM_AcousticAudioFrame SdF;std::string SdOpErr;
+                                FIMAcousticAudioFrame SdF;std::string SdOpErr;
                                 const bool SdOk = Sim.Evaluate(7,1,SpaceAt(SdkToUE(-2.0f,-0.25f,1.5f)),SpaceAt(SdkToUE(2.0f,-0.25f,1.5f)),SdF,SdOpErr);
                                 double SdEq = 0.0, SdSh = 0.0;
                                 for(float V:SdF.PathEQ){ SdEq += V; }
@@ -1037,7 +1041,7 @@ bool FIMAcousticStaticOcclusionTest::RunTest(const FString&)
                         }
                         // Variant B: 5x UE-Y thickness, WITH Flip, aperture ray
                         // (thickness-cell rerun; wall-ray reading retired, see inc109).
-                        IM_AcousticDynamicMeshInput DoorB;
+                        FIMAcousticDynamicMeshInput DoorB;
                         DoorB.Key = 0x1D00E; DoorB.GeometryHash = 0x1D00E;
                         for(uint32 I=0;I<LOD2.VertexBuffers.PositionVertexBuffer.GetNumVertices();++I){
                             const FVector Raw(LOD2.VertexBuffers.PositionVertexBuffer.VertexPosition(I));
@@ -1060,7 +1064,7 @@ bool FIMAcousticStaticOcclusionTest::RunTest(const FString&)
                         std::string BErr;
                         if(!Sim.SyncDynamicMeshes({DoorB},BErr)){UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticH1UeDoor THICK SYNC_FAIL %s"),UTF8_TO_TCHAR(BErr.c_str()));}
                         else{
-                            IM_AcousticAudioFrame BF;std::string BOpErr;
+                            FIMAcousticAudioFrame BF;std::string BOpErr;
                             const bool BOk = Sim.Evaluate(7,1,SpaceAt(SdkToUE(-2.0f,-0.25f,1.5f)),SpaceAt(SdkToUE(2.0f,-0.25f,1.5f)),BF,BOpErr);
                             UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticH1UeDoor THICK ok=%d occ=%g pathvalid=%d err=%s"),BOk?1:0,BOk?BF.Direct.occlusion:-1.0f,BOk?(BF.PathValid?1:0):-1,UTF8_TO_TCHAR(BOpErr.c_str()));
                         }
@@ -1073,7 +1077,7 @@ bool FIMAcousticStaticOcclusionTest::RunTest(const FString&)
                     // the cause (fix = clean-box leaf); leaks => thin/coplanar
                     // extents leak regardless (fix = bigger overlaps).
                     {
-                        IM_AcousticDynamicMeshInput BigBox;
+                        FIMAcousticDynamicMeshInput BigBox;
                         BigBox.Key = 0x1D00F; BigBox.GeometryHash = 0x1D00F;
                         const float X0=-0.05f,X1=0.05f,Y0=-1.60f,Y1=1.10f,Z0=0.40f,Z1=2.60f;
                         IPLVector3 BC[8]={{X0,Y0,Z0},{X1,Y0,Z0},{X1,Y1,Z0},{X0,Y1,Z0},{X0,Y0,Z1},{X1,Y0,Z1},{X1,Y1,Z1},{X0,Y1,Z1}};
@@ -1087,7 +1091,7 @@ bool FIMAcousticStaticOcclusionTest::RunTest(const FString&)
                         std::string BBErr;
                         if(!Sim.SyncDynamicMeshes({BigBox},BBErr)){UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticH1UeDoor BIGBOX SYNC_FAIL %s"),UTF8_TO_TCHAR(BBErr.c_str()));}
                         else{
-                            IM_AcousticAudioFrame BBF;std::string BBOpErr;
+                            FIMAcousticAudioFrame BBF;std::string BBOpErr;
                             const bool BBOk = Sim.Evaluate(7,1,SpaceAt(SdkToUE(-2.0f,-0.25f,1.5f)),SpaceAt(SdkToUE(2.0f,-0.25f,1.5f)),BBF,BBOpErr);
                             double BBEq = 0.0, BBSh = 0.0;
                             for(float V:BBF.PathEQ){ BBEq += V; }
@@ -1103,7 +1107,7 @@ bool FIMAcousticStaticOcclusionTest::RunTest(const FString&)
                     // keep Cube mesh); leaks => triangulation (fix = clean-box
                     // procedural leaf).
                     {
-                        IM_AcousticDynamicMeshInput WideDoor;
+                        FIMAcousticDynamicMeshInput WideDoor;
                         WideDoor.Key = 0x1D010; WideDoor.GeometryHash = 0x1D010;
                         for(uint32 I=0;I<LOD.VertexBuffers.PositionVertexBuffer.GetNumVertices();++I){
                             const FVector Raw(LOD.VertexBuffers.PositionVertexBuffer.VertexPosition(I));
@@ -1127,7 +1131,7 @@ bool FIMAcousticStaticOcclusionTest::RunTest(const FString&)
                             const FQuat WRigid = T.GetRotation();
                             const FVector WUEAxes[3] = {FVector::ForwardVector, FVector::RightVector, FVector::UpVector};
                             for(int32 WCol=0;WCol<3;++WCol){
-                                const IPLVector3 WAxis = IMToSDKDirection(WRigid.RotateVector(WUEAxes[WCol]));
+                                const IPLVector3 WAxis = ToSDKDirection(WRigid.RotateVector(WUEAxes[WCol]));
                                 WClosed.elements[0][WCol]=WAxis.x;WClosed.elements[1][WCol]=WAxis.y;WClosed.elements[2][WCol]=WAxis.z;
                             }
                             WClosed.elements[0][3]=0.0f;WClosed.elements[1][3]=-0.25f;WClosed.elements[2][3]=1.5f;WClosed.elements[3][3]=1.0f;
@@ -1136,7 +1140,7 @@ bool FIMAcousticStaticOcclusionTest::RunTest(const FString&)
                         std::string WdErr;
                         if(!Sim.SyncDynamicMeshes({WideDoor},WdErr)){UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticH1UeDoor WIDE SYNC_FAIL %s"),UTF8_TO_TCHAR(WdErr.c_str()));}
                         else{
-                            IM_AcousticAudioFrame WdF;std::string WdOpErr;
+                            FIMAcousticAudioFrame WdF;std::string WdOpErr;
                             const bool WdOk = Sim.Evaluate(7,1,SpaceAt(SdkToUE(-2.0f,0.0f,0.0f)),SpaceAt(SdkToUE(2.0f,0.0f,0.0f)),WdF,WdOpErr);
                             UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticH1UeDoor WIDE ok=%d occ=%g pathvalid=%d err=%s"),WdOk?1:0,WdOk?WdF.Direct.occlusion:-1.0f,WdOk?(WdF.PathValid?1:0):-1,UTF8_TO_TCHAR(WdOpErr.c_str()));
                         }
@@ -1163,7 +1167,7 @@ bool FIMAcousticStaticOcclusionTest::RunTest(const FString&)
                             // UE (-150,0,125).
                             const FVector PScl(2.8f,1.0f,3.3f);
                             const FVector PLoc(-150.0f,0.0f,125.0f);
-                            IM_AcousticDynamicMeshInput PlaneDoor;
+                            FIMAcousticDynamicMeshInput PlaneDoor;
                             PlaneDoor.Key = 0x1D011; PlaneDoor.GeometryHash = 0x1D011;
                             for(uint32 I=0;I<PNumV;++I){
                                 const FVector Raw(LODP.VertexBuffers.PositionVertexBuffer.VertexPosition(I));
@@ -1194,10 +1198,10 @@ bool FIMAcousticStaticOcclusionTest::RunTest(const FString&)
                             std::string PlErr;
                             if(!Sim.SyncDynamicMeshes({PlaneDoor},PlErr)){UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticH1UeDoor PLANE SYNC_FAIL %s"),UTF8_TO_TCHAR(PlErr.c_str()));}
                             else{
-                                IM_AcousticAudioFrame PlF;std::string PlOpErr;
+                                FIMAcousticAudioFrame PlF;std::string PlOpErr;
                                 const bool PlOk = Sim.Evaluate(7,1,SpaceAt(SdkToUE(-2.0f,-0.25f,1.5f)),SpaceAt(SdkToUE(2.0f,-0.25f,1.5f)),PlF,PlOpErr);
                                 UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticH1UeDoor PLANE_SN ok=%d occ=%g pathvalid=%d err=%s"),PlOk?1:0,PlOk?PlF.Direct.occlusion:-1.0f,PlOk?(PlF.PathValid?1:0):-1,UTF8_TO_TCHAR(PlOpErr.c_str()));
-                                IM_AcousticAudioFrame PlR;std::string PlROpErr;
+                                FIMAcousticAudioFrame PlR;std::string PlROpErr;
                                 const bool PlROk = Sim.Evaluate(7,1,SpaceAt(SdkToUE(2.0f,-0.25f,1.5f)),SpaceAt(SdkToUE(-2.0f,-0.25f,1.5f)),PlR,PlROpErr);
                                 UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticH1UeDoor PLANE_NS ok=%d occ=%g pathvalid=%d err=%s"),PlROk?1:0,PlROk?PlR.Direct.occlusion:-1.0f,PlROk?(PlR.PathValid?1:0):-1,UTF8_TO_TCHAR(PlROpErr.c_str()));
                             }
@@ -1215,7 +1219,7 @@ bool FIMAcousticStaticOcclusionTest::RunTest(const FString&)
     // ray even with perfect payload (geometry/semantics); if 0, the payload
     // path is proven and the W3 leak is a PIE/worker runtime issue.
     {
-        IM_AcousticDynamicMeshInput WDoor;
+        FIMAcousticDynamicMeshInput WDoor;
         WDoor.Key = 0x1D008; WDoor.GeometryHash = 0x1D008;
         const float X0=-0.20f,X1=0.25f,Y0=-1.60f,Y1=1.10f,Z0=0.45f,Z1=2.55f;
         IPLVector3 WC[8]={{X0,Y0,Z0},{X1,Y0,Z0},{X1,Y1,Z0},{X0,Y1,Z0},{X0,Y0,Z1},{X1,Y0,Z1},{X1,Y1,Z1},{X0,Y1,Z1}};
@@ -1229,11 +1233,11 @@ bool FIMAcousticStaticOcclusionTest::RunTest(const FString&)
         std::string WSErr;
         if(!Sim.SyncDynamicMeshes({WDoor},WSErr)){UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticH1WorkerRay SYNC_FAIL %s"),UTF8_TO_TCHAR(WSErr.c_str()));}
         else{
-            IM_AcousticAudioFrame WFrame;std::string WOpErr;
+            FIMAcousticAudioFrame WFrame;std::string WOpErr;
             const bool WOk = Sim.Evaluate(7,1,SpaceAt(SdkToUE(-2.0f,0.0f,0.0f)),SpaceAt(SdkToUE(2.0f,0.0f,0.0f)),WFrame,WOpErr);
             UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticH1WorkerRay SHUT ok=%d occ=%g pathvalid=%d err=%s"),WOk?1:0,WOk?WFrame.Direct.occlusion:-1.0f,WOk?(WFrame.PathValid?1:0):-1,UTF8_TO_TCHAR(WOpErr.c_str()));
             std::string WClrErr;Sim.SyncDynamicMeshes({},WClrErr);
-            IM_AcousticAudioFrame WOpen;std::string WOpenErr;
+            FIMAcousticAudioFrame WOpen;std::string WOpenErr;
             const bool WOpenOk = Sim.Evaluate(7,1,SpaceAt(SdkToUE(-2.0f,0.0f,0.0f)),SpaceAt(SdkToUE(2.0f,0.0f,0.0f)),WOpen,WOpenErr);
             UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticH1WorkerRay OPEN ok=%d occ=%g pathvalid=%d err=%s"),WOpenOk?1:0,WOpenOk?WOpen.Direct.occlusion:-1.0f,WOpenOk?(WOpen.PathValid?1:0):-1,UTF8_TO_TCHAR(WOpenErr.c_str()));
         }
@@ -1263,7 +1267,7 @@ bool FIMAcousticStaticOcclusionTest::RunTest(const FString&)
     {
         FHitResult HitX;
         const bool bHitX=World->LineTraceSingleByObjectType(HitX,FVector(UX,-200.0f,150.0f),FVector(UX,200.0f,150.0f),ObjQuery);
-        IM_AcousticAudioFrame XF;std::string XErr;
+        FIMAcousticAudioFrame XF;std::string XErr;
         const bool XOk=Sim.Evaluate(7,1,SpaceAt(FVector(UX,-200.0f,150.0f)),SpaceAt(FVector(UX,200.0f,150.0f)),XF,XErr);
         UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticH1UESweep ux=%g uehit=%d steamok=%d steamocc=%g"),UX,bHitX?1:0,XOk?1:0,XOk?XF.Direct.occlusion:-1.0f);
     }
@@ -1273,7 +1277,7 @@ bool FIMAcousticStaticOcclusionTest::RunTest(const FString&)
     // 1 = open/audible, 0 = blocked. Rays: through-slab expect 0 (blocked),
     // clear-miss expect 1 (open), hole-axis expect 1 (open). Diagnostic only.
     {
-        IPLContext ACtx0 = IM_GetAcousticSDKContext();
+        IPLContext ACtx0 = IMAcousticSDKContext::GetAcousticSDKContext();
         if(ACtx0) iplContextRetain(ACtx0);
         IPLScene AScene = nullptr; IPLStaticMesh AMesh = nullptr;
         IPLSimulator ASim = nullptr; IPLSource ASrc = nullptr;
@@ -1370,13 +1374,13 @@ bool FIMAcousticStaticOcclusionTest::RunTest(const FString&)
     // between grid lines, X=-200/-100/0 on grid. If only on-grid yields path
     // energy, pathing quantizes to probes (visRadius boundary).
     {
-        IM_AcousticPathingOptions DOpt = IM_AcousticPathingOptions::DefaultHybrid();
+        FIMAcousticPathingOptions DOpt = FIMAcousticPathingOptions::DefaultHybrid();
         std::string DSErr;
         const bool DSetOk = Sim.SetPathingOptions(DOpt, DSErr);
         const float UXs[4] = {-200.0f, -150.0f, -100.0f, 0.0f};
         for(int I = 0; I < 4; ++I)
         {
-            IM_AcousticAudioFrame VF; std::string VErr;
+            FIMAcousticAudioFrame VF; std::string VErr;
             const bool EvOk = DSetOk && Sim.Evaluate(0xB0 + I, 1, SpaceAt(FVector(UXs[I],-200.0f,150.0f)), SpaceAt(FVector(UXs[I],200.0f,150.0f)), VF, VErr);
             const float EQ = VF.PathEQ[0] + VF.PathEQ[1] + VF.PathEQ[2];
             UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticGridPhase ux=%g set=%d ev=%d occ=%g pathvalid=%d eqsum=%.6g err=%s"),UXs[I],DSetOk?1:0,EvOk?1:0,EvOk?VF.Direct.occlusion:-1.0f,EvOk?(VF.PathValid?1:0):-1,EQ,UTF8_TO_TCHAR(VErr.c_str()));

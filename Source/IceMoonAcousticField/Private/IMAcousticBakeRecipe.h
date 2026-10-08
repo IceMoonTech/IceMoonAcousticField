@@ -7,7 +7,7 @@
 // Version 1's two bounces changed gain but not decay for absorption .1 vs .8
 // (sdk-decay-20260908-03). Version 2 preserves enough reflection orders and tail
 // for that falsification test; its practical acceptance is measured separately.
-namespace IM_AcousticRecipe
+namespace IMAcousticRecipe
 {
 inline constexpr int Version=2;
 inline constexpr IPLint32 PathNumSamples=1;

@@ -15,17 +15,17 @@
 #include "Serialization/JsonWriter.h"
 #include "Engine/Engine.h"
 
-namespace
+namespace IMAcousticMetaSoundGraphReadbackTestPrivate
 {
-constexpr const TCHAR* IMNativeGraphReadbackMetaSound = TEXT("/IceMoonAcousticField/Tests/Audio/MS_WaterDropEryliaa_FullLoopOnPlay");
-constexpr int32 IMExpectedSampleRate = 48000;
+constexpr const TCHAR* NativeGraphReadbackMetaSound = TEXT("/IceMoonAcousticField/Tests/Audio/MS_WaterDropEryliaa_FullLoopOnPlay");
+constexpr int32 ExpectedSampleRate = 48000;
 
-constexpr EPropertyFlags IMSkipPropertyFlags = CPF_Transient | CPF_DuplicateTransient | CPF_TextExportTransient;
+constexpr EPropertyFlags SkipPropertyFlags = CPF_Transient | CPF_DuplicateTransient | CPF_TextExportTransient;
 
-TSharedRef<FJsonObject> IMStructObject(const UStruct* Struct, const void* Data)
+TSharedRef<FJsonObject> StructObject(const UStruct* Struct, const void* Data)
 {
     TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>();
-    if (!Struct || !Data || !FJsonObjectConverter::UStructToJsonObject(Struct, Data, Result, 0, IMSkipPropertyFlags))
+    if (!Struct || !Data || !FJsonObjectConverter::UStructToJsonObject(Struct, Data, Result, 0, SkipPropertyFlags))
     {
         Result->SetStringField(TEXT("_serialization_status"), TEXT("FAIL"));
         return Result;
@@ -35,39 +35,39 @@ TSharedRef<FJsonObject> IMStructObject(const UStruct* Struct, const void* Data)
 }
 
 template <typename StructType>
-TSharedRef<FJsonObject> IMStructObject(const StructType& Value)
+TSharedRef<FJsonObject> StructObject(const StructType& Value)
 {
-    return IMStructObject(StructType::StaticStruct(), &Value);
+    return StructObject(StructType::StaticStruct(), &Value);
 }
 
 template <typename StructType>
-TArray<TSharedPtr<FJsonValue>> IMStructArray(const TArray<StructType>& Values)
+TArray<TSharedPtr<FJsonValue>> StructArray(const TArray<StructType>& Values)
 {
     TArray<TSharedPtr<FJsonValue>> Result;
     Result.Reserve(Values.Num());
     for (const StructType& Value : Values)
     {
-        Result.Add(MakeShared<FJsonValueObject>(IMStructObject(Value)));
+        Result.Add(MakeShared<FJsonValueObject>(StructObject(Value)));
     }
     return Result;
 }
 
-TSharedRef<FJsonObject> IMGraphPageObject(const FMetasoundFrontendGraph& Page)
+TSharedRef<FJsonObject> GraphPageObject(const FMetasoundFrontendGraph& Page)
 {
     TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetStringField(TEXT("page_id"), Page.PageID.ToString(EGuidFormats::DigitsWithHyphens));
     Result->SetNumberField(TEXT("node_count"), Page.Nodes.Num());
     Result->SetNumberField(TEXT("edge_count"), Page.Edges.Num());
-    Result->SetArrayField(TEXT("nodes"), IMStructArray(Page.Nodes));
-    Result->SetArrayField(TEXT("edges"), IMStructArray(Page.Edges));
-    Result->SetArrayField(TEXT("variables"), IMStructArray(Page.Variables));
+    Result->SetArrayField(TEXT("nodes"), StructArray(Page.Nodes));
+    Result->SetArrayField(TEXT("edges"), StructArray(Page.Edges));
+    Result->SetArrayField(TEXT("variables"), StructArray(Page.Variables));
 #if WITH_EDITORONLY_DATA
-    Result->SetObjectField(TEXT("style"), IMStructObject(Page.Style));
+    Result->SetObjectField(TEXT("style"), StructObject(Page.Style));
 #endif
     return Result;
 }
 
-FString IMSerializeJson(const TSharedRef<FJsonObject>& Object)
+FString SerializeJson(const TSharedRef<FJsonObject>& Object)
 {
     FString Text;
     const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Text);
@@ -84,7 +84,9 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     "IceMoon.AcousticField.MetaSound.NativeGraphReadback",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-static bool IMReadAcousticGraph(FAutomationTestBase& Test, const TCHAR* AssetPath, const TCHAR* OutputName)
+namespace IMAcousticMetaSoundGraphReadbackTestPrivate
+{
+bool ReadAcousticGraph(FAutomationTestBase& Test, const TCHAR* AssetPath, const TCHAR* OutputName)
 {
     UMetaSoundSource* Source = LoadObject<UMetaSoundSource>(nullptr, AssetPath);
     if (!Source)
@@ -108,7 +110,7 @@ static bool IMReadAcousticGraph(FAutomationTestBase& Test, const TCHAR* AssetPat
         return false;
     }
 
-    const Metasound::FOperatorSettings OperatorSettings = Source->GetOperatorSettings(IMExpectedSampleRate);
+    const Metasound::FOperatorSettings OperatorSettings = Source->GetOperatorSettings(ExpectedSampleRate);
     const FString EvidenceDirectory = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("AcousticV2/MetaSoundWaterDrop"));
     IFileManager::Get().MakeDirectory(*EvidenceDirectory, true);
 
@@ -133,18 +135,18 @@ static bool IMReadAcousticGraph(FAutomationTestBase& Test, const TCHAR* AssetPat
         Interfaces.Add(MakeShared<FJsonValueString>(Interface.ToString()));
     }
     Root->SetArrayField(TEXT("interfaces"), Interfaces);
-    Root->SetObjectField(TEXT("root_graph"), IMGraphPageObject(RootGraph));
-    Root->SetArrayField(TEXT("dependencies"), IMStructArray(Document.Dependencies));
-    Root->SetObjectField(TEXT("root_graph_interface"), IMStructObject(Document.RootGraph.GetDefaultInterface()));
+    Root->SetObjectField(TEXT("root_graph"), GraphPageObject(RootGraph));
+    Root->SetArrayField(TEXT("dependencies"), StructArray(Document.Dependencies));
+    Root->SetObjectField(TEXT("root_graph_interface"), StructObject(Document.RootGraph.GetDefaultInterface()));
 
     TSharedRef<FJsonObject> Settings = MakeShared<FJsonObject>();
-    Settings->SetNumberField(TEXT("requested_sample_rate"), IMExpectedSampleRate);
+    Settings->SetNumberField(TEXT("requested_sample_rate"), ExpectedSampleRate);
     Settings->SetNumberField(TEXT("operator_sample_rate"), OperatorSettings.GetSampleRate());
     Settings->SetNumberField(TEXT("operator_num_frames_per_block"), OperatorSettings.GetNumFramesPerBlock());
     Settings->SetNumberField(TEXT("operator_actual_block_rate"), OperatorSettings.GetActualBlockRate());
     Root->SetObjectField(TEXT("operator_settings"), Settings);
 
-    const FString Json = IMSerializeJson(Root);
+    const FString Json = SerializeJson(Root);
     const FString EvidencePath = FPaths::Combine(EvidenceDirectory, OutputName);
     if (Json.IsEmpty() || !FFileHelper::SaveStringToFile(Json, *EvidencePath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
     {
@@ -183,11 +185,13 @@ static bool IMReadAcousticGraph(FAutomationTestBase& Test, const TCHAR* AssetPat
     }
     return true;
 }
+}
+
 
 bool FIMAcousticMetaSoundNativeGraphReadback::RunTest(const FString&)
 {
-    const bool Source = IMReadAcousticGraph(*this, IMNativeGraphReadbackMetaSound, TEXT("native-graph-readback.json"));
-    const bool Environment = IMReadAcousticGraph(*this, TEXT("/IceMoonAcousticField/Tests/Audio/MS_AcousticEnvironment"), TEXT("environment-graph-readback.json"));
+    const bool Source = IMAcousticMetaSoundGraphReadbackTestPrivate::ReadAcousticGraph(*this, IMAcousticMetaSoundGraphReadbackTestPrivate::NativeGraphReadbackMetaSound, TEXT("native-graph-readback.json"));
+    const bool Environment = IMAcousticMetaSoundGraphReadbackTestPrivate::ReadAcousticGraph(*this, TEXT("/IceMoonAcousticField/Tests/Audio/MS_AcousticEnvironment"), TEXT("environment-graph-readback.json"));
     UE_LOG(LogTemp, Display, TEXT("IMExitEditor %s MetaSound native graph readback"), Source && Environment ? TEXT("PASS") : TEXT("FAIL"));
     UE_LOG(LogTemp, Display, TEXT("[IM][PIE_TEST] MetaSound native graph readback %s"), Source && Environment ? TEXT("PASS") : TEXT("FAIL"));
     return Source && Environment;

@@ -32,12 +32,12 @@
 #include "IMAcousticSimulation.h"
 #include "IMAcousticTestSupport.h"
 
-namespace
+namespace IMAcousticW1TestPrivate
 {
-constexpr const TCHAR* IMW1Map=TEXT("/IceMoonAcousticField/Tests/IM_W1Door");
-float IMW1OriginalBackgroundVolume=1;
-static bool IMW1OriginalBackgroundAudio=false;
-FString IMW1Evidence()
+constexpr const TCHAR* W1Map=TEXT("/IceMoonAcousticField/Tests/IM_W1Door");
+float W1OriginalBackgroundVolume=1;
+static bool W1OriginalBackgroundAudio=false;
+FString W1Evidence()
 {
     // PCM writer interprets relative paths beneath Saved/BouncedWavFiles, unlike
     // FileHelper. Resolve once so binary snapshots and device WAVs share a root.
@@ -53,7 +53,7 @@ FString IMW1Evidence()
 // (acquire); any claimed-but-incomplete slot is an explicit evidence gap, and
 // any nonzero overflow drops the END of the timeline (start preserved), so the
 // run is evidence-INCONCLUSIVE for full causality.
-static uint64 IM_W1ExportComplete(const std::atomic<uint64>* Done, uint32 Capacity, uint64 Pushes)
+static uint64 W1ExportComplete(const std::atomic<uint64>* Done, uint32 Capacity, uint64 Pushes)
 {
     const uint64 Limit = Pushes < Capacity ? Pushes : Capacity;
     for (uint64 I = 0; I < Limit; ++I)
@@ -62,7 +62,7 @@ static uint64 IM_W1ExportComplete(const std::atomic<uint64>* Done, uint32 Capaci
     }
     return Limit;
 }
-static void IM_W1ExportProbeTrace(IM_AcousticDeviceBridge* Bridge, const TArray<FString>& RouteWindows, const FString& EvidenceDir,
+static void W1ExportProbeTrace(FIMAcousticDeviceBridge* Bridge, const TArray<FString>& RouteWindows, const FString& EvidenceDir,
     const FString& RunContextJson = TEXT("{}"))
 {
     IFileManager::Get().MakeDirectory(*EvidenceDir, true);
@@ -79,15 +79,15 @@ static void IM_W1ExportProbeTrace(IM_AcousticDeviceBridge* Bridge, const TArray<
     const uint64 SnapOverflow = Bridge->SnapshotProbeOverflows.load(std::memory_order_relaxed);
     const uint64 WorkerPushes = Bridge->WorkerProbePushes.load(std::memory_order_acquire);
     const uint64 WorkerOverflow = Bridge->WorkerProbeOverflows.load(std::memory_order_relaxed);
-    const uint64 BlockComplete = IM_W1ExportComplete(Bridge->BlockDone.data(), IM_AcousticDeviceBridge::ProbeBlockCapacity, BlockPushes);
-    const uint64 SnapComplete = IM_W1ExportComplete(Bridge->SnapshotDone.data(), IM_AcousticDeviceBridge::ProbeSnapshotCapacity, SnapPushes);
-    const uint64 WorkerComplete = IM_W1ExportComplete(Bridge->WorkerDone.data(), IM_AcousticDeviceBridge::ProbeWorkerCapacity, WorkerPushes);
+    const uint64 BlockComplete = W1ExportComplete(Bridge->BlockDone.data(), FIMAcousticDeviceBridge::ProbeBlockCapacity, BlockPushes);
+    const uint64 SnapComplete = W1ExportComplete(Bridge->SnapshotDone.data(), FIMAcousticDeviceBridge::ProbeSnapshotCapacity, SnapPushes);
+    const uint64 WorkerComplete = W1ExportComplete(Bridge->WorkerDone.data(), FIMAcousticDeviceBridge::ProbeWorkerCapacity, WorkerPushes);
     FString Blocks;
     Blocks.Reserve(128 * 1024);
     Blocks += TEXT("block,voice,cb_audio_id,result_audio_id,result_world,result_gen,result_seq,snapshot_captured,consumed,age_ms,lis_x,lis_y,lis_z,dir_x,dir_y,dir_z,occlusion,dist_gain,direct_flags,routes,direct_valid,path_valid,reject,reject_detail,render_failure,fallback,reset_reason,input_e,direct_e,path_e,output_e,rendered_at,rejected_at\n");
     for (uint64 I = 0; I < BlockComplete; ++I)
     {
-        const IM_AcousticBlockProbe& E = Bridge->BlockProbes[I];
+        const FIMAcousticBlockProbe& E = Bridge->BlockProbes[I];
         Blocks += FString::Printf(TEXT("%llu,%u,%llu,%llu,%llu,%llu,%llu,%.6f,%.6f,%.3f,%.6f,%.6f,%.6f,%.4f,%.4f,%.4f,%.6f,%.6f,%u,%u,%u,%u,%u,%u,%u,%u,%u,%.6f,%.6f,%.6f,%.6f,%llu,%llu\n"),
             E.Block, E.Voice, E.CallbackAudioComponentId, E.ResultAudioComponentId, E.ResultWorldGeneration,
             E.ResultVoiceGeneration, E.ResultSequence, E.SnapshotCaptured, E.ConsumedSeconds, E.AgeMs,
@@ -101,7 +101,7 @@ static void IM_W1ExportProbeTrace(IM_AcousticDeviceBridge* Bridge, const TArray<
     Snaps += TEXT("block,world,captured,submit,lis_ue_x,lis_ue_y,lis_ue_z,lis_sdk_x,lis_sdk_y,lis_sdk_z,src0_sdk_x,src0_sdk_y,src0_sdk_z,src0_audio_id,num_sources,submitted,fail_code\n");
     for (uint64 I = 0; I < SnapComplete; ++I)
     {
-        const IM_AcousticSnapshotProbe& S = Bridge->SnapshotProbes[I];
+        const FIMAcousticSnapshotProbe& S = Bridge->SnapshotProbes[I];
         Snaps += FString::Printf(TEXT("%llu,%llu,%.6f,%.6f,%.2f,%.2f,%.2f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%llu,%u,%u,%u\n"),
             S.Block, S.WorldGeneration, S.CapturedSeconds, S.SubmitSeconds, S.ListenerUEX, S.ListenerUEY, S.ListenerUEZ,
             S.ListenerSDKX, S.ListenerSDKY, S.ListenerSDKZ, S.Source0X, S.Source0Y, S.Source0Z, S.Source0AudioId,
@@ -113,7 +113,7 @@ static void IM_W1ExportProbeTrace(IM_AcousticDeviceBridge* Bridge, const TArray<
     Workers += TEXT("block,world,loop_start,snap_captured,snap_valid,snap_reason,num_inputs,published,eval_start,eval_end,eval_ok,reverb_attempt,reverb_ok,reverb_start,reverb_end,reverb_seq,reverb_captured,push_at,push_ok,wait_end,voice,audio_id,voice_gen,seq,direct_flags,occlusion,dist_gain\n");
     for (uint64 I = 0; I < WorkerComplete; ++I)
     {
-        const IM_AcousticWorkerProbe& R = Bridge->WorkerProbes[I];
+        const FIMAcousticWorkerProbe& R = Bridge->WorkerProbes[I];
         Workers += FString::Printf(TEXT("%llu,%llu,%.6f,%.6f,%u,%u,%u,%u,%.6f,%.6f,%u,%u,%u,%.6f,%.6f,%llu,%.6f,%.6f,%u,%.6f,%u,%llu,%llu,%llu,%u,%.6f,%.6f\n"),
             R.Block, R.WorldGeneration, R.LoopStartSeconds, R.SnapshotCaptured, R.SnapValid, R.SnapReason, R.NumInputs, R.ResultsPublished,
             R.EvalStartSeconds, R.EvalEndSeconds, R.EvalOk, R.ReverbAttempt, R.ReverbOk, R.ReverbStartSeconds, R.ReverbEndSeconds,
@@ -123,20 +123,20 @@ static void IM_W1ExportProbeTrace(IM_AcousticDeviceBridge* Bridge, const TArray<
     FFileHelper::SaveStringToFile(Workers, *FPaths::Combine(EvidenceDir, TEXT("IM_probe_workers.csv")), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
     FString PlBase;
     if (auto Pl = IPluginManager::Get().FindPlugin(TEXT("IceMoonAcousticField"))) { PlBase = Pl->GetBaseDir(); }
-    auto IM_HashOne = [](const FString& P)->FString { return LexToString(FMD5Hash::HashFile(*P)); };
+    auto HashOne = [](const FString& P)->FString { return LexToString(FMD5Hash::HashFile(*P)); };
     const FString SrcRoot = FPaths::Combine(PlBase, TEXT("Source/IceMoonAcousticField/Private"));
-    FString FP = TEXT("{\"scene\":\"") + IM_HashOne(FPaths::Combine(EvidenceDir, TEXT("scene.bin"))) + TEXT("\",\"probes\":\"") + IM_HashOne(FPaths::Combine(EvidenceDir, TEXT("probes.bin"))) + TEXT("\"");
-    FP += TEXT(",\"dll\":\"") + IM_HashOne(FPaths::Combine(PlBase, TEXT("Binaries/ThirdParty/SteamAudio/Win64/phonon.dll"))) + TEXT("\"");
-    FP += TEXT(",\"h\":\"") + IM_HashOne(FPaths::Combine(SrcRoot, TEXT("IMAcousticSpatialization.h"))) + TEXT("\",\"bake\":\"") + IM_HashOne(FPaths::Combine(SrcRoot, TEXT("IMAcousticBakeVolume.cpp"))) + TEXT("\"");
-    FP += TEXT(",\"worker\":\"") + IM_HashOne(FPaths::Combine(SrcRoot, TEXT("IMAcousticSimulationWorker.cpp"))) + TEXT("\",\"spatial\":\"") + IM_HashOne(FPaths::Combine(SrcRoot, TEXT("IMAcousticSpatialization.cpp"))) + TEXT("\"");
-    FP += TEXT(",\"w1\":\"") + IM_HashOne(FPaths::Combine(SrcRoot, TEXT("IMAcousticW1Test.cpp"))) + TEXT("\"}");
+    FString FP = TEXT("{\"scene\":\"") + HashOne(FPaths::Combine(EvidenceDir, TEXT("scene.bin"))) + TEXT("\",\"probes\":\"") + HashOne(FPaths::Combine(EvidenceDir, TEXT("probes.bin"))) + TEXT("\"");
+    FP += TEXT(",\"dll\":\"") + HashOne(FPaths::Combine(PlBase, TEXT("Binaries/ThirdParty/SteamAudio/Win64/phonon.dll"))) + TEXT("\"");
+    FP += TEXT(",\"h\":\"") + HashOne(FPaths::Combine(SrcRoot, TEXT("IMAcousticSpatialization.h"))) + TEXT("\",\"bake\":\"") + HashOne(FPaths::Combine(SrcRoot, TEXT("IMAcousticBakeVolume.cpp"))) + TEXT("\"");
+    FP += TEXT(",\"worker\":\"") + HashOne(FPaths::Combine(SrcRoot, TEXT("IMAcousticSimulationWorker.cpp"))) + TEXT("\",\"spatial\":\"") + HashOne(FPaths::Combine(SrcRoot, TEXT("IMAcousticSpatialization.cpp"))) + TEXT("\"");
+    FP += TEXT(",\"w1\":\"") + HashOne(FPaths::Combine(SrcRoot, TEXT("IMAcousticW1Test.cpp"))) + TEXT("\"}");
     FFileHelper::SaveStringToFile(FP, *FPaths::Combine(EvidenceDir, TEXT("IM_fingerprints.json")), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
     FString Windows = TEXT("[");
     for (int32 W = 0; W < RouteWindows.Num(); ++W) { if (W > 0) Windows += TEXT(","); Windows += RouteWindows[W]; }
     Windows += TEXT("]");
-    const uint64 BlockLimit = BlockPushes < IM_AcousticDeviceBridge::ProbeBlockCapacity ? BlockPushes : IM_AcousticDeviceBridge::ProbeBlockCapacity;
-    const uint64 SnapLimit = SnapPushes < IM_AcousticDeviceBridge::ProbeSnapshotCapacity ? SnapPushes : IM_AcousticDeviceBridge::ProbeSnapshotCapacity;
-    const uint64 WorkerLimit = WorkerPushes < IM_AcousticDeviceBridge::ProbeWorkerCapacity ? WorkerPushes : IM_AcousticDeviceBridge::ProbeWorkerCapacity;
+    const uint64 BlockLimit = BlockPushes < FIMAcousticDeviceBridge::ProbeBlockCapacity ? BlockPushes : FIMAcousticDeviceBridge::ProbeBlockCapacity;
+    const uint64 SnapLimit = SnapPushes < FIMAcousticDeviceBridge::ProbeSnapshotCapacity ? SnapPushes : FIMAcousticDeviceBridge::ProbeSnapshotCapacity;
+    const uint64 WorkerLimit = WorkerPushes < FIMAcousticDeviceBridge::ProbeWorkerCapacity ? WorkerPushes : FIMAcousticDeviceBridge::ProbeWorkerCapacity;
     const bool ProbeComplete = (BlockOverflow == 0) && (SnapOverflow == 0) && (WorkerOverflow == 0)
         && (BlockComplete == BlockLimit) && (SnapComplete == SnapLimit) && (WorkerComplete == WorkerLimit);
     const FString Summary = FString::Printf(TEXT("{\"available\":true,\"complete\":%s,\"block_pushes\":%llu,\"block_exported\":%llu,\"block_overflow\":%llu,\"snapshot_pushes\":%llu,\"snapshot_exported\":%llu,\"snapshot_overflow\":%llu,\"worker_pushes\":%llu,\"worker_exported\":%llu,\"worker_overflow\":%llu,\"route_windows\":%s}"),
@@ -146,7 +146,7 @@ static void IM_W1ExportProbeTrace(IM_AcousticDeviceBridge* Bridge, const TArray<
         ProbeComplete ? 1 : 0, BlockComplete, BlockPushes, BlockOverflow, SnapComplete, SnapPushes, SnapOverflow, WorkerComplete, WorkerPushes, WorkerOverflow, *EvidenceDir);
 }
 
-static void IM_W1ExportMetaSoundTrace(const IM_AcousticMetaSoundContextPtr& Context, const FString& EvidenceDir)
+static void W1ExportMetaSoundTrace(const FIMAcousticMetaSoundContextPtr& Context, const FString& EvidenceDir)
 {
     if (!Context.IsValid())
     {
@@ -159,8 +159,8 @@ static void IM_W1ExportMetaSoundTrace(const IM_AcousticMetaSoundContextPtr& Cont
     uint32 SourceAccepted=0,SourcePath=0,SourceRejected=0;
     for(uint32 I=0;I<SourceLimit;++I)
     {
-        const IM_AcousticBlockProbe& E=Context->CapturedSourceBlocks[int32(I)];
-        if(E.Reject!=IM_AcousticProbeReject::Accepted){++SourceRejected;continue;}
+        const FIMAcousticBlockProbe& E=Context->CapturedSourceBlocks[int32(I)];
+        if(E.Reject!=EIMAcousticProbeReject::Accepted){++SourceRejected;continue;}
         ++SourceAccepted;
         if((E.Routes&2u)!=0&&E.OutputEnergy>1e-9)++SourcePath;
     }
@@ -170,9 +170,9 @@ static void IM_W1ExportMetaSoundTrace(const IM_AcousticMetaSoundContextPtr& Cont
     uint32 WetBlocks=0;
     for(uint32 I=0;I<EnvLimit;++I)
     {
-        const IM_AcousticMetaSoundBlock& E=Context->CapturedBlocks[int32(I)];
+        const FIMAcousticMetaSoundBlock& E=Context->CapturedBlocks[int32(I)];
         const uint32 Begin=uint32(E.Frame);
-        const uint32 End=FMath::Min<uint32>(Begin+IM_AcousticMetaSoundContext::Frames,EnvFrames);
+        const uint32 End=FMath::Min<uint32>(Begin+FIMAcousticMetaSoundContext::Frames,EnvFrames);
         bool bNonzero=false;
         for(uint32 F=Begin;F<End;++F)
         {
@@ -187,10 +187,10 @@ static void IM_W1ExportMetaSoundTrace(const IM_AcousticMetaSoundContextPtr& Cont
         Context->Device.IsValid()?Context->Device->BlockProbePushes.load(std::memory_order_relaxed):0);
     FFileHelper::SaveStringToFile(Summary,*FPaths::Combine(EvidenceDir,TEXT("IM_metasound_trace_summary.json")),FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
 }
-bool IMBuildW1Map(FString& Error)
+bool BuildW1Map(FString& Error)
 {
-    if(FPackageName::DoesPackageExist(IMW1Map))
-        return FEditorFileUtils::LoadMap(IMW1Map,false,true);
+    if(FPackageName::DoesPackageExist(W1Map))
+        return FEditorFileUtils::LoadMap(W1Map,false,true);
     UWorld* World=FAutomationEditorCommonUtils::CreateNewMap();
     auto* Cube=LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Cube.Cube"));
     if(!World||!Cube){Error=TEXT("Cannot create W1 fixture world or load engine cube.");return false;}
@@ -212,16 +212,16 @@ bool IMBuildW1Map(FString& Error)
     auto* Volume=World->SpawnActor<AIMAcousticBakeVolume>();
     Volume->SetActorLocation(FVector(0,0,150));Volume->BakeBounds->SetBoxExtent(FVector(320,420,170));
     FIMAcousticMaterialMapping Material;Material.Material=Cube->GetMaterial(0);Material.Absorption=FVector(.25);Volume->Materials.Add(Material);
-    const FString File=FPackageName::LongPackageNameToFilename(IMW1Map,FPackageName::GetMapPackageExtension());
+    const FString File=FPackageName::LongPackageNameToFilename(W1Map,FPackageName::GetMapPackageExtension());
     IFileManager::Get().MakeDirectory(*FPaths::GetPath(File),true);
     if(!FEditorFileUtils::SaveLevel(World->PersistentLevel,File)){Error=TEXT("Cannot save plugin-owned W1 fixture map.");return false;}
     return true;
 }
 
-class IM_AcousticW1Command final : public IAutomationLatentCommand
+class FIMAcousticW1Command final : public IAutomationLatentCommand
 {
 public:
-    explicit IM_AcousticW1Command(FAutomationTestBase* InTest,int32 InitialStage=0):Test(InTest),Started(FPlatformTime::Seconds()),Stage(InitialStage){}
+    explicit FIMAcousticW1Command(FAutomationTestBase* InTest,int32 InitialStage=0):Test(InTest),Started(FPlatformTime::Seconds()),Stage(InitialStage){}
     bool Update() override
     {
         const double Now=FPlatformTime::Seconds();
@@ -245,17 +245,17 @@ public:
             if(!Volume.IsValid())return Finish(false,TEXT("Bake owner destroyed."));
             if(Volume->Status.Contains(TEXT("failed"),ESearchCase::IgnoreCase)||Volume->Status.Contains(TEXT("discarded")))return Finish(false,Volume->Status);
             if(!Volume->BakedField||Volume->BakedField.Get()==PreviousAsset.Get())return false;
-            IFileManager::Get().MakeDirectory(*IMW1Evidence(),true);
-            FFileHelper::SaveArrayToFile(Volume->BakedField->SceneData,*FPaths::Combine(IMW1Evidence(),TEXT("scene.bin")));
-            FFileHelper::SaveArrayToFile(Volume->BakedField->ProbeData,*FPaths::Combine(IMW1Evidence(),TEXT("probes.bin")));
-            UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticW1Bake triangles=%d probes=%d evidence=%s"),Volume->ExportedTriangles,Volume->GeneratedProbes,*IMW1Evidence());
-            const FString File=FPackageName::LongPackageNameToFilename(IMW1Map,FPackageName::GetMapPackageExtension());
+            IFileManager::Get().MakeDirectory(*W1Evidence(),true);
+            FFileHelper::SaveArrayToFile(Volume->BakedField->SceneData,*FPaths::Combine(W1Evidence(),TEXT("scene.bin")));
+            FFileHelper::SaveArrayToFile(Volume->BakedField->ProbeData,*FPaths::Combine(W1Evidence(),TEXT("probes.bin")));
+            UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticW1Bake triangles=%d probes=%d evidence=%s"),Volume->ExportedTriangles,Volume->GeneratedProbes,*W1Evidence());
+            const FString File=FPackageName::LongPackageNameToFilename(W1Map,FPackageName::GetMapPackageExtension());
             if(!FEditorFileUtils::SaveLevel(Volume->GetWorld()->PersistentLevel,File))return Finish(false,TEXT("Cannot persist W1 bake binding."));
-            FString Error;GUnrealEd->AutomationLoadMap(IMW1Map,false,&Error);
+            FString Error;GUnrealEd->AutomationLoadMap(W1Map,false,&Error);
             if(!Error.IsEmpty())return Finish(false,Error);
             // AutomationLoadMap queues PIE startup. Yield this command completely,
             // then resume behind those commands; waiting here would deadlock the queue.
-            ADD_LATENT_AUTOMATION_COMMAND(IM_AcousticW1Command(Test,2));
+            ADD_LATENT_AUTOMATION_COMMAND(FIMAcousticW1Command(Test,2));
             return true;
         }
         UWorld* PIE=nullptr;
@@ -279,7 +279,7 @@ public:
             // the device in the same frame, so converged position implies the
             // -90deg rotation was picked up too (no independent rotation race).
             Listener->SetAudioListenerOverride(nullptr,FVector(0,200,150),FRotator(0,-90,0));
-            auto InitBridge=IM_AcousticTestSupport::FindBridge(PIE);
+            auto InitBridge=IMAcousticTestSupport::FindBridge(PIE);
             if(!InitBridge.IsValid())return false; // device not up yet; the 120s total cap bounds this wait.
             if(!ProbeBridge.IsValid())ProbeBridge=InitBridge;
             if(!ListenerConverged(InitBridge))
@@ -294,19 +294,19 @@ public:
             UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticW1InitReady t=%.3f snaps=%llu"),Now-Started,InitBridge->SnapshotProbePushes.load(std::memory_order_acquire));
             if(!SpawnW1Source(PIE))return Finish(false,TEXT("W1 source spawn failed."));
             if(FAudioDevice* AudioDevice=PIE->GetAudioDeviceRaw())
-                MetaContext=IM_FindAcousticMetaSoundContext(AudioDevice->DeviceID);
+                MetaContext=IMAcousticMetaSound::FindAcousticMetaSoundContext(AudioDevice->DeviceID);
             GraphGateSourceBefore=GraphSourceBlocks();
             GraphGateEnvironmentBefore=GraphEnvironmentBlocks();
             UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticW1InitSpawn t=%.3f"),Now-Started);
             Stage=3;return false;
         }
-        auto Bridge=IM_AcousticTestSupport::FindBridge(PIE);
+        auto Bridge=IMAcousticTestSupport::FindBridge(PIE);
         if(!Bridge)return Finish(false,TEXT("W1 has no IceMoon audio device bridge; configure plugin before launching."));
         if(!ProbeBridge.IsValid() || ProbeBridge != Bridge)ProbeBridge=Bridge; // Rebind from the pre-spawn legacy bridge to the graph owner when delayed binding completes.
         if(!MetaContext.IsValid())
         {
             if(FAudioDevice* AudioDevice=PIE->GetAudioDeviceRaw())
-                MetaContext=IM_FindAcousticMetaSoundContext(AudioDevice->DeviceID);
+                MetaContext=IMAcousticMetaSound::FindAcousticMetaSoundContext(AudioDevice->DeviceID);
         }
         if(MetaContext.IsValid()&&GraphGateSourceBefore==0)
         {
@@ -384,7 +384,7 @@ public:
             if(Now-CaptureStart<(RouteIndex>=3?5:2))return false;
             uint64 Direct=Bridge->DirectNonzeroBlocks.load()-DirectBefore,Path=Bridge->PathNonzeroBlocks.load()-PathBefore;
             uint64 Rejected=Bridge->RejectedBlocks.load()-RejectedBefore;
-            IFileManager::Get().MakeDirectory(*IMW1Evidence(),true);
+            IFileManager::Get().MakeDirectory(*W1Evidence(),true);
             uint64 Reverb=Bridge->ReverbNonzeroBlocks.load()-ReverbBefore;
             if(MetaContext.IsValid())
             {
@@ -393,9 +393,9 @@ public:
             }
             UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticW1RouteVec route=%s d_direct=%llu d_path=%llu d_reverb=%llu d_rej=%llu push=%llu/inputnz=%llu/rinputnz=%llu notfresh=%llu"),*RouteName(),Direct,Path,Reverb,Rejected,Bridge->PushDryCalls.load(),Bridge->PushDryInputNonzero.load(),Bridge->RenderInputNonzero.load(),Bridge->ReverbNotFreshBlocks.load());
             UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticW1Intervals route=%s gt_max_us=%llu worker_max_us=%llu stale=%llu missing=%llu"),*RouteName(),Bridge->MaxSnapshotGapUs.load(),Bridge->MaxWorkerGapUs.load(),Bridge->StaleResultBlocks.load(),Bridge->MissingResultBlocks.load());
-            UAudioMixerBlueprintLibrary::StopRecordingOutput(PIE,EAudioRecordingExportType::WavFile,RouteName(),IMW1Evidence());
+            UAudioMixerBlueprintLibrary::StopRecordingOutput(PIE,EAudioRecordingExportType::WavFile,RouteName(),W1Evidence());
             const FString Data=FString::Printf(TEXT("{\"scope\":\"UE-open-door-isolated-route\",\"route\":\"%s\",\"direct_nonzero_blocks\":%llu,\"path_nonzero_blocks\":%llu,\"degraded_blocks\":%llu,\"reverb_nonzero_blocks\":%llu}"),*RouteName(),Direct,Path,Rejected,Reverb);
-            FFileHelper::SaveStringToFile(Data,*FPaths::Combine(IMW1Evidence(),RouteName()+TEXT(".json")),FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
+            FFileHelper::SaveStringToFile(Data,*FPaths::Combine(W1Evidence(),RouteName()+TEXT(".json")),FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
             // Route WAV window for the probe join: wall-clock start/end of this
             // route recording plus its counter deltas. Bounded (one per route).
             if (ProbeRouteWindows.Num() < 8)
@@ -407,7 +407,7 @@ public:
         }
         if(Stage==5)
         {
-            const FString File=FPaths::Combine(IMW1Evidence(),RouteName()+TEXT(".wav"));
+            const FString File=FPaths::Combine(W1Evidence(),RouteName()+TEXT(".wav"));
             if(IFileManager::Get().FileSize(*File)<=44)return false;
             TArray<uint8> Bytes;FWaveModInfo WaveInfo;
             if(!FFileHelper::LoadFileToArray(Bytes,*File)||!WaveInfo.ReadWaveInfo(Bytes.GetData(),Bytes.Num()))return false;
@@ -436,8 +436,8 @@ public:
                 CuePass=bRouteCueReference&&FMath::Abs(EarBalance)>.02&&(EarBalance*RouteCueSign<0.0);
             }
             AudioPass=AudioPass&&CuePass;
-            FFileHelper::SaveStringToFile(FString::Printf(TEXT("{\"pcm16_energy\":%.17g,\"pcm_bytes\":%u,\"ear_balance\":%.9g}"),Energy,WaveInfo.SampleDataSize,EarBalance),*FPaths::Combine(IMW1Evidence(),RouteName()+TEXT("-energy.json")),FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
-            UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticW1DirectPath evidence=%s"),*IMW1Evidence());
+            FFileHelper::SaveStringToFile(FString::Printf(TEXT("{\"pcm16_energy\":%.17g,\"pcm_bytes\":%u,\"ear_balance\":%.9g}"),Energy,WaveInfo.SampleDataSize,EarBalance),*FPaths::Combine(W1Evidence(),RouteName()+TEXT("-energy.json")),FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
+            UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticW1DirectPath evidence=%s"),*W1Evidence());
             if(!AudioPass)return Finish(false,TEXT("UE route counter/recording gate failed: ")+RouteName());
             if(++RouteIndex<5){SetRoute();CaptureStart=Now;Stage=6;return false;}
             return Finish(true,TEXT("UE direct/path/baked-reverb routes and moving source/listener recordings passed; door cue reverses with listener orientation."));
@@ -462,7 +462,7 @@ private:
         MovingSource=Audio;
         auto* Source=NewObject<UIMAcousticSourceComponent>(Actor);Actor->AddInstanceComponent(Source);Source->AudioComponent=Audio;Source->RegisterComponent();
         FString Error;
-        if(!IM_AcousticTestSupport::ConfigureGraphSource(Audio,Error)){Finish(false,Error);return false;}
+        if(!IMAcousticTestSupport::ConfigureGraphSource(Audio,Error)){Finish(false,Error);return false;}
         if(!Source->ValidateSource(Error)){Finish(false,Error);return false;}
         Audio->Play();return true;
     }
@@ -470,17 +470,17 @@ private:
     // Latest Done-complete GT snapshot must report it within 1e-3 before
     // route0 baselines are taken. Same-thread GT read: producer is GT Tick,
     // this latent update runs on GT. Test-side wait only, never a verdict.
-    bool ListenerConverged(const TSharedPtr<IM_AcousticDeviceBridge,ESPMode::ThreadSafe>& InBridge) const
+    bool ListenerConverged(const TSharedPtr<FIMAcousticDeviceBridge,ESPMode::ThreadSafe>& InBridge) const
     {
         if(!InBridge.IsValid())return false;
         const uint64 Pushes=InBridge->SnapshotProbePushes.load(std::memory_order_acquire);
-        const uint64 Limit=Pushes<IM_AcousticDeviceBridge::ProbeSnapshotCapacity?Pushes:IM_AcousticDeviceBridge::ProbeSnapshotCapacity;
+        const uint64 Limit=Pushes<FIMAcousticDeviceBridge::ProbeSnapshotCapacity?Pushes:FIMAcousticDeviceBridge::ProbeSnapshotCapacity;
         if(Limit==0)return false;
         for(uint64 I=Limit;I>0;--I)
         {
             const uint64 Idx=I-1;
             if(InBridge->SnapshotDone[Idx].load(std::memory_order_acquire)!=Idx+1)continue;
-            const IM_AcousticSnapshotProbe& S=InBridge->SnapshotProbes[Idx];
+            const FIMAcousticSnapshotProbe& S=InBridge->SnapshotProbes[Idx];
             return FMath::Abs(double(S.ListenerUEX)-0.0)<1e-3&&FMath::Abs(double(S.ListenerUEY)-200.0)<1e-3&&FMath::Abs(double(S.ListenerUEZ)-150.0)<1e-3;
         }
         return false;
@@ -501,8 +501,8 @@ private:
         const uint32 First=FMath::Min<uint32>(Begin,Limit);
         for(uint32 I=First;I<Limit;++I)
         {
-            const IM_AcousticBlockProbe& E=MetaContext->CapturedSourceBlocks[int32(I)];
-            if(E.Reject!=IM_AcousticProbeReject::Accepted){++Rejected;continue;}
+            const FIMAcousticBlockProbe& E=MetaContext->CapturedSourceBlocks[int32(I)];
+            if(E.Reject!=EIMAcousticProbeReject::Accepted){++Rejected;continue;}
             if((E.Routes&1u)!=0&&E.OutputEnergy>1e-9)++Direct;
             if((E.Routes&2u)!=0&&E.OutputEnergy>1e-9)++Path;
         }
@@ -516,9 +516,9 @@ private:
         uint64 Nonzero=0;
         for(uint32 I=First;I<Limit;++I)
         {
-            const IM_AcousticMetaSoundBlock& E=MetaContext->CapturedBlocks[int32(I)];
+            const FIMAcousticMetaSoundBlock& E=MetaContext->CapturedBlocks[int32(I)];
             const uint32 Start=uint32(E.Frame);
-            const uint32 Finish=FMath::Min<uint32>(Start+IM_AcousticMetaSoundContext::Frames,Frames);
+            const uint32 Finish=FMath::Min<uint32>(Start+FIMAcousticMetaSoundContext::Frames,Frames);
             bool bWet=false;
             for(uint32 F=Start;F<Finish;++F)
             {
@@ -558,16 +558,16 @@ private:
         if (ProbeBridge.IsValid()) { CRen = ProbeBridge->RenderedBlocks.load(); CRej = ProbeBridge->RejectedBlocks.load(); CDir = ProbeBridge->DirectNonzeroBlocks.load(); CPath = ProbeBridge->PathNonzeroBlocks.load(); }
         const FString RC = FString::Printf(TEXT("{\"started\":%.6f,\"route_index\":%d,\"route_windows\":%d,\"feed_cursor\":%d,\"feed_total\":%d,\"queue_bytes\":%d,\"target_lis\":[0,200,150],\"actual_lis\":[%.2f,%.2f,%.2f],\"actual_src\":[%.2f,%.2f,%.2f],\"rendered\":%llu,\"rejected\":%llu,\"direct\":%llu,\"path\":%llu}"),
             Started, RouteIndex, ProbeRouteWindows.Num(), FeedCursor, FeedPCM.Num(), QBytes, ActL.X, ActL.Y, ActL.Z, ActS.X, ActS.Y, ActS.Z, CRen, CRej, CDir, CPath);
-        if (ProbeBridge.IsValid()) { IM_W1ExportProbeTrace(ProbeBridge.Get(), ProbeRouteWindows, IMW1Evidence(), RC); }
-        else { IM_W1ExportProbeTrace(nullptr, ProbeRouteWindows, IMW1Evidence(), RC); }
-        IM_W1ExportMetaSoundTrace(MetaContext,IMW1Evidence());
+        if (ProbeBridge.IsValid()) { W1ExportProbeTrace(ProbeBridge.Get(), ProbeRouteWindows, W1Evidence(), RC); }
+        else { W1ExportProbeTrace(nullptr, ProbeRouteWindows, W1Evidence(), RC); }
+        W1ExportMetaSoundTrace(MetaContext,W1Evidence());
         if(!Pass)Test->AddError(Message);else Test->AddInfo(Message);
         UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticW1DirectPath %s %s"),Pass?TEXT("PASS"):TEXT("FAIL"),*Message);
         UE_LOG(LogTemp,Display,TEXT("IMExitEditor %s"),Pass?TEXT("PASS"):TEXT("FAIL"));
         UE_LOG(LogTemp,Display,TEXT("[IM][PIE_TEST] AcousticW1 %s"),Pass?TEXT("PASS"):TEXT("FAIL"));
-        FApp::SetUnfocusedVolumeMultiplier(IMW1OriginalBackgroundVolume);
-        GetMutableDefault<ULevelEditorMiscSettings>()->bAllowBackgroundAudio=IMW1OriginalBackgroundAudio;
-        IM_EnableAcousticMetaSoundCaptureForTest(false);
+        FApp::SetUnfocusedVolumeMultiplier(W1OriginalBackgroundVolume);
+        GetMutableDefault<ULevelEditorMiscSettings>()->bAllowBackgroundAudio=W1OriginalBackgroundAudio;
+        IMAcousticMetaSound::EnableAcousticMetaSoundCaptureForTest(false);
         if(GUnrealEd)GUnrealEd->RequestEndPlayMap();return true;
     }
     FAutomationTestBase* Test;
@@ -582,8 +582,8 @@ private:
     bool AudioPass=false;
     double RouteCueSign=0.0;
     bool bRouteCueReference=false;
-    TSharedPtr<IM_AcousticDeviceBridge, ESPMode::ThreadSafe> ProbeBridge; // Finish-time export only; never used on audio threads.
-    IM_AcousticMetaSoundContextPtr MetaContext;
+    TSharedPtr<FIMAcousticDeviceBridge, ESPMode::ThreadSafe> ProbeBridge; // Finish-time export only; never used on audio threads.
+    FIMAcousticMetaSoundContextPtr MetaContext;
     TArray<FString> ProbeRouteWindows; // Bounded route WAV windows for the probe join (set in Stage4).
     TWeakObjectPtr<AIMAcousticBakeVolume> Volume;
     TWeakObjectPtr<UIMAcousticBakeAsset> PreviousAsset;
@@ -595,16 +595,18 @@ private:
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FIMAcousticW1Test,"IceMoon.AcousticField.W1.DirectPath",EAutomationTestFlags::EditorContext|EAutomationTestFlags::ProductFilter)
 bool FIMAcousticW1Test::RunTest(const FString&)
 {
-    FString Error;if(!IMBuildW1Map(Error)){AddError(Error);return false;}
-    IM_EnableAcousticMetaSoundCaptureForTest(true);
-    IMW1OriginalBackgroundVolume=FApp::GetUnfocusedVolumeMultiplier();
+    FString Error;if(!IMAcousticW1TestPrivate::BuildW1Map(Error)){AddError(Error);return false;}
+    IMAcousticMetaSound::EnableAcousticMetaSoundCaptureForTest(true);
+    IMAcousticW1TestPrivate::W1OriginalBackgroundVolume=FApp::GetUnfocusedVolumeMultiplier();
     FApp::SetUnfocusedVolumeMultiplier(1); // Deterministic audio in this owned unattended Editor only.
-    IMW1OriginalBackgroundAudio=GetMutableDefault<ULevelEditorMiscSettings>()->bAllowBackgroundAudio;
+    IMAcousticW1TestPrivate::W1OriginalBackgroundAudio=GetMutableDefault<ULevelEditorMiscSettings>()->bAllowBackgroundAudio;
     GetMutableDefault<ULevelEditorMiscSettings>()->bAllowBackgroundAudio=true;
-    ADD_LATENT_AUTOMATION_COMMAND(IM_AcousticW1Command(this));return true;
+    ADD_LATENT_AUTOMATION_COMMAND(IMAcousticW1TestPrivate::FIMAcousticW1Command(this));return true;
 }
 // H1 W1 product-side readback proof (mechanism, not an acoustic claim).
-static IPLCoordinateSpace3 IMH1PO_Frame(float OX, float OY, float OZ)
+namespace IMAcousticW1TestPrivate
+{
+IPLCoordinateSpace3 H1POFrame(float OX, float OY, float OZ)
 {
     IPLCoordinateSpace3 F{};
     F.right = {1.0f, 0.0f, 0.0f};
@@ -613,7 +615,7 @@ static IPLCoordinateSpace3 IMH1PO_Frame(float OX, float OY, float OZ)
     F.origin = {OX, OY, OZ};
     return F;
 }
-static void IMH1PO_BoxRoom(IM_AcousticSceneInput& Out)
+void H1POBoxRoom(FIMAcousticSceneInput& Out)
 {
     // Closed box x in [-3,3], y in [-2,2], z in [0,3], outward winding, meters.
     Out.Vertices = {{-3,-2,0},{3,-2,0},{3,2,0},{-3,2,0},{-3,-2,3},{3,-2,3},{3,2,3},{-3,2,3}};
@@ -626,70 +628,72 @@ static void IMH1PO_BoxRoom(IM_AcousticSceneInput& Out)
     Out.MaterialIndices.assign(Out.Triangles.size(), 0);
     Out.Probes = {{{-1.0f,0.0f,1.5f},0.6f},{{1.0f,0.0f,1.5f},0.6f}};
 }
-static FString IMH1PO_RbJson(const IM_AcousticPathingReadback& R)
+FString H1PORbJson(const FIMAcousticPathingReadback& R)
 {
     return FString::Printf(TEXT("{\"validation\":%d,\"alternates\":%d,\"applied_to_sdk\":%d,\"at\":\"%s\",\"apply_count\":%llu,\"sources\":%llu,\"key\":%llu,\"gen\":%llu}"),
         R.EnableValidationApplied?1:0, R.FindAlternatePathsApplied?1:0, R.AppliedToSdk?1:0,
         ANSI_TO_TCHAR(R.AppliedAt.c_str()), R.ApplyCount, R.AppliedSources, R.LastSourceKey, R.LastGeneration);
 }
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FIMAcousticPathingOptionsTest, "IceMoon.AcousticField.H1.PathingOptions", EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 bool FIMAcousticPathingOptionsTest::RunTest(const FString&)
 {
     std::string Error;
     // 1. Fresh simulator: missing options fail closed with the field named (no silent default).
-    IM_AcousticSimulation Sim;
-    std::vector<IM_AcousticSourceInput> In(1);
-    In[0].SourceKey = 7; In[0].Generation = 1; In[0].Source = IMH1PO_Frame(2.0f, 0.0f, 1.5f);
-    std::vector<IM_AcousticAudioFrame> OutFrames;
-    if (Sim.EvaluateBatch(In, IMH1PO_Frame(-2.0f, 0.0f, 1.5f), OutFrames, Error)) { AddError(TEXT("EvaluateBatch without options must fail.")); return false; }
+    FIMAcousticSimulation Sim;
+    std::vector<FIMAcousticSourceInput> In(1);
+    In[0].SourceKey = 7; In[0].Generation = 1; In[0].Source = IMAcousticW1TestPrivate::H1POFrame(2.0f, 0.0f, 1.5f);
+    std::vector<FIMAcousticAudioFrame> OutFrames;
+    if (Sim.EvaluateBatch(In, IMAcousticW1TestPrivate::H1POFrame(-2.0f, 0.0f, 1.5f), OutFrames, Error)) { AddError(TEXT("EvaluateBatch without options must fail.")); return false; }
     const FString FreshEvalErr = ANSI_TO_TCHAR(Error.c_str());
     if (!FreshEvalErr.Contains(TEXT("enableValidation"))) { AddError(FString::Printf(TEXT("EvaluateBatch gate must name the field, got: %s"), *FreshEvalErr)); return false; }
-    IM_AcousticBakeData Empty;
+    FIMAcousticBakeData Empty;
     if (Sim.Load(Empty, 48000, 512, Error)) { AddError(TEXT("Load without options must fail.")); return false; }
     const FString FreshLoadErr = ANSI_TO_TCHAR(Error.c_str());
     if (!FreshLoadErr.Contains(TEXT("Load")) || !FreshLoadErr.Contains(TEXT("findAlternatePaths"))) { AddError(FString::Printf(TEXT("Load gate must name context+field, got: %s"), *FreshLoadErr)); return false; }
     // 2. Incomplete structs fail with the missing field named; state unchanged.
-    IM_AcousticPathingOptions EmptyOpts;
+    FIMAcousticPathingOptions EmptyOpts;
     if (Sim.SetPathingOptions(EmptyOpts, Error)) { AddError(TEXT("Empty options must be rejected.")); return false; }
     const FString EmptySetErr = ANSI_TO_TCHAR(Error.c_str());
-    IM_AcousticPathingOptions Partial; Partial.EnableValidation = false; Partial.HasEnableValidation = true;
+    FIMAcousticPathingOptions Partial; Partial.EnableValidation = false; Partial.HasEnableValidation = true;
     if (Sim.SetPathingOptions(Partial, Error)) { AddError(TEXT("Partial options must be rejected.")); return false; }
     const FString PartialSetErr = ANSI_TO_TCHAR(Error.c_str());
     if (!PartialSetErr.Contains(TEXT("findAlternatePaths"))) { AddError(FString::Printf(TEXT("Partial gate must name findAlternatePaths, got: %s"), *PartialSetErr)); return false; }
     if (Sim.GetPathingOptions().IsComplete()) { AddError(TEXT("Failed Set must not change stored options.")); return false; }
     // 3. Hybrid default: explicit set -> change readback (not yet applied to the SDK).
-    if (!Sim.SetPathingOptions(IM_AcousticPathingOptions::DefaultHybrid(), Error)) { AddError(ANSI_TO_TCHAR(Error.c_str())); return false; }
-    const IM_AcousticPathingReadback SetRb = Sim.GetPathingReadback();
+    if (!Sim.SetPathingOptions(FIMAcousticPathingOptions::DefaultHybrid(), Error)) { AddError(ANSI_TO_TCHAR(Error.c_str())); return false; }
+    const FIMAcousticPathingReadback SetRb = Sim.GetPathingReadback();
     if (!SetRb.EnableValidationApplied || !SetRb.FindAlternatePathsApplied || SetRb.AppliedToSdk || SetRb.ApplyCount != 0) { AddError(TEXT("Set readback must show ON/ON pending SDK application.")); return false; }
     // 4. Creation binds the struct identity: real Bake + Load -> Load readback.
-    IM_AcousticSceneInput Scene; IMH1PO_BoxRoom(Scene);
-    IM_AcousticBakeData Bake;
+    FIMAcousticSceneInput Scene; IMAcousticW1TestPrivate::H1POBoxRoom(Scene);
+    FIMAcousticBakeData Bake;
     if (!Sim.Bake(Scene, Bake, Error)) { AddError(FString::Printf(TEXT("Synthetic bake failed: %s"), ANSI_TO_TCHAR(Error.c_str()))); return false; }
     if (!Sim.Load(Bake, 48000, 512, Error)) { AddError(FString::Printf(TEXT("Load with Hybrid options failed: %s"), ANSI_TO_TCHAR(Error.c_str()))); return false; }
-    const IM_AcousticPathingReadback LoadRb = Sim.GetPathingReadback();
+    const FIMAcousticPathingReadback LoadRb = Sim.GetPathingReadback();
     if (!LoadRb.AppliedToSdk || !LoadRb.EnableValidationApplied || !LoadRb.FindAlternatePathsApplied || LoadRb.ApplyCount != 1) { AddError(TEXT("Load readback must show ON/ON applied once.")); return false; }
     // 5. Change path: EvaluateBatch applies the exact IPL values -> batch readback.
-    std::vector<IM_AcousticAudioFrame> OutFrames2;
-    if (!Sim.EvaluateBatch(In, IMH1PO_Frame(-2.0f, 0.0f, 1.5f), OutFrames2, Error)) { AddError(FString::Printf(TEXT("EvaluateBatch failed: %s"), ANSI_TO_TCHAR(Error.c_str()))); return false; }
-    const IM_AcousticPathingReadback BatchRb = Sim.GetPathingReadback();
+    std::vector<FIMAcousticAudioFrame> OutFrames2;
+    if (!Sim.EvaluateBatch(In, IMAcousticW1TestPrivate::H1POFrame(-2.0f, 0.0f, 1.5f), OutFrames2, Error)) { AddError(FString::Printf(TEXT("EvaluateBatch failed: %s"), ANSI_TO_TCHAR(Error.c_str()))); return false; }
+    const FIMAcousticPathingReadback BatchRb = Sim.GetPathingReadback();
     if (!BatchRb.AppliedToSdk || BatchRb.AppliedSources != 1 || BatchRb.LastSourceKey != 7 || BatchRb.LastGeneration != 1 || BatchRb.ApplyCount != 2) { AddError(TEXT("Batch readback must show 1 applied source, key 7 gen 1, count 2.")); return false; }
     // 6. Runtime change to OFF/OFF (W3 validation-OFF counterexample vehicle) -> readback follows.
-    IM_AcousticPathingOptions Off; Off.EnableValidation = false; Off.FindAlternatePaths = false;
+    FIMAcousticPathingOptions Off; Off.EnableValidation = false; Off.FindAlternatePaths = false;
     Off.HasEnableValidation = true; Off.HasFindAlternatePaths = true;
     if (!Sim.SetPathingOptions(Off, Error)) { AddError(ANSI_TO_TCHAR(Error.c_str())); return false; }
-    std::vector<IM_AcousticAudioFrame> OutFrames3;
-    if (!Sim.EvaluateBatch(In, IMH1PO_Frame(-2.0f, 0.0f, 1.5f), OutFrames3, Error)) { AddError(FString::Printf(TEXT("OFF/OFF EvaluateBatch failed: %s"), ANSI_TO_TCHAR(Error.c_str()))); return false; }
-    const IM_AcousticPathingReadback OffRb = Sim.GetPathingReadback();
+    std::vector<FIMAcousticAudioFrame> OutFrames3;
+    if (!Sim.EvaluateBatch(In, IMAcousticW1TestPrivate::H1POFrame(-2.0f, 0.0f, 1.5f), OutFrames3, Error)) { AddError(FString::Printf(TEXT("OFF/OFF EvaluateBatch failed: %s"), ANSI_TO_TCHAR(Error.c_str()))); return false; }
+    const FIMAcousticPathingReadback OffRb = Sim.GetPathingReadback();
     if (OffRb.EnableValidationApplied || OffRb.FindAlternatePathsApplied || OffRb.ApplyCount != 3) { AddError(TEXT("OFF/OFF readback must show false/false at count 3.")); return false; }
     // 7. Evidence: one JSON receipt with the raw readbacks and gate errors.
     const FString Dir = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("AcousticV2/H1-UE"), FString::Printf(TEXT("IMCF_W1_%s"), *FGuid::NewGuid().ToString(EGuidFormats::Digits)));
     IFileManager::Get().MakeDirectory(*Dir, true);
     const FString Json = FString::Printf(TEXT("{\"gate_fresh_evaluate\":\"%s\",\"gate_fresh_load\":\"%s\",\"gate_empty_set\":\"%s\",\"gate_partial_set\":\"%s\",\"set_readback\":%s,\"load_readback\":%s,\"batch_readback\":%s,\"off_off_readback\":%s,\"evaluate_ok\":true}"),
         *FreshEvalErr, *FreshLoadErr, *EmptySetErr, *PartialSetErr,
-        *IMH1PO_RbJson(SetRb), *IMH1PO_RbJson(LoadRb), *IMH1PO_RbJson(BatchRb), *IMH1PO_RbJson(OffRb));
+        *IMAcousticW1TestPrivate::H1PORbJson(SetRb), *IMAcousticW1TestPrivate::H1PORbJson(LoadRb), *IMAcousticW1TestPrivate::H1PORbJson(BatchRb), *IMAcousticW1TestPrivate::H1PORbJson(OffRb));
     FFileHelper::SaveStringToFile(Json, *FPaths::Combine(Dir, TEXT("IM_pathing_readback.json")), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
     UE_LOG(LogTemp, Display, TEXT("IMLogs AcousticW1Pathing set=%s load=%s batch=%s off=%s dir=%s"),
-        *IMH1PO_RbJson(SetRb), *IMH1PO_RbJson(LoadRb), *IMH1PO_RbJson(BatchRb), *IMH1PO_RbJson(OffRb), *Dir);
+        *IMAcousticW1TestPrivate::H1PORbJson(SetRb), *IMAcousticW1TestPrivate::H1PORbJson(LoadRb), *IMAcousticW1TestPrivate::H1PORbJson(BatchRb), *IMAcousticW1TestPrivate::H1PORbJson(OffRb), *Dir);
     UE_LOG(LogTemp, Display, TEXT("[IM][PIE_TEST] AcousticH1PathingOptions PASS"));
     UE_LOG(LogTemp, Display, TEXT("IMExitEditor PASS"));
     AddInfo(FString::Printf(TEXT("Pathing readback evidence: %s"), *Dir));

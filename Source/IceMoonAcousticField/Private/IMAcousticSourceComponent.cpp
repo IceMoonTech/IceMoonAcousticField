@@ -101,7 +101,7 @@ bool UIMAcousticSourceComponent::ValidateSource(FString& Failure) const
         return false;
     }
     const USoundWave* Wave = Cast<USoundWave>(Audio->Sound);
-    if (IM_IsAcousticMetaSound(Audio->Sound))
+    if (IMAcousticMetaSound::IsAcousticMetaSound(Audio->Sound))
     {
         const FSoundAttenuationSettings* Settings = Audio->GetAttenuationSettingsToApply();
         if (Audio->bAllowSpatialization || (Settings && (Settings->bSpatialize || Settings->bAttenuate

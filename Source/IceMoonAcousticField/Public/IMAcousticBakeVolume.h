@@ -9,7 +9,7 @@ class UStaticMeshComponent;
 class UIMAcousticBakeAsset;
 class USoundSubmix;
 class UIMAcousticReverbPreset;
-struct IM_AcousticFieldRuntime;
+struct FIMAcousticFieldRuntime;
 
 USTRUCT()
 struct FIMAcousticMaterialMapping
@@ -97,9 +97,9 @@ public:
     // H1 W3 negative control only (test-only): request a pathing-validation
     // flip on the running worker; poll IM_GetAppliedPathingValidationForTest
     // until it matches. Returns false when no worker is running.
-    bool IM_SetPathingValidationForTest(bool bOn);
-    int IM_GetAppliedPathingValidationForTest() const;
-    bool IM_SetApertureTransitForTest(bool bOn, const FVector& CenterUE,
+    bool SetPathingValidationForTest(bool bOn);
+    int ReadAppliedPathingValidationForTest() const;
+    bool SetApertureTransitForTest(bool bOn, const FVector& CenterUE,
         const FVector& HalfExtentUE);
 
     void Tick(float DeltaSeconds) override;
@@ -112,7 +112,7 @@ protected:
 private:
     UPROPERTY(Transient)
     TObjectPtr<UIMAcousticReverbPreset> ReverbPreset;
-    TUniquePtr<IM_AcousticFieldRuntime> Runtime;
+    TUniquePtr<FIMAcousticFieldRuntime> Runtime;
     // Overlay probe cache: refilled only when the bound bake asset changes, so
     // per-frame drawing never re-parses the asset metadata.
     TWeakObjectPtr<UIMAcousticBakeAsset> OverlayAsset;

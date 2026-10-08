@@ -19,9 +19,9 @@
 #include "Misc/SecureHash.h"
 #include "Serialization/JsonWriter.h"
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(IM_AcousticW2Inventory,"IceMoon.AcousticField.W2.Inventory",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FIMAcousticW2Inventory,"IceMoon.AcousticField.W2.Inventory",
     EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
-bool IM_AcousticW2Inventory::RunTest(const FString&)
+bool FIMAcousticW2Inventory::RunTest(const FString&)
 {
     const bool Loaded=FEditorFileUtils::LoadMap(TEXT("/IceMoonAcousticField/L_IceMoonAcousticField"),false,true);
     if(!Loaded){AddError(TEXT("Existing whitebox map missing."));return false;}
@@ -54,10 +54,10 @@ bool IM_AcousticW2Inventory::RunTest(const FString&)
     UE_LOG(LogTemp,Display,TEXT("IMExitEditor %s"),Success?TEXT("PASS"):TEXT("FAIL"));
     return Success;
 }
-namespace
+namespace IMAcousticW2TestPrivate
 {
-constexpr const TCHAR* IMW2Map=TEXT("/IceMoonAcousticField/L_IceMoonAcousticField");
-FString IMW2GeometryIdentity(UWorld* World)
+constexpr const TCHAR* W2Map=TEXT("/IceMoonAcousticField/L_IceMoonAcousticField");
+FString W2GeometryIdentity(UWorld* World)
 {
     TArray<FString> Items;
     for(TActorIterator<AActor> It(World);It;++It)
@@ -68,17 +68,17 @@ FString IMW2GeometryIdentity(UWorld* World)
     Items.Sort();FSHA1 Hash;for(const FString& Item:Items){FTCHARToUTF8 Bytes(*Item);Hash.Update(reinterpret_cast<const uint8*>(Bytes.Get()),Bytes.Length());}
     Hash.Final();uint8 Digest[20];Hash.GetHash(Digest);return BytesToHex(Digest,20);
 }
-class IM_AcousticW2BakeCommand final:public IAutomationLatentCommand
+class FIMAcousticW2BakeCommand final:public IAutomationLatentCommand
 {
 public:
-    explicit IM_AcousticW2BakeCommand(FAutomationTestBase* InTest):Test(InTest),Started(FPlatformTime::Seconds()){}
+    explicit FIMAcousticW2BakeCommand(FAutomationTestBase* InTest):Test(InTest),Started(FPlatformTime::Seconds()){}
     bool Update() override
     {
         if(FPlatformTime::Seconds()-Started>900)return Finish(false,TEXT("Actual whitebox bake timed out."));
         if(Stage==0)
         {
-            if(!FEditorFileUtils::LoadMap(IMW2Map,false,true))return Finish(false,TEXT("Existing whitebox map missing."));
-            UWorld* World=GEditor->GetEditorWorldContext().World();GeometryBefore=IMW2GeometryIdentity(World);
+            if(!FEditorFileUtils::LoadMap(W2Map,false,true))return Finish(false,TEXT("Existing whitebox map missing."));
+            UWorld* World=GEditor->GetEditorWorldContext().World();GeometryBefore=W2GeometryIdentity(World);
             FBox Bounds(ForceInit);int32 WhiteboxCount=0;UMaterialInterface* Material=nullptr;
             for(TActorIterator<AActor> It(World);It;++It)
             {
@@ -119,7 +119,7 @@ public:
             if(Volume->Status.Contains(TEXT("failed"),ESearchCase::IgnoreCase)||Volume->Status.Contains(TEXT("discarded")))return Finish(false,Volume->Status);
             if(!Volume->BakedField||Volume->BakedField==Previous.Get())return false;
             FString Error;if(!Volume->ValidateCurrentBake(Error))return Finish(false,Error);
-            if(IMW2GeometryIdentity(Volume->GetWorld())!=GeometryBefore)return Finish(false,TEXT("Test changed existing scene geometry."));
+            if(W2GeometryIdentity(Volume->GetWorld())!=GeometryBefore)return Finish(false,TEXT("Test changed existing scene geometry."));
             auto* Asset=Volume->BakedField.Get();
             auto* Corrupt=DuplicateObject<UIMAcousticBakeAsset>(Asset,GetTransientPackage());
             Corrupt->ProbeData[0]^=1;
@@ -137,7 +137,7 @@ public:
             FFileHelper::SaveArrayToFile(Asset->SceneData,*FPaths::Combine(Directory,TEXT("scene.bin")));
             FFileHelper::SaveArrayToFile(Asset->ProbeData,*FPaths::Combine(Directory,TEXT("probes.bin")));
             FFileHelper::SaveStringToFile(GeometryBefore,*FPaths::Combine(Directory,TEXT("geometry-identity.txt")));
-            const FString File=FPackageName::LongPackageNameToFilename(IMW2Map,FPackageName::GetMapPackageExtension());
+            const FString File=FPackageName::LongPackageNameToFilename(W2Map,FPackageName::GetMapPackageExtension());
             if(!FEditorFileUtils::SaveLevel(Volume->GetWorld()->PersistentLevel,File))return Finish(false,TEXT("Cannot save whitebox bake binding."));
             Previous=Asset;Volume->GenerateProbes();Volume->Bake();Volume->CancelBake();Stage=2;return false;
         }
@@ -159,19 +159,19 @@ private:
     TWeakObjectPtr<AIMAcousticBakeVolume> Volume;TWeakObjectPtr<UIMAcousticBakeAsset> Previous;
 };
 }
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(IM_AcousticW2Bake,"IceMoon.AcousticField.W2.BakeExisting",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FIMAcousticW2Bake,"IceMoon.AcousticField.W2.BakeExisting",
     EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
-bool IM_AcousticW2Bake::RunTest(const FString&){ADD_LATENT_AUTOMATION_COMMAND(IM_AcousticW2BakeCommand(this));return true;}
+bool FIMAcousticW2Bake::RunTest(const FString&){ADD_LATENT_AUTOMATION_COMMAND(IMAcousticW2TestPrivate::FIMAcousticW2BakeCommand(this));return true;}
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(IM_AcousticW2Cold,"IceMoon.AcousticField.W2.ColdLoad",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FIMAcousticW2Cold,"IceMoon.AcousticField.W2.ColdLoad",
     EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
-bool IM_AcousticW2Cold::RunTest(const FString&)
+bool FIMAcousticW2Cold::RunTest(const FString&)
 {
-    bool Success=FEditorFileUtils::LoadMap(IMW2Map,false,true);FString Error;int32 Found=0;
+    bool Success=FEditorFileUtils::LoadMap(IMAcousticW2TestPrivate::W2Map,false,true);FString Error;int32 Found=0;
     if(Success)for(TActorIterator<AIMAcousticBakeVolume> It(GEditor->GetEditorWorldContext().World());It;++It)
     {
         ++Found;Success=It->ValidateCurrentBake(Error)&&Success;
-        if(Success){TArray<FVector4> Probes;FVector Origin;Success=It->BakedField->GetProbePreview(IMW2Map,It->BakedField->SceneFingerprint,Probes,Origin,Error)&&!Probes.IsEmpty();}
+        if(Success){TArray<FVector4> Probes;FVector Origin;Success=It->BakedField->GetProbePreview(IMAcousticW2TestPrivate::W2Map,It->BakedField->SceneFingerprint,Probes,Origin,Error)&&!Probes.IsEmpty();}
     }
     Success=Success&&Found==1;if(!Success)AddError(TEXT("Cold-loaded bake invalid: ")+Error);
     UE_LOG(LogTemp,Display,TEXT("[IM][PIE_TEST] AcousticW2ColdLoad %s"),Success?TEXT("PASS"):TEXT("FAIL"));

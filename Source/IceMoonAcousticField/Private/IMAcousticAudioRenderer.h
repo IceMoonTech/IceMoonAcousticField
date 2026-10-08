@@ -7,7 +7,7 @@
 #include <cstdint>
 #include <vector>
 
-struct IM_AcousticAudioFrame
+struct FIMAcousticAudioFrame
 {
     static constexpr int Order = 1;
     static constexpr int Coefficients = (Order + 1) * (Order + 1);
@@ -22,21 +22,21 @@ struct IM_AcousticAudioFrame
     std::array<float, Coefficients> PathSH{};
 };
 
-enum class IM_AcousticRenderFailure : unsigned char { None, InvalidFrame, NonfiniteInput, NonfiniteDirect, NonfinitePath, Count };
-struct IM_AcousticAudioMetrics
+enum class EIMAcousticRenderFailure : unsigned char { None, InvalidFrame, NonfiniteInput, NonfiniteDirect, NonfinitePath, Count };
+struct FIMAcousticAudioMetrics
 {
     double DirectEnergy = 0.0;
     double PathEnergy = 0.0;
-    IM_AcousticRenderFailure Failure=IM_AcousticRenderFailure::None;
+    EIMAcousticRenderFailure Failure=EIMAcousticRenderFailure::None;
 };
 
-class IM_AcousticAudioRenderer final
+class FIMAcousticAudioRenderer final
 {
 public:
-    IM_AcousticAudioRenderer() = default;
-    ~IM_AcousticAudioRenderer();
-    IM_AcousticAudioRenderer(const IM_AcousticAudioRenderer&) = delete;
-    IM_AcousticAudioRenderer& operator=(const IM_AcousticAudioRenderer&) = delete;
+    FIMAcousticAudioRenderer() = default;
+    ~FIMAcousticAudioRenderer();
+    FIMAcousticAudioRenderer(const FIMAcousticAudioRenderer&) = delete;
+    FIMAcousticAudioRenderer& operator=(const FIMAcousticAudioRenderer&) = delete;
 
     // Lifecycle operations are outside the steady audio callback. Context/HRTF
     // references are retained, so the parent device cannot invalidate live effects.
@@ -49,9 +49,9 @@ public:
     // DryMono is immutable. Direct occlusion never contaminates the path input.
     // Every buffer length must match BlockFrames (stereo outputs: 2*BlockFrames).
     // Optional stems are for capturing the production signal, not a separate oracle.
-    bool Render(const float* DryMono, int Frames, const IM_AcousticAudioFrame& Frame,
+    bool Render(const float* DryMono, int Frames, const FIMAcousticAudioFrame& Frame,
         float* Stereo, float* DirectStereo = nullptr, float* PathStereo = nullptr,
-        IM_AcousticAudioMetrics* Metrics = nullptr, std::uint32_t AudibleRoutes = 3);
+        FIMAcousticAudioMetrics* Metrics = nullptr, std::uint32_t AudibleRoutes = 3);
 
 private:
     IPLContext Context = nullptr;

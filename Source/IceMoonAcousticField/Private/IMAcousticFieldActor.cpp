@@ -1,45 +1,49 @@
 // AcousticIdentifier/Source/IceMoonAcousticField/Private/IMAcousticFieldActor.cpp
 
 #include "IMAcousticFieldActor.h"
-#include "DA_IM_MaterialMap.h"
-#include "DA_IM_AcousticFieldConfig.h"
+#include "IMMaterialMap.h"
+#include "IMAcousticFieldConfig.h"
 #include "IMMathUtils.h"
 #include "IM_Common/Public/Gameplay/IMViewUtils.h"
 #include "Kismet/GameplayStatics.h"
 #include "Runtime/PhysicsCore/Public/PhysicalMaterials/PhysicalMaterial.h" 
 
 
-static TWeakObjectPtr<AIceMoonAcousticField> GWorldAcousticActor; // 静态实例指针，用于快速访问
+namespace IMAcousticFieldActorPrivate
+{
+TWeakObjectPtr<AIMAcousticFieldActor> GWorldAcousticActor;
+}
+ // 静态实例指针，用于快速访问
 
 DEFINE_STAT(STAT_IMAcousticField_Tick);
 DEFINE_STAT(STAT_IMAcousticField_TraceCallback);
 DEFINE_STAT(STAT_IMAcousticField_Query);
 
-AIceMoonAcousticField::AIceMoonAcousticField()
+AIMAcousticFieldActor::AIMAcousticFieldActor()
 {
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.bStartWithTickEnabled = true;
 }
-void AIceMoonAcousticField::EndPlay(const EEndPlayReason::Type EndPlayReason)
+void AIMAcousticFieldActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	// 引擎无 CancelAsyncTrace（UE 5.8 源码 FTS 零命中）：置旗 + 清记账 + 清队列；在途委托落到回调首行 early-out。
 	// 残留风险（假设）：Actor 先于 World 销毁时引擎侧委托悬空，单例常驻关卡 Actor 下不触发。
 	bAcousticFieldShuttingDown = true;
 	ActiveTraceHandles.Empty();
 	PendingProbeQueue.Empty();
-	if (GWorldAcousticActor.Get() == this)
+	if (IMAcousticFieldActorPrivate::GWorldAcousticActor.Get() == this)
 	{
-		GWorldAcousticActor.Reset();
+		IMAcousticFieldActorPrivate::GWorldAcousticActor.Reset();
 	}
 	AcousticGridArray.Empty();
 	CellSubBitMaskArray.Empty();
 	Super::EndPlay(EndPlayReason);
 }
 
-void AIceMoonAcousticField::BeginPlay()
+void AIMAcousticFieldActor::BeginPlay()
 {
 	Super::BeginPlay();
-	GWorldAcousticActor = this;
+	IMAcousticFieldActorPrivate::GWorldAcousticActor = this;
 
 	int32 LodNum = LodCellSizes.Num();
 	if (LodNum < 2)
@@ -72,7 +76,7 @@ void AIceMoonAcousticField::BeginPlay()
 	}
 
 }
-void AIceMoonAcousticField::Tick(float DeltaTime)
+void AIMAcousticFieldActor::Tick(float DeltaTime)
 {
 	SCOPE_CYCLE_COUNTER(STAT_IMAcousticField_Tick);
 	Super::Tick(DeltaTime);
@@ -143,7 +147,7 @@ void AIceMoonAcousticField::Tick(float DeltaTime)
 			for (const auto& CellPair : AcousticGridArray[LodIndex])
 			{
 				const FIntVector& GridCoord = CellPair.Key;
-				const FIM_GridAudioCell& Cell = CellPair.Value;
+				const FIMGridAudioCell& Cell = CellPair.Value;
 
 				const FIM_AudioReverbParameters ReverbParams = CalculateCellReverbParameters(FVector::ZeroVector, Cell);
 				DrawColor.A = static_cast<uint8>(FMath::Clamp(ReverbParams.Wet * 200.0f + 20.0f, 20.0f, 220.0f));
@@ -181,26 +185,26 @@ void AIceMoonAcousticField::Tick(float DeltaTime)
 }
 
 
-AIceMoonAcousticField* AIceMoonAcousticField::GetAcousticFieldActor(const UObject* WorldContextObject)
+AIMAcousticFieldActor* AIMAcousticFieldActor::GetAcousticFieldActor(const UObject* WorldContextObject)
 {
 	// 1. 安全获取 World (防御性原则：Context 可能无效)
 	UWorld* World = GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull);
 	if (!World) return nullptr;
 
 	// 2. 缓存命中检查 (关键修正：必须校验 World 是否匹配，防止 PIE 跨世界引用错误)
-	if (GWorldAcousticActor.IsValid())
+	if (IMAcousticFieldActorPrivate::GWorldAcousticActor.IsValid())
 	{
 		// 如果缓存的 Actor 属于当前 World，直接返回
-		if (GWorldAcousticActor->GetWorld() == World){ return GWorldAcousticActor.Get();
+		if (IMAcousticFieldActorPrivate::GWorldAcousticActor->GetWorld() == World){ return IMAcousticFieldActorPrivate::GWorldAcousticActor.Get();
 		}else{
 			// 缓存失效或属于其他 World (如从 PIE 切回 Editor)，重置
-			GWorldAcousticActor.Reset();
+			IMAcousticFieldActorPrivate::GWorldAcousticActor.Reset();
 		}
 	}
 
 	// 3. 场景查找 (慢速路径)
-	AIceMoonAcousticField* ResultActor = Cast<AIceMoonAcousticField>(
-		UGameplayStatics::GetActorOfClass(World, AIceMoonAcousticField::StaticClass())
+	AIMAcousticFieldActor* ResultActor = Cast<AIMAcousticFieldActor>(
+		UGameplayStatics::GetActorOfClass(World, AIMAcousticFieldActor::StaticClass())
 	);
 
 	// 4. 不存在则创建 (新增逻辑)
@@ -219,8 +223,8 @@ AIceMoonAcousticField* AIceMoonAcousticField::GetAcousticFieldActor(const UObjec
 		SpawnParams.ObjectFlags = RF_Transient; // 如果该 Actor 不需要随关卡保存，加上此标记
 
 		// 核心创建接口
-		ResultActor = World->SpawnActor<AIceMoonAcousticField>(
-			AIceMoonAcousticField::StaticClass(), 
+		ResultActor = World->SpawnActor<AIMAcousticFieldActor>(
+			AIMAcousticFieldActor::StaticClass(), 
 			FVector::ZeroVector, 
 			FRotator::ZeroRotator, 
 			SpawnParams
@@ -232,19 +236,19 @@ AIceMoonAcousticField* AIceMoonAcousticField::GetAcousticFieldActor(const UObjec
 	// 5. 更新全局缓存
 	if (ResultActor)
 	{
-		GWorldAcousticActor = ResultActor;
+		IMAcousticFieldActorPrivate::GWorldAcousticActor = ResultActor;
 	}
 
 	return ResultActor;
 }
 
 
-void AIceMoonAcousticField::AsyncFireProbes( FVector Origin, int32 NumTraces, float Radius, FVector Direction, float ConeDegree, int RandomSeed)
+void AIMAcousticFieldActor::AsyncFireProbes( FVector Origin, int32 NumTraces, float Radius, FVector Direction, float ConeDegree, int RandomSeed)
 {
 	UWorld* World = GetWorld();
 	if (!World || NumTraces <= 0) return;
 	FTraceDelegate TraceDelegate;
-	TraceDelegate.BindUObject(this, &AIceMoonAcousticField::OnAsyncTraceComplete);
+	TraceDelegate.BindUObject(this, &AIMAcousticFieldActor::OnAsyncTraceComplete);
 	TArray<FVector> SampleDirections;
 	IMMathUtils::GetFibonacciSphereSamples(SampleDirections, NumTraces, Direction, ConeDegree, true, RandomSeed);
 
@@ -279,7 +283,7 @@ void AIceMoonAcousticField::AsyncFireProbes( FVector Origin, int32 NumTraces, fl
 		));
 	}
 }
-void AIceMoonAcousticField::OnAsyncTraceComplete(const FTraceHandle& TraceHandle, FTraceDatum& TraceDatum)
+void AIMAcousticFieldActor::OnAsyncTraceComplete(const FTraceHandle& TraceHandle, FTraceDatum& TraceDatum)
 {
 	SCOPE_CYCLE_COUNTER(STAT_IMAcousticField_TraceCallback);
 	// 关键路径守卫：委托由 UWorld::ResetAsyncTrace 在 GameThread 分发（WorldCollisionAsync.cpp:716-733）。
@@ -327,7 +331,7 @@ void AIceMoonAcousticField::OnAsyncTraceComplete(const FTraceHandle& TraceHandle
 	}
 }
 
-void AIceMoonAcousticField::DrainPendingProbes()
+void AIMAcousticFieldActor::DrainPendingProbes()
 {
 	if (PendingProbeQueue.Num() == 0 || bAcousticFieldShuttingDown) { return; }
 	const TArray<FHitResult> Batch(MoveTemp(PendingProbeQueue));
@@ -336,7 +340,7 @@ void AIceMoonAcousticField::DrainPendingProbes()
 		AddProbeFromHitResultOnlayWorldStatic(QueuedHit);
 	}
 }
-void AIceMoonAcousticField::AddProbeFromHitResultOnlayWorldStatic(const FHitResult& HitResult)
+void AIMAcousticFieldActor::AddProbeFromHitResultOnlayWorldStatic(const FHitResult& HitResult)
 {
 	// 未命中的射线也需要记录（代表开阔空间）
 	// 不要过早return，让AddAudioFieldForLod处理所有情况
@@ -365,7 +369,7 @@ void AIceMoonAcousticField::AddProbeFromHitResultOnlayWorldStatic(const FHitResu
 	// 无论命中与否都记录到声场
 	AddAudioFieldForLod(HitResult);
 }
-bool AIceMoonAcousticField::ResolveLodParent(int32 ChildLod, const FIntVector& ChildCoord, FIntVector& OutParentCoord, int32& OutRatioXY, int32& OutRatioZ, uint64& OutBound) const
+bool AIMAcousticFieldActor::ResolveLodParent(int32 ChildLod, const FIntVector& ChildCoord, FIntVector& OutParentCoord, int32& OutRatioXY, int32& OutRatioZ, uint64& OutBound) const
 {
 	// P0 前置唯一合同：XY/Z 分轴比，上界 ratioXY^2*ratioZ；历史 LodFactor 写死分支已删除。
 	const int32 ParentLod = ChildLod + 1;
@@ -392,7 +396,7 @@ bool AIceMoonAcousticField::ResolveLodParent(int32 ChildLod, const FIntVector& C
 	OutBound = static_cast<uint64>(OutRatioXY) * static_cast<uint64>(OutRatioXY) * static_cast<uint64>(OutRatioZ);
 	return true;
 }
-void AIceMoonAcousticField::AddAudioFieldForLod(const FHitResult& HitResult)
+void AIMAcousticFieldActor::AddAudioFieldForLod(const FHitResult& HitResult)
 {
 	const FVector StartPos = HitResult.TraceStart;
 
@@ -402,7 +406,7 @@ void AIceMoonAcousticField::AddAudioFieldForLod(const FHitResult& HitResult)
 	// 获取命中相关数据（仅在命中时使用）
 	const FVector HitLocation = bIsValidHit ? HitResult.ImpactPoint : FVector::ZeroVector;
 	const float Distance = bIsValidHit ? (StartPos - HitLocation).Length() : 0.0f;
-	const FIM_AudioMaterialResponse AudioData = bIsValidHit ? GetAudioResponseForMaterial(HitResult.PhysMaterial.Get()) : FIM_AudioMaterialResponse();
+	const FIMAudioMaterialResponse AudioData = bIsValidHit ? GetAudioResponseForMaterial(HitResult.PhysMaterial.Get()) : FIMAudioMaterialResponse();
 	const float DirecitonVar = bIsValidHit ? HitResult.ImpactNormal.Dot(HitResult.Normal) : 0.0f;
 	UWorld* World = GetWorld();
 	if (!World) { return; }
@@ -471,7 +475,7 @@ void AIceMoonAcousticField::AddAudioFieldForLod(const FHitResult& HitResult)
 	}
 }
 
-void AIceMoonAcousticField::InvalidateAcousticRegion(const FBox& ChangedBounds)
+void AIMAcousticFieldActor::InvalidateAcousticRegion(const FBox& ChangedBounds)
 {
 	if (AcousticGridArray.IsEmpty() || CellSubBitMaskArray.IsEmpty()) return;
 
@@ -479,7 +483,7 @@ void AIceMoonAcousticField::InvalidateAcousticRegion(const FBox& ChangedBounds)
 	{
 		const float CellSize = LodCellSizes[LodIndex];
 		const float CellSizeZ = LodCellSizesZ[LodIndex]; // Z轴钳制后的尺寸
-		TMap<FIntVector, FIM_GridAudioCell>& CurrentGrid = AcousticGridArray[LodIndex];
+		TMap<FIntVector, FIMGridAudioCell>& CurrentGrid = AcousticGridArray[LodIndex];
 
 		// (这是一个简化的实现，更精确的实现需要迭代Box内的所有单元格)
 		for (auto It = CurrentGrid.CreateIterator(); It; ++It)
@@ -538,10 +542,10 @@ void AIceMoonAcousticField::InvalidateAcousticRegion(const FBox& ChangedBounds)
 		}
 	}
 }
-FIM_AudioMaterialResponse AIceMoonAcousticField::GetAudioResponseForMaterial(const UPhysicalMaterial* PhysMaterial) const
+FIMAudioMaterialResponse AIMAcousticFieldActor::GetAudioResponseForMaterial(const UPhysicalMaterial* PhysMaterial) const
 {
 	// 从ConfigAsset的MaterialLibrary获取
-	UDA_IM_MaterialMap* MatLib = nullptr;
+	UIMMaterialMap* MatLib = nullptr;
 	if (ConfigAsset && ConfigAsset->MaterialLibrary)
 	{
 		MatLib = ConfigAsset->MaterialLibrary;
@@ -550,7 +554,7 @@ FIM_AudioMaterialResponse AIceMoonAcousticField::GetAudioResponseForMaterial(con
 	if (!MatLib)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("IMAcousticField: No MaterialLibrary configured in ConfigAsset"));
-		return FIM_AudioMaterialResponse();
+		return FIMAudioMaterialResponse();
 	}
 
 	if (!PhysMaterial)
@@ -558,7 +562,7 @@ FIM_AudioMaterialResponse AIceMoonAcousticField::GetAudioResponseForMaterial(con
 		return MatLib->Fallback_MaterialResponse;
 	}
 
-	if (const FIM_AudioMaterialResponse* FoundResponse = MatLib->MaterialMap.Find(PhysMaterial))
+	if (const FIMAudioMaterialResponse* FoundResponse = MatLib->MaterialMap.Find(PhysMaterial))
 	{
 		return *FoundResponse;
 	}
@@ -566,7 +570,7 @@ FIM_AudioMaterialResponse AIceMoonAcousticField::GetAudioResponseForMaterial(con
 	return MatLib->Fallback_MaterialResponse;
 }
 
-bool AIceMoonAcousticField::QueryAcousticField(FVector QueryLocation, FIM_AudioReverbParameters& OutResponse)
+bool AIMAcousticFieldActor::QueryAcousticField(FVector QueryLocation, FIM_AudioReverbParameters& OutResponse)
 {
 	SCOPE_CYCLE_COUNTER(STAT_IMAcousticField_Query);
 	UWorld* QueryWorld = GetWorld();
@@ -706,8 +710,8 @@ bool AIceMoonAcousticField::QueryAcousticField(FVector QueryLocation, FIM_AudioR
 	return bFoundData;
 }
 // 使用lod 这个查询只会查询最稀疏版本
-bool AIceMoonAcousticField::GetAcousticFieldExtentCells(int32 LodIndex, FVector QueryLocation, float SearchRadius,
-	TArray<FIM_GridAudioCell>& OutCells)
+bool AIMAcousticFieldActor::GetAcousticFieldExtentCells(int32 LodIndex, FVector QueryLocation, float SearchRadius,
+	TArray<FIMGridAudioCell>& OutCells)
 {
 	OutCells.Empty();
 	if (!LodCellSizes.IsValidIndex(LodIndex) || !LodCellSizesZ.IsValidIndex(LodIndex) || !AcousticGridArray.IsValidIndex(LodIndex)) { return false; }
@@ -733,7 +737,7 @@ bool AIceMoonAcousticField::GetAcousticFieldExtentCells(int32 LodIndex, FVector 
 		{
 			for (int32 z = MinGrid.Z; z <= MaxGrid.Z; ++z)
 			{
-				if (const FIM_GridAudioCell* Cell = AcousticGridArray[LodIndex].Find(FIntVector(x,y,z)))
+				if (const FIMGridAudioCell* Cell = AcousticGridArray[LodIndex].Find(FIntVector(x,y,z)))
 				{
 					if (FVector::Dist(QueryLocation, Cell->RayRes.AveHitLocation) <= SearchRadius)
 					{
@@ -759,7 +763,7 @@ bool AIceMoonAcousticField::GetAcousticFieldExtentCells(int32 LodIndex, FVector 
 	Gain   不管    纯粹的工程控制。它就是混音师调整音量用的，用于确保混响不会太大或太小
 	Bandwidth  不管   很多时候，低频混响会使混音变得泥泞（Muddy），高频混响会很刺耳。Bandwidth 允许工程师切掉不需要的频率，与声场物理无关。
 */
-FIM_AudioReverbParameters AIceMoonAcousticField::CalculateCellReverbParameters(const FVector QueryPos, const FIM_GridAudioCell& CellResults)
+FIM_AudioReverbParameters AIMAcousticFieldActor::CalculateCellReverbParameters(const FVector QueryPos, const FIMGridAudioCell& CellResults)
 {
 	if (CellResults.RayRes.RayHitCount == 0) return FIM_AudioReverbParameters();
 	FIM_AudioReverbParameters Reverb;
@@ -869,16 +873,16 @@ FIM_AudioReverbParameters AIceMoonAcousticField::CalculateCellReverbParameters(c
 	return Reverb;
 }
 
-bool AIceMoonAcousticField::InterpolateAtLod(const int32 LodIndex, const FVector QueryLocation, FIM_AudioReverbParameters& OutInterpolatedResponse, int32* OutCells, int32* OutProbes, int32* OutHits)
+bool AIMAcousticFieldActor::InterpolateAtLod(const int32 LodIndex, const FVector QueryLocation, FIM_AudioReverbParameters& OutInterpolatedResponse, int32* OutCells, int32* OutProbes, int32* OutHits)
 {
 	// TODO: [高优先级] GPU SDF空间连续性检测系统
-	// 详细架构方案和GPU延迟处理策略请查看：IM_AcousticTypes.h:75-155
+	// 详细架构方案和GPU延迟处理策略请查看：IMAcousticTypes.h:75-155
 	// 当前使用方差检测，无法精确判断cell是否横跨多个房间/墙体
 
 	UWorld* InterpWorld = GetWorld();
 	if (!InterpWorld) { return false; }
 
-	TArray<FIM_GridAudioCell> NearbyCells;
+	TArray<FIMGridAudioCell> NearbyCells;
 
 	// ========== 自适应搜索半径 ==========
 	// 根据LOD倍增器调整搜索策略：
@@ -939,7 +943,7 @@ bool AIceMoonAcousticField::InterpolateAtLod(const int32 LodIndex, const FVector
 	int32 TotalHits = 0;
 	int32 CellsUsed = 0;
 
-	for (const FIM_GridAudioCell& Cell : NearbyCells)
+	for (const FIMGridAudioCell& Cell : NearbyCells)
 	{
 		//注意这里是距离平方 1 4 16 查询周围1.5倍单元格  16最大可能查询到3格=48米外 4800*4800=23040000的点 1.0f / DistanceSqr直接炸了别说Confidence方差也是一个巨幅缩减的玩意
 		const float DistanceSqr = FVector::DistSquared(QueryLocation, Cell.RayRes.AveHitLocation) / 10000.0f;   // /10000 转换为米单位平方
@@ -1028,7 +1032,7 @@ bool AIceMoonAcousticField::InterpolateAtLod(const int32 LodIndex, const FVector
 	return false;
 }
 
-void AIceMoonAcousticField::TickTrimAudioFieldForLod(const float GameTime)
+void AIMAcousticFieldActor::TickTrimAudioFieldForLod(const float GameTime)
 {
 	float CleanupAge = 7.5f; // 基础清理时间 (例如: 7.5 * 2 = 15s for LOD 0)
 
@@ -1037,7 +1041,7 @@ void AIceMoonAcousticField::TickTrimAudioFieldForLod(const float GameTime)
 	// 必须用索引循环，才能在清理时访问对应的Mask数组
 	for (int32 LodIndex = 0; LodIndex < AcousticGridArray.Num(); ++LodIndex)
 	{
-		TMap<FIntVector, FIM_GridAudioCell>& CurrentGrid = AcousticGridArray[LodIndex];
+		TMap<FIntVector, FIMGridAudioCell>& CurrentGrid = AcousticGridArray[LodIndex];
 		CleanupAge *= 2.0f;  // LOD 0: 15s, LOD 1: 30s, LOD 2: 60s
 
 		for (auto It = CurrentGrid.CreateIterator(); It; ++It)
@@ -1112,7 +1116,7 @@ void AIceMoonAcousticField::TickTrimAudioFieldForLod(const float GameTime)
 	}
 }
 
-bool AIceMoonAcousticField::QueryAcousticFieldSmooth(
+bool AIMAcousticFieldActor::QueryAcousticFieldSmooth(
 	UObject* SourceObject,
 	FName SoundSlot,
 	FVector QueryLocation,
@@ -1161,7 +1165,7 @@ bool AIceMoonAcousticField::QueryAcousticFieldSmooth(
 	const float CurrentTime = SmoothWorld->GetTimeSeconds();
 
 	// 查找缓存；UniqueID 可被 GC 回收复用，以弱引用 Owner 为准，不一致即重置条目
-	FAcousticQueryCache* Cache = SmoothQueryCache.Find(QueryID);
+	FIMAcousticQueryCache* Cache = SmoothQueryCache.Find(QueryID);
 	if (Cache && Cache->SourceObject.Get() != SourceObject)
 	{
 		SmoothQueryCache.Remove(QueryID);
@@ -1171,7 +1175,7 @@ bool AIceMoonAcousticField::QueryAcousticFieldSmooth(
 	if (!Cache)
 	{
 		// 首次查询，直接使用目标值并缓存
-		FAcousticQueryCache NewCache;
+		FIMAcousticQueryCache NewCache;
 		NewCache.LastResult = TargetResponse;
 		NewCache.LastQueryTime = CurrentTime;
 		NewCache.LastQueryLocation = QueryLocation;
@@ -1240,7 +1244,7 @@ bool AIceMoonAcousticField::QueryAcousticFieldSmooth(
 // 配置获取辅助函数（优先Override → ConfigAsset → 默认值）
 // ========================================
 
-FIM_AudioReverbParameters AIceMoonAcousticField::GetDefaultReverbParameters() const
+FIM_AudioReverbParameters AIMAcousticFieldActor::GetDefaultReverbParameters() const
 {
 	if (bOverrideDefaultReverb)
 	{
@@ -1261,7 +1265,7 @@ FIM_AudioReverbParameters AIceMoonAcousticField::GetDefaultReverbParameters() co
 	return Fallback;
 }
 
-FIM_WetCalculationParameters AIceMoonAcousticField::GetWetCalculationParameters() const
+FIM_WetCalculationParameters AIMAcousticFieldActor::GetWetCalculationParameters() const
 {
 	if (bOverrideWetCalculation)
 	{
@@ -1275,7 +1279,7 @@ FIM_WetCalculationParameters AIceMoonAcousticField::GetWetCalculationParameters(
 	return FIM_WetCalculationParameters();
 }
 
-void AIceMoonAcousticField::ClearSmoothQueryCache(UObject* SourceObject, FName SoundSlot)
+void AIMAcousticFieldActor::ClearSmoothQueryCache(UObject* SourceObject, FName SoundSlot)
 {
 	if (!SourceObject)
 	{

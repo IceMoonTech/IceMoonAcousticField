@@ -8,12 +8,12 @@
 #include "IMAcousticLiveTest.generated.h"
 
 UCLASS(Blueprintable, BlueprintType)
-class ICEMOONACOUSTICFIELD_API AIM_AcousticLiveTest : public AActor
+class ICEMOONACOUSTICFIELD_API AIMAcousticLiveTest : public AActor
 {
 	GENERATED_BODY()
 
 public:
-	AIM_AcousticLiveTest();
+	AIMAcousticLiveTest();
 
 	// Gate to run: default false so manual maps are unaffected.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Test")

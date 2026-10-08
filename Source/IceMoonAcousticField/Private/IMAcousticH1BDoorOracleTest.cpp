@@ -8,19 +8,19 @@
 #include "Serialization/JsonSerializer.h"
 #include "Dom/JsonObject.h"
 
-namespace
+namespace IMAcousticH1BDoorOracleTestPrivate
 {
-constexpr const TCHAR* IMRun =
+constexpr const TCHAR* Run =
     TEXT("IMCF_W3_CBCDDEBC4908CEC9D1D357B9171DC061");
-constexpr double IMSrc[3] = {100.0, -200.0, 150.0};
-constexpr double IMHalf[3] = {110.0, 5.0, 135.0};
-constexpr double IMAX[2] = {-250.0, -50.0};
-constexpr double IMAZ[2] = {0.0, 250.0};
+constexpr double Src[3] = {100.0, -200.0, 150.0};
+constexpr double Half[3] = {110.0, 5.0, 135.0};
+constexpr double AX[2] = {-250.0, -50.0};
+constexpr double AZ[2] = {0.0, 250.0};
 
-struct IMOBox { double C[3]; double H[3]; };
-struct IMOSeg { double A[3]; double B[3]; };
+struct FIMOBox { double C[3]; double H[3]; };
+struct FIMOSeg { double A[3]; double B[3]; };
 
-static bool IMOSegBox(const IMOSeg& S, const IMOBox& B, double& T)
+static bool OSegBox(const FIMOSeg& S, const FIMOBox& B, double& T)
 {
     double T0 = 0.0, T1 = 1.0;
     for (int I = 0; I < 3; ++I)
@@ -46,34 +46,34 @@ static bool IMOSegBox(const IMOSeg& S, const IMOBox& B, double& T)
     return true;
 }
 
-static FString IMOClass(const IMOSeg& S, const IMOBox& Door)
+static FString OClass(const FIMOSeg& S, const FIMOBox& Door)
 {
     double L2 = 0.0;
     for (int I = 0; I < 3; ++I)
         L2 += (S.B[I] - S.A[I]) * (S.B[I] - S.A[I]);
     if (L2 < 1e-12) return TEXT("INVALID");
     double THit = 0.0;
-    if (IMOSegBox(S, Door, THit)) return TEXT("DOOR");
+    if (OSegBox(S, Door, THit)) return TEXT("DOOR");
     const double Dy = S.B[1] - S.A[1];
     if (FMath::Abs(Dy) < 1e-12) return TEXT("CLEAR");
     const double T = (0.0 - S.A[1]) / Dy;
     if (T < 0.0 || T > 1.0) return TEXT("CLEAR");
     const double X = S.A[0] + (S.B[0] - S.A[0]) * T;
     const double Z = S.A[2] + (S.B[2] - S.A[2]) * T;
-    const bool InX = (X >= IMAX[0] && X <= IMAX[1]);
-    const bool InZ = (Z >= IMAZ[0] && Z <= IMAZ[1]);
+    const bool InX = (X >= AX[0] && X <= AX[1]);
+    const bool InZ = (Z >= AZ[0] && Z <= AZ[1]);
     if (InX && InZ) return TEXT("CLEAR");
     return TEXT("WALL");
 }
 
-static void IMOMakeBox(IMOBox& B, double x, double y, double z,
+static void OMakeBox(FIMOBox& B, double x, double y, double z,
     double hx, double hy, double hz)
 {
     B.C[0] = x; B.C[1] = y; B.C[2] = z;
     B.H[0] = hx; B.H[1] = hy; B.H[2] = hz;
 }
 
-static void IMOMakeSeg(IMOSeg& S,
+static void OMakeSeg(FIMOSeg& S,
     double ax, double ay, double az,
     double bx, double by, double bz)
 {
@@ -81,58 +81,58 @@ static void IMOMakeSeg(IMOSeg& S,
     S.B[0] = bx; S.B[1] = by; S.B[2] = bz;
 }
 
-constexpr double IMApC[3] = {-150.0, 0.0, 125.0};
+constexpr double ApC[3] = {-150.0, 0.0, 125.0};
 
-static FString IMOAp(const double Sx[3], const double Lx[3], const IMOBox& Door)
+static FString OAp(const double Sx[3], const double Lx[3], const FIMOBox& Door)
 {
-    IMOSeg T1, T2;
-    IMOMakeSeg(T1, Sx[0], Sx[1], Sx[2], IMApC[0], IMApC[1], IMApC[2]);
-    IMOMakeSeg(T2, IMApC[0], IMApC[1], IMApC[2], Lx[0], Lx[1], Lx[2]);
-    const FString C1 = IMOClass(T1, Door);
-    const FString C2 = IMOClass(T2, Door);
+    FIMOSeg T1, T2;
+    OMakeSeg(T1, Sx[0], Sx[1], Sx[2], ApC[0], ApC[1], ApC[2]);
+    OMakeSeg(T2, ApC[0], ApC[1], ApC[2], Lx[0], Lx[1], Lx[2]);
+    const FString C1 = OClass(T1, Door);
+    const FString C2 = OClass(T2, Door);
     if (C1 == TEXT("DOOR") || C2 == TEXT("DOOR")) return TEXT("DOOR");
     if (C1 == TEXT("WALL") || C2 == TEXT("WALL")) return TEXT("WALL");
     if (C1 == TEXT("INVALID") || C2 == TEXT("INVALID")) return TEXT("INVALID");
     return TEXT("CLEAR");
 }
 
-class IMOracleCmd final : public IAutomationLatentCommand
+class FIMOracleCmd final : public IAutomationLatentCommand
 {
 public:
-    explicit IMOracleCmd(FAutomationTestBase* T) : Test(T) {}
+    explicit FIMOracleCmd(FAutomationTestBase* T) : Test(T) {}
     bool Update() override
     {
         if (!GEditor || GEditor->PlayWorld)
             return Done(false, TEXT("Need idle Editor."));
-        IMOBox Wall, Shut, Open;
-        IMOMakeBox(Wall, 0, 0, 125, 410, 5, 200);
-        IMOMakeBox(Shut, -150, 0, 125, 110, 5, 135);
-        IMOMakeBox(Open, 150, 0, 125, 110, 5, 135);
-        IMOSeg S1, S2, S3, S4;
-        IMOMakeSeg(S1, -400, -400, 150, -400, 400, 150);
-        IMOMakeSeg(S2, -150, -400, 125, -150, 400, 125);
-        IMOMakeSeg(S3, 100, -200, 150, -150, 0, 125);
-        IMOMakeSeg(S4, 1, 2, 3, 1, 2, 3);
-        if (IMOClass(S1, Open) != TEXT("WALL"))
+        FIMOBox Wall, Shut, Open;
+        OMakeBox(Wall, 0, 0, 125, 410, 5, 200);
+        OMakeBox(Shut, -150, 0, 125, 110, 5, 135);
+        OMakeBox(Open, 150, 0, 125, 110, 5, 135);
+        FIMOSeg S1, S2, S3, S4;
+        OMakeSeg(S1, -400, -400, 150, -400, 400, 150);
+        OMakeSeg(S2, -150, -400, 125, -150, 400, 125);
+        OMakeSeg(S3, 100, -200, 150, -150, 0, 125);
+        OMakeSeg(S4, 1, 2, 3, 1, 2, 3);
+        if (OClass(S1, Open) != TEXT("WALL"))
             return Done(false, TEXT("Control WALL failed."));
-        if (IMOClass(S2, Open) != TEXT("CLEAR"))
+        if (OClass(S2, Open) != TEXT("CLEAR"))
             return Done(false, TEXT("Control CLEAR failed."));
-        if (IMOClass(S3, Shut) != TEXT("DOOR"))
+        if (OClass(S3, Shut) != TEXT("DOOR"))
             return Done(false, TEXT("Control DOOR failed."));
-        if (IMOClass(S4, Shut) != TEXT("INVALID"))
+        if (OClass(S4, Shut) != TEXT("INVALID"))
             return Done(false, TEXT("Control INVALID failed."));
-        IMOBox Parked;
-        IMOMakeBox(Parked, 0, 0, 600, 110, 5, 135);
-        IMOSeg SAW, SAC;
-        IMOMakeSeg(SAW, 100, -200, 150, 100, 0, 150);
-        IMOMakeSeg(SAC, 100, -200, 150, -150, 0, 125);
-        if (IMOClass(SAW, Parked) != TEXT("WALL"))
+        FIMOBox Parked;
+        OMakeBox(Parked, 0, 0, 600, 110, 5, 135);
+        FIMOSeg SAW, SAC;
+        OMakeSeg(SAW, 100, -200, 150, 100, 0, 150);
+        OMakeSeg(SAC, 100, -200, 150, -150, 0, 125);
+        if (OClass(SAW, Parked) != TEXT("WALL"))
             return Done(false, TEXT("Control N1 wall-aperture failed."));
-        if (IMOClass(SAC, Shut) != TEXT("DOOR"))
+        if (OClass(SAC, Shut) != TEXT("DOOR"))
             return Done(false, TEXT("Control N2 closed-aperture failed."));
         const FString Saved = FPaths::ProjectSavedDir();
         const FString H1UE = FPaths::Combine(Saved, TEXT("AcousticV2/H1-UE"));
-        const FString RunDir = FPaths::Combine(H1UE, IMRun);
+        const FString RunDir = FPaths::Combine(H1UE, Run);
         FString SumRaw;
         const FString SumPath = FPaths::Combine(RunDir,
             TEXT("IM_probe_summary.json"));
@@ -177,7 +177,7 @@ public:
             return Done(false, TEXT("Columns changed."));
         // ---- SPEC output contract (JSON verdict) ----
         FString Json = TEXT("{\n");
-        Json += FString::Printf(TEXT("  \"baseline\": \"%s\",\n"), IMRun);
+        Json += FString::Printf(TEXT("  \"baseline\": \"%s\",\n"), Run);
         Json += TEXT("  \"spec\": \"OracleDoorDiag_20260917/SPEC.md\",\n");
         Json += TEXT("  \"oracle_geometry\": \"aperture-two-segment S->A->L, A=(-150,0,125)UE\",\n");
         Json += TEXT("  \"controls\": {\"wall\": \"WALL\", \"clear\": \"CLEAR\", \"door\": \"DOOR\", \"invalid\": \"INVALID\", \"n1_wall_aperture\": \"WALL\", \"n2_closed_aperture\": \"DOOR\", \"all_pass\": true},\n");
@@ -216,18 +216,18 @@ public:
                 return Done(false, TEXT("Window has no samples."));
             LX.Sort(); LY.Sort(); LZ.Sort();
             const int32 M = LX.Num() / 2;
-            IMOSeg S;
-            IMOMakeSeg(S, IMSrc[0], IMSrc[1], IMSrc[2],
+            FIMOSeg S;
+            OMakeSeg(S, Src[0], Src[1], Src[2],
                 LX[M], LY[M], LZ[M]);
-            IMOBox D;
-            IMOMakeBox(D, (*DU)[0]->AsNumber(),
+            FIMOBox D;
+            OMakeBox(D, (*DU)[0]->AsNumber(),
                 (*DU)[1]->AsNumber(), (*DU)[2]->AsNumber(),
-                IMHalf[0], IMHalf[1], IMHalf[2]);
+                Half[0], Half[1], Half[2]);
             const double Lv[3] = {LX[M], LY[M], LZ[M]};
-            const FString Cls = IMOAp(IMSrc, Lv, D);
-            IMOSeg DS;
-            IMOMakeSeg(DS, IMSrc[0], IMSrc[1], IMSrc[2], Lv[0], Lv[1], Lv[2]);
-            const FString DirectCls = IMOClass(DS, D);
+            const FString Cls = OAp(Src, Lv, D);
+            FIMOSeg DS;
+            OMakeSeg(DS, Src[0], Src[1], Src[2], Lv[0], Lv[1], Lv[2]);
+            const FString DirectCls = OClass(DS, D);
             const bool bShut = SN.Contains(TEXT("closed"));
             const FString Exp = bShut ? TEXT("DOOR") : TEXT("CLEAR");
             const bool bM = Cls.Equals(Exp);
@@ -252,8 +252,8 @@ public:
             return Done(false, TEXT("door0 columns changed."));
         // Group post-window rows by rounded door0 triple.
         TMap<FString, int32> ClusIdx;
-        struct IMClus { FString Key; double D0[3]; TArray<double> LX, LY, LZ; };
-        TArray<IMClus> Clus;
+        struct FIMClus { FString Key; double D0[3]; TArray<double> LX, LY, LZ; };
+        TArray<FIMClus> Clus;
         for (int32 L = 1; L < Lines.Num(); ++L)
         {
             TArray<FString> F;
@@ -267,7 +267,7 @@ public:
             const FString Key = FString::Printf(TEXT("%.4g,%.4g,%.4g"), X0, Y0, Z0);
             int32* P = ClusIdx.Find(Key);
             int32 C = 0;
-            if (P == nullptr) { C = Clus.Num(); ClusIdx.Add(Key, C); IMClus NC; NC.Key = Key; NC.D0[0] = X0; NC.D0[1] = Y0; NC.D0[2] = Z0; Clus.Add(NC); }
+            if (P == nullptr) { C = Clus.Num(); ClusIdx.Add(Key, C); FIMClus NC; NC.Key = Key; NC.D0[0] = X0; NC.D0[1] = Y0; NC.D0[2] = Z0; Clus.Add(NC); }
             else C = *P;
             if (F.Num() <= cX || F.Num() <= cY || F.Num() <= cZ) continue;
             Clus[C].LX.Add(FCString::Atod(*F[cX]));
@@ -279,7 +279,7 @@ public:
         bool bHaveClosedFb = false;
         for (int32 C = 0; C < Clus.Num(); ++C)
         {
-            IMClus& K = Clus[C];
+            FIMClus& K = Clus[C];
             if (K.LX.Num() < 3) continue;
             K.LX.Sort(); K.LY.Sort(); K.LZ.Sort();
             const int32 M = K.LX.Num() / 2;
@@ -298,12 +298,12 @@ public:
             if (bMapped)
             {
                 const double Lv[3] = {K.LX[M], K.LY[M], K.LZ[M]};
-                IMOBox D;
-                IMOMakeBox(D, UEx, UEy, UEz, IMHalf[0], IMHalf[1], IMHalf[2]);
-                IMOSeg DS;
-                IMOMakeSeg(DS, IMSrc[0], IMSrc[1], IMSrc[2], Lv[0], Lv[1], Lv[2]);
-                DirectCls = IMOClass(DS, D);
-                Cls = IMOAp(IMSrc, Lv, D);
+                FIMOBox D;
+                OMakeBox(D, UEx, UEy, UEz, Half[0], Half[1], Half[2]);
+                FIMOSeg DS;
+                OMakeSeg(DS, Src[0], Src[1], Src[2], Lv[0], Lv[1], Lv[2]);
+                DirectCls = OClass(DS, D);
+                Cls = OAp(Src, Lv, D);
                 bM = Cls.Equals(Exp);
             }
             if (!bM) bFbMatch = false;
@@ -359,7 +359,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FIMOracle,
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FIMOracle::RunTest(const FString&)
 {
-    ADD_LATENT_AUTOMATION_COMMAND(IMOracleCmd(this));
+    ADD_LATENT_AUTOMATION_COMMAND(IMAcousticH1BDoorOracleTestPrivate::FIMOracleCmd(this));
     return true;
 }
 #endif

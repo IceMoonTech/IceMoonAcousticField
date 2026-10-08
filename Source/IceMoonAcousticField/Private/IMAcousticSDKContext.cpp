@@ -1,11 +1,11 @@
 #include "IMAcousticSDKContext.h"
 
-namespace
+namespace IMAcousticSDKContextPrivate
 {
-struct IM_AcousticSDKContextState
+struct FIMAcousticSDKContextState
 {
     IPLContext Context = nullptr;
-    IM_AcousticSDKContextState()
+    FIMAcousticSDKContextState()
     {
         IPLContextSettings Settings{};
         Settings.version = STEAMAUDIO_VERSION;
@@ -15,14 +15,14 @@ struct IM_AcousticSDKContextState
         Settings.simdLevel = IPL_SIMDLEVEL_AVX2;
         iplContextCreate(&Settings, &Context);
     }
-    ~IM_AcousticSDKContextState() { if (Context) { iplContextRelease(&Context); } }
+    ~FIMAcousticSDKContextState() { if (Context) { iplContextRelease(&Context); } }
 };
 }
 
-IPLContext IM_GetAcousticSDKContext()
+IPLContext IMAcousticSDKContext::GetAcousticSDKContext()
 {
     // C++ static initialization serializes the first caller. Subsequent consumers
     // only retain the existing context; no SDK global state is reconfigured.
-    static IM_AcousticSDKContextState State;
+    static IMAcousticSDKContextPrivate::FIMAcousticSDKContextState State;
     return State.Context;
 }

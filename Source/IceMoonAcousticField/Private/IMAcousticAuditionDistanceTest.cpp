@@ -42,27 +42,27 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 
-namespace
+namespace IMAcousticAuditionDistanceTestPrivate
 {
-constexpr const TCHAR* IMAudMap=TEXT("/IceMoonAcousticField/Tests/IM_V2Audition");
-constexpr double IMAudConvergeTimeout=3.0;  // per point: wait for the device-side listener
+constexpr const TCHAR* AudMap=TEXT("/IceMoonAcousticField/Tests/IM_V2Audition");
+constexpr double AudConvergeTimeout=3.0;  // per point: wait for the device-side listener
 // A' (2026-09-13): the reference loop is 8s (bursts 0-3s, gap 3-4.5s, tones
 // 4.5-7s, gap 7-8s), so a window must span at least one loop to be guaranteed
 // real audio; collection exits early once enough audio blocks are captured.
-constexpr double IMAudCollectTimeout=8.0;   // per point: window cap (one full loop)
-constexpr int32 IMAudBlocksFloor=10;        // ~0.21s of blocks at 48kHz/1024
-constexpr int32 IMAudAudioBlocksFloor=10;   // blocks with nonzero input required
-constexpr int32 IMAudMaxBlockRows=3400;     // per-block evidence rows (17 x <=200)
-constexpr int32 IMAudMinAccepted=4;         // below this the point is evidence-invalid
+constexpr double AudCollectTimeout=8.0;   // per point: window cap (one full loop)
+constexpr int32 AudBlocksFloor=10;        // ~0.21s of blocks at 48kHz/1024
+constexpr int32 AudAudioBlocksFloor=10;   // blocks with nonzero input required
+constexpr int32 AudMaxBlockRows=3400;     // per-block evidence rows (17 x <=200)
+constexpr int32 AudMinAccepted=4;         // below this the point is evidence-invalid
 // A' evidence (2026-09-13): the outside-point collection starts after this
 // settle window (250ms parameter lease + GT publish stop + margin) so every
 // captured block belongs to the new listener position, not to the transition.
-constexpr double IMAudOutsideSettleSeconds=0.45;
-constexpr int32 IMAudMaxDistOther=2;        // allowed non-matching distances in the window
-float IMAudOriginalBackgroundVolume=1;
-bool IMAudOriginalBackgroundAudio=false;
+constexpr double AudOutsideSettleSeconds=0.45;
+constexpr int32 AudMaxDistOther=2;        // allowed non-matching distances in the window
+float AudOriginalBackgroundVolume=1;
+bool AudOriginalBackgroundAudio=false;
 
-FString IMAudEvidence()
+FString AudEvidence()
 {
     static const FString Path=FPaths::ConvertRelativePathToFull(FPaths::Combine(FPaths::ProjectSavedDir(),
         TEXT("AcousticV2/AuditionDistance"),FGuid::NewGuid().ToString(EGuidFormats::Digits)));
@@ -72,7 +72,7 @@ FString IMAudEvidence()
 // One measured listener position. Energies are means over the accepted blocks
 // that consumed the converged snapshot; reverb counters are absolute reads at
 // collection time (analysis uses per-point deltas).
-struct IM_AudSample
+struct FIMAudSample
 {
     FString Label;
     double DistanceM=0.0;
@@ -98,10 +98,10 @@ struct IM_AudSample
     uint64 RevProcessed=0,RevNotFresh=0,RevRejected=0,RevNonzero=0;
 };
 
-class IM_AcousticAuditionDistanceCommand final : public IAutomationLatentCommand
+class FIMAcousticAuditionDistanceCommand final : public IAutomationLatentCommand
 {
 public:
-    IM_AcousticAuditionDistanceCommand(FAutomationTestBase* InTest,int32 InStage=0)
+    FIMAcousticAuditionDistanceCommand(FAutomationTestBase* InTest,int32 InStage=0)
         :Test(InTest),Stage(InStage){}
     bool Update() override
     {
@@ -112,10 +112,10 @@ public:
             // and resume behind those queued commands (waiting here deadlocks).
             // This stage runs before any PIE world exists.
             FString Error;
-            GUnrealEd->AutomationLoadMap(IMAudMap,false,&Error);
+            GUnrealEd->AutomationLoadMap(AudMap,false,&Error);
             Stage=9;
             if(!Error.IsEmpty())return Finish(false,Error);
-            ADD_LATENT_AUTOMATION_COMMAND(IM_AcousticAuditionDistanceCommand(Test,1));
+            ADD_LATENT_AUTOMATION_COMMAND(FIMAcousticAuditionDistanceCommand(Test,1));
             return true;
         }
         UWorld* PIE=nullptr;
@@ -135,10 +135,10 @@ public:
             if(!Source.IsValid())return Finish(false,TEXT("Audition map has no marked acoustic source."));
             Listener=PIE->GetFirstPlayerController();
             if(!Listener.IsValid())return false;
-            Bridge=IM_AcousticTestSupport::FindBridge(PIE);
+            Bridge=IMAcousticTestSupport::FindBridge(PIE);
             if(!Bridge.IsValid())return false;
             if(FAudioDevice* AudioDevice=PIE->GetAudioDeviceRaw())
-                MetaContext=IM_FindAcousticMetaSoundContext(AudioDevice->DeviceID);
+                MetaContext=IMAcousticMetaSound::FindAcousticMetaSoundContext(AudioDevice->DeviceID);
             if(!MetaContext.IsValid()||MetaContext->CapturedSourceBlocks.Num()==0)
                 return Finish(false,TEXT("Audition map did not expose graph-native MetaSound source capture."));
             if(!Source->IsPlaying())return false;
@@ -167,7 +167,7 @@ public:
                 WaitingSettle=false;
                 ConvergeBlocks=GraphSourceBlocks();
                 RejectedBefore=Bridge->RejectedBlocks.load(std::memory_order_relaxed);
-                CollectDeadline=Now+IMAudCollectTimeout;
+                CollectDeadline=Now+AudCollectTimeout;
             }
             return false;
         }
@@ -180,7 +180,7 @@ public:
                 Samples[PointIndex].bDegradedWindow=!bFound;
                 ConvergeBlocks=GraphSourceBlocks();
                 RejectedBefore=Bridge->RejectedBlocks.load(std::memory_order_relaxed);
-                CollectDeadline=Now+IMAudCollectTimeout;
+                CollectDeadline=Now+AudCollectTimeout;
                 WaitingSnapshot=false;
             }
             else Diag(Now);
@@ -190,7 +190,7 @@ public:
         // A' (2026-09-13): a window only closes early when it has both enough
         // blocks and real audio; otherwise it runs to the 8s cap (one loop).
         if(Now<CollectDeadline
-            &&(Pushes<ConvergeBlocks+IMAudBlocksFloor||CountWindowAudioBlocks(Pushes)<IMAudAudioBlocksFloor))return false;
+            &&(Pushes<ConvergeBlocks+AudBlocksFloor||CountWindowAudioBlocks(Pushes)<AudAudioBlocksFloor))return false;
         Collect(Pushes);
         ++PointIndex;
         if(PointIndex>=Targets.Num())return Finish(AllPointsValid(),FinishMessage());
@@ -240,21 +240,21 @@ private:
             // parameter lease must expire so the captured blocks are stale at
             // the NEW listener position, not the tail of the previous point.
             Samples[PointIndex].Converged=true; // by construction
-            WaitingSettle=true;SettleDeadline=Now+IMAudOutsideSettleSeconds;
+            WaitingSettle=true;SettleDeadline=Now+AudOutsideSettleSeconds;
             return;
         }
-        WaitingSnapshot=true;ConvergeDeadline=Now+IMAudConvergeTimeout;LastDiag=Now;
+        WaitingSnapshot=true;ConvergeDeadline=Now+AudConvergeTimeout;LastDiag=Now;
     }
     bool FindTargetSnapshot()
     {
         if(!Bridge.IsValid())return false;
         const uint64 Pushes=Bridge->SnapshotProbePushes.load(std::memory_order_acquire);
-        const uint64 Limit=Pushes<IM_AcousticDeviceBridge::ProbeSnapshotCapacity?Pushes:IM_AcousticDeviceBridge::ProbeSnapshotCapacity;
+        const uint64 Limit=Pushes<FIMAcousticDeviceBridge::ProbeSnapshotCapacity?Pushes:FIMAcousticDeviceBridge::ProbeSnapshotCapacity;
         for(uint64 I=Limit;I>0;--I)
         {
             const uint64 Idx=I-1;
             if(Bridge->SnapshotDone[Idx].load(std::memory_order_acquire)!=Idx+1)continue;
-            const IM_AcousticSnapshotProbe& S=Bridge->SnapshotProbes[Idx];
+            const FIMAcousticSnapshotProbe& S=Bridge->SnapshotProbes[Idx];
             const FVector T=Targets[PointIndex];
             if(FMath::Abs(double(S.ListenerUEX)-T.X)<1.0&&FMath::Abs(double(S.ListenerUEY)-T.Y)<1.0&&FMath::Abs(double(S.ListenerUEZ)-T.Z)<1.0)
             {TargetSDK[0]=S.ListenerSDKX;TargetSDK[1]=S.ListenerSDKY;TargetSDK[2]=S.ListenerSDKZ;return true;}
@@ -270,8 +270,8 @@ private:
     void Collect(uint64 Pushes)
     {
         if(MetaContext.IsValid()){CollectGraph(Pushes);return;}
-        IM_AudSample& Out=Samples[PointIndex];
-        const uint64 Limit=Pushes<IM_AcousticDeviceBridge::ProbeBlockCapacity?Pushes:IM_AcousticDeviceBridge::ProbeBlockCapacity;
+        FIMAudSample& Out=Samples[PointIndex];
+        const uint64 Limit=Pushes<FIMAcousticDeviceBridge::ProbeBlockCapacity?Pushes:FIMAcousticDeviceBridge::ProbeBlockCapacity;
         const double GeomCm=Distances[PointIndex]*100.0;
         double SumDistGain=0,SumOcc=0,SumAge=0,SumIn=0,SumDir=0,SumPath=0,SumOut=0;
         double SumDegIn=0,SumDegOut=0;
@@ -280,23 +280,23 @@ private:
         for(uint64 I=ConvergeBlocks;I<Limit;++I)
         {
             if(Bridge->BlockDone[I].load(std::memory_order_acquire)!=I+1)continue;
-            const IM_AcousticBlockProbe& E=Bridge->BlockProbes[I];
-            if(BlockRows.Num()<IMAudMaxBlockRows)
+            const FIMAcousticBlockProbe& E=Bridge->BlockProbes[I];
+            if(BlockRows.Num()<AudMaxBlockRows)
                 BlockRows.Add(FString::Printf(TEXT("%d,%d,%d,%.6f,%.1f,%.4f,%.6f,%.4f"),
                     PointIndex,BlockRowSeq++,int32(E.Reject),E.InputEnergy,double(E.CallbackDistanceCm),
                     double(E.DegradedGain),E.DistanceGain,E.Occlusion));
             if(E.InputEnergy>1e-9)++Out.AudioBlocks;
-            if(E.Reject!=IM_AcousticProbeReject::Accepted)
+            if(E.Reject!=EIMAcousticProbeReject::Accepted)
             {
                 // Degraded window (user-relevant): stale/missing blocks keep this
                 // block's live distance factor (A'); bypass / bad-shape / an
                 // unavailable distance keep the plain constant-power dry path.
-                if(E.Reject==IM_AcousticProbeReject::StaleResult)++Out.StaleBlocks;
-                else if(E.Reject==IM_AcousticProbeReject::MissingResult)++Out.MissingBlocks;
+                if(E.Reject==EIMAcousticProbeReject::StaleResult)++Out.StaleBlocks;
+                else if(E.Reject==EIMAcousticProbeReject::MissingResult)++Out.MissingBlocks;
                 else ++Out.FallbackBlocks;
                 SumDegIn+=E.InputEnergy>0?E.InputEnergy:0.0;
                 SumDegOut+=E.OutputEnergy>0?E.OutputEnergy:0.0;
-                if(E.Reject==IM_AcousticProbeReject::StaleResult||E.Reject==IM_AcousticProbeReject::MissingResult)
+                if(E.Reject==EIMAcousticProbeReject::StaleResult||E.Reject==EIMAcousticProbeReject::MissingResult)
                 {
                     if(E.InputEnergy>1e-9)++Out.DegAudioBlocks;
                     if(E.CallbackDistanceCm<=0.0f)++Out.DegDistMissing;
@@ -351,7 +351,7 @@ private:
     }
     void CollectGraph(uint64 Pushes)
     {
-        IM_AudSample& Out=Samples[PointIndex];
+        FIMAudSample& Out=Samples[PointIndex];
         const uint32 Capacity=uint32(MetaContext->CapturedSourceBlocks.Num());
         const uint64 Limit=Pushes<Capacity?Pushes:Capacity;
         const double GeomCm=Distances[PointIndex]*100.0;
@@ -361,20 +361,20 @@ private:
         int32 BlockRowSeq=0;
         for(uint64 I=ConvergeBlocks;I<Limit;++I)
         {
-            const IM_AcousticBlockProbe& E=MetaContext->CapturedSourceBlocks[int32(I)];
-            if(BlockRows.Num()<IMAudMaxBlockRows)
+            const FIMAcousticBlockProbe& E=MetaContext->CapturedSourceBlocks[int32(I)];
+            if(BlockRows.Num()<AudMaxBlockRows)
                 BlockRows.Add(FString::Printf(TEXT("%d,%d,%d,%.6f,%.1f,%.4f,%.6f,%.4f"),
                     PointIndex,BlockRowSeq++,int32(E.Reject),E.InputEnergy,double(E.CallbackDistanceCm),
                     double(E.DegradedGain),E.DistanceGain,E.Occlusion));
             if(E.InputEnergy>1e-9)++Out.AudioBlocks;
-            if(E.Reject!=IM_AcousticProbeReject::Accepted)
+            if(E.Reject!=EIMAcousticProbeReject::Accepted)
             {
-                if(E.Reject==IM_AcousticProbeReject::StaleResult)++Out.StaleBlocks;
-                else if(E.Reject==IM_AcousticProbeReject::MissingResult)++Out.MissingBlocks;
+                if(E.Reject==EIMAcousticProbeReject::StaleResult)++Out.StaleBlocks;
+                else if(E.Reject==EIMAcousticProbeReject::MissingResult)++Out.MissingBlocks;
                 else ++Out.FallbackBlocks;
                 SumDegIn+=E.InputEnergy>0?E.InputEnergy:0.0;
                 SumDegOut+=E.OutputEnergy>0?E.OutputEnergy:0.0;
-                if(E.Reject==IM_AcousticProbeReject::StaleResult||E.Reject==IM_AcousticProbeReject::MissingResult)
+                if(E.Reject==EIMAcousticProbeReject::StaleResult||E.Reject==EIMAcousticProbeReject::MissingResult)
                 {
                     if(E.InputEnergy>1e-9)++Out.DegAudioBlocks;
                     if(E.CallbackDistanceCm<=0.0f)++Out.DegDistMissing;
@@ -430,7 +430,7 @@ private:
                 if(MetaContext->CapturedSourceBlocks[int32(I)].InputEnergy>1e-9)++Count;
             return Count;
         }
-        const uint64 Limit=Pushes<IM_AcousticDeviceBridge::ProbeBlockCapacity?Pushes:IM_AcousticDeviceBridge::ProbeBlockCapacity;
+        const uint64 Limit=Pushes<FIMAcousticDeviceBridge::ProbeBlockCapacity?Pushes:FIMAcousticDeviceBridge::ProbeBlockCapacity;
         int32 Count=0;
         for(uint64 I=ConvergeBlocks;I<Limit;++I)
         {
@@ -439,7 +439,7 @@ private:
         }
         return Count;
     }
-    static bool PointValid(const IM_AudSample& S)
+    static bool PointValid(const FIMAudSample& S)
     {
         const int32 Degraded=S.StaleBlocks+S.MissingBlocks+S.FallbackBlocks;
         if(S.bOutside||S.bDegradedWindow)
@@ -447,18 +447,18 @@ private:
             // A' gate: the captured stale window carries the live callback
             // distance matching the geometry, real audio, and the exact g^2
             // scaling on every audio block.
-            if(Degraded<IMAudMinAccepted)return false;
-            if(S.DegDistBlocks<IMAudMinAccepted)return false;
-            if(S.DegDistMissing>0||S.DegDistOther>IMAudMaxDistOther)return false;
+            if(Degraded<AudMinAccepted)return false;
+            if(S.DegDistBlocks<AudMinAccepted)return false;
+            if(S.DegDistMissing>0||S.DegDistOther>AudMaxDistOther)return false;
             if(S.DegRatioMismatch>0)return false;
-            if(S.DegAudioBlocks<IMAudAudioBlocksFloor)return false;
+            if(S.DegAudioBlocks<AudAudioBlocksFloor)return false;
             return true;
         }
-        return S.Converged&&S.Accepted>=IMAudMinAccepted&&S.AudioBlocks>=IMAudAudioBlocksFloor;
+        return S.Converged&&S.Accepted>=AudMinAccepted&&S.AudioBlocks>=AudAudioBlocksFloor;
     }
     bool AllPointsValid() const
     {
-        for(const IM_AudSample& S:Samples)
+        for(const FIMAudSample& S:Samples)
         {
             // Inside: accepted blocks on the converged snapshot. Outside: the
             // plugin stops publishing by design, so a valid point is a captured
@@ -470,7 +470,7 @@ private:
     FString FinishMessage() const
     {
         int32 Bad=0;FString First;
-        for(const IM_AudSample& S:Samples)
+        for(const FIMAudSample& S:Samples)
         {
             if(PointValid(S))continue;
             ++Bad;
@@ -496,12 +496,12 @@ private:
     }
     void WriteEvidence()
     {
-        const FString Dir=IMAudEvidence();
+        const FString Dir=AudEvidence();
         IFileManager::Get().MakeDirectory(*Dir,true);
         FString Csv=TEXT("index,label,distance_m,outside,converged,accepted,stale,missing,fallback,rejected_delta,dist_gain,occlusion,age_ms,input_e,direct_e,path_e,output_e,fallback_input_e,fallback_output_e,reverb_processed,reverb_not_fresh,reverb_rejected,reverb_nonzero,target_x,target_y,target_z,deg_dist_m,deg_gain,deg_ratio,deg_ratio_pred,deg_dist_blocks,deg_dist_other,deg_dist_missing,deg_ratio_mismatch,acc_dist_blocks,acc_dist_other,acc_dist_missing,audio_blocks,deg_audio_blocks\n");
         for(int32 I=0;I<Samples.Num();++I)
         {
-            const IM_AudSample& S=Samples[I];
+            const FIMAudSample& S=Samples[I];
             Csv+=FString::Printf(TEXT("%d,%s,%.3f,%d,%d,%d,%d,%d,%d,%llu,%.6f,%.6f,%.3f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%llu,%llu,%llu,%llu,%.2f,%.2f,%.2f,%.4f,%.4f,%.6f,%.6f,%d,%d,%d,%d,%d,%d,%d,%d,%d\n"),
                 I,*S.Label,S.DistanceM,int(S.bOutside),int(S.Converged),S.Accepted,S.StaleBlocks,S.MissingBlocks,S.FallbackBlocks,S.RejectedDelta,
                 S.DistGain,S.Occlusion,S.AgeMs,S.InputE,S.DirectE,S.PathE,S.OutputE,S.FallbackInputE,S.FallbackOutputE,
@@ -515,7 +515,7 @@ private:
             SourcePos.X,SourcePos.Y,SourcePos.Z,AllPointsValid()?TEXT("true"):TEXT("false"));
         for(int32 I=0;I<Samples.Num();++I)
         {
-            const IM_AudSample& S=Samples[I];
+            const FIMAudSample& S=Samples[I];
             Json+=FString::Printf(TEXT("%s{\"index\":%d,\"label\":\"%s\",\"distance_m\":%.3f,\"outside\":%s,\"degraded_window\":%s,\"converged\":%s,\"accepted\":%d,\"rejected_delta\":%llu,\"dist_gain\":%.6f,\"occlusion\":%.6f,\"age_ms\":%.3f,\"input_e\":%.6f,\"direct_e\":%.6f,\"path_e\":%.6f,\"output_e\":%.6f,\"direct_valid\":%d,\"path_valid\":%d,\"reverb_processed\":%llu,\"reverb_not_fresh\":%llu,\"reverb_rejected\":%llu,\"deg_dist_m\":%.4f,\"deg_gain\":%.4f,\"deg_ratio\":%.6f,\"deg_ratio_pred\":%.6f,\"deg_ratio_mismatch\":%d,\"deg_dist_blocks\":%d,\"deg_dist_other\":%d,\"deg_dist_missing\":%d,\"acc_dist_blocks\":%d,\"acc_dist_other\":%d,\"acc_dist_missing\":%d,\"audio_blocks\":%d,\"deg_audio_blocks\":%d}"),
                 I==0?TEXT(""):TEXT(","),I,*S.Label,S.DistanceM,S.bOutside?TEXT("true"):TEXT("false"),S.bDegradedWindow?TEXT("true"):TEXT("false"),S.Converged?TEXT("true"):TEXT("false"),S.Accepted,S.RejectedDelta,
                 S.DistGain,S.Occlusion,S.AgeMs,S.InputE,S.DirectE,S.PathE,S.OutputE,S.DirectValid,S.PathValid,
@@ -535,14 +535,14 @@ private:
     bool Finish(bool Pass,const FString& Message)
     {
         WriteEvidence();
-        IM_EnableAcousticMetaSoundCaptureForTest(false);
+        IMAcousticMetaSound::EnableAcousticMetaSoundCaptureForTest(false);
         if(Bridge.IsValid())Bridge->RenderRoutes.store(RoutesBefore,std::memory_order_relaxed);
         if(!Pass)Test->AddError(Message);else Test->AddInfo(Message);
         UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticAuditionDistance %s %s"),Pass?TEXT("PASS"):TEXT("FAIL"),*Message);
         UE_LOG(LogTemp,Display,TEXT("IMExitEditor %s"),Pass?TEXT("PASS"):TEXT("FAIL"));
         UE_LOG(LogTemp,Display,TEXT("[IM][PIE_TEST] AcousticAuditionDistance %s"),Pass?TEXT("PASS"):TEXT("FAIL"));
-        FApp::SetUnfocusedVolumeMultiplier(IMAudOriginalBackgroundVolume);
-        GetMutableDefault<ULevelEditorMiscSettings>()->bAllowBackgroundAudio=IMAudOriginalBackgroundAudio;
+        FApp::SetUnfocusedVolumeMultiplier(AudOriginalBackgroundVolume);
+        GetMutableDefault<ULevelEditorMiscSettings>()->bAllowBackgroundAudio=AudOriginalBackgroundAudio;
         if(GUnrealEd)GUnrealEd->RequestEndPlayMap();
         return true;
     }
@@ -555,13 +555,13 @@ private:
     TWeakObjectPtr<AIMAcousticBakeVolume> Volume;
     TWeakObjectPtr<UAudioComponent> Source;
     TWeakObjectPtr<APlayerController> Listener;
-    TSharedPtr<IM_AcousticDeviceBridge,ESPMode::ThreadSafe> Bridge;
-    IM_AcousticMetaSoundContextPtr MetaContext;
+    TSharedPtr<FIMAcousticDeviceBridge,ESPMode::ThreadSafe> Bridge;
+    FIMAcousticMetaSoundContextPtr MetaContext;
     FVector SourcePos=FVector::ZeroVector;
     TArray<FVector> Targets;
     TArray<double> Distances;
     TArray<FString> Labels;
-    TArray<IM_AudSample> Samples;
+    TArray<FIMAudSample> Samples;
     TArray<FString> BlockRows;
     float TargetSDK[3]={0,0,0};
 };
@@ -570,13 +570,13 @@ private:
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FIMAcousticAuditionDistanceTest,"IceMoon.AcousticField.W3.AuditionDistance",EAutomationTestFlags::EditorContext|EAutomationTestFlags::ClientContext|EAutomationTestFlags::ProductFilter)
 bool FIMAcousticAuditionDistanceTest::RunTest(const FString&)
 {
-    IM_EnableAcousticMetaSoundCaptureForTest(true);
-    IMAudOriginalBackgroundVolume=FApp::GetUnfocusedVolumeMultiplier();
+    IMAcousticMetaSound::EnableAcousticMetaSoundCaptureForTest(true);
+    IMAcousticAuditionDistanceTestPrivate::AudOriginalBackgroundVolume=FApp::GetUnfocusedVolumeMultiplier();
     FApp::SetUnfocusedVolumeMultiplier(1); // Deterministic audio in this owned unattended Editor only.
-    IMAudOriginalBackgroundAudio=GetMutableDefault<ULevelEditorMiscSettings>()->bAllowBackgroundAudio;
+    IMAcousticAuditionDistanceTestPrivate::AudOriginalBackgroundAudio=GetMutableDefault<ULevelEditorMiscSettings>()->bAllowBackgroundAudio;
     GetMutableDefault<ULevelEditorMiscSettings>()->bAllowBackgroundAudio=true;
     GetMutableDefault<UEditorPerformanceSettings>()->bThrottleCPUWhenNotForeground=false;
-    ADD_LATENT_AUTOMATION_COMMAND(IM_AcousticAuditionDistanceCommand(this,0));
+    ADD_LATENT_AUTOMATION_COMMAND(IMAcousticAuditionDistanceTestPrivate::FIMAcousticAuditionDistanceCommand(this,0));
     return true;
 }
 #endif

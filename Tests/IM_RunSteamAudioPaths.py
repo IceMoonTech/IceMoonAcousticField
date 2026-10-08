@@ -106,7 +106,7 @@ def main():
     # Production sources reused with the same native-cl method as IM_RunSteamAudioSmoke.py.
     # No audio/HRTF renderer: this fixture records Evaluate frames + the real
     # pathing callback and checks them with an independent intersection oracle.
-    inputs = [Path(__file__).parent / 'IM_SteamAudioPaths.cpp', source / 'IMAcousticSimulation.cpp', source / 'IMAcousticSDKContext.cpp']
+    inputs = [Path(__file__).parent / 'IMSteamAudioPaths.cpp', source / 'IMAcousticSimulation.cpp', source / 'IMAcousticSDKContext.cpp']
     tracked = [*inputs, Path(__file__).resolve(), *source.glob('IMAcoustic*.h'),
                sdk / 'IM_SteamAudio481Provenance.json', sdk / 'include/phonon.h',
                sdk / 'lib/windows-x64/phonon.dll', sdk / 'lib/windows-x64/phonon.lib']

@@ -70,7 +70,7 @@ def main():
     plugin = Path(__file__).resolve().parents[1]
     source = plugin / 'Source/IceMoonAcousticField/Private'
     sdk = plugin / 'Source/ThirdParty/SteamAudio'
-    inputs = [Path(__file__).with_name('IM_SteamAudioReverbLifecycle.cpp'),
+    inputs = [Path(__file__).with_name('IMSteamAudioReverbLifecycle.cpp'),
               *[source / name for name in ('IMAcousticSimulation.cpp', 'IMAcousticReverbRenderer.cpp',
                                           'IMAcousticAudioRenderer.cpp', 'IMAcousticSDKContext.cpp')]]
     tracked = [*inputs, Path(__file__).resolve(), *source.glob('IMAcoustic*.h'),

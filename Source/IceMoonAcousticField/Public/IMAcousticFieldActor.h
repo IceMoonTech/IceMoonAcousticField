@@ -4,7 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
-#include "IM_AcousticTypes.h"
+#include "IMAcousticTypes.h"
 #include "IM_Common/Public/Gameplay/IMStats.h"
 
 #include "IMAcousticFieldActor.generated.h"
@@ -65,12 +65,12 @@ struct FTraceDatum; // <-- 需要为回调函数前向声明
         - Cell内sub-point法线/入射角存储：复杂度高，SDF方案更优
  */
 UCLASS()
-class ICEMOONACOUSTICFIELD_API AIceMoonAcousticField : public AActor
+class ICEMOONACOUSTICFIELD_API AIMAcousticFieldActor : public AActor
 {
     GENERATED_BODY()
     
 public:
-    AIceMoonAcousticField();
+    AIMAcousticFieldActor();
 
 protected:
     virtual void BeginPlay() override;
@@ -80,7 +80,7 @@ protected:
 public:
     // 获取单例控制器
     UFUNCTION(BlueprintPure, Category = "IM|Acoustics", meta = (WorldContext = "WorldContextObject"))
-    static AIceMoonAcousticField* GetAcousticFieldActor(const UObject* WorldContextObject);
+    static AIMAcousticFieldActor* GetAcousticFieldActor(const UObject* WorldContextObject);
 
     /**
      * [按需探测] 请求在指定位置进行一次小规模、高优先级的探测。
@@ -126,7 +126,7 @@ public:
 
     // 读取周围声音混淆系数等处理的参数函数
     UFUNCTION(BlueprintCallable, Category = "IM|Tracing")
-    bool GetAcousticFieldExtentCells(int32 LodIndex, FVector QueryLocation, float SearchRadius, TArray<FIM_GridAudioCell>& OutCells);
+    bool GetAcousticFieldExtentCells(int32 LodIndex, FVector QueryLocation, float SearchRadius, TArray<FIMGridAudioCell>& OutCells);
 
 
 //辅助函数
@@ -140,7 +140,7 @@ public:
 
     //物理材质 查声学 音效设置
     UFUNCTION(BlueprintCallable, Category = "IM|Acoustics", BlueprintPure)
-    FIM_AudioMaterialResponse GetAudioResponseForMaterial(const UPhysicalMaterial* PhysMaterial) const;
+    FIMAudioMaterialResponse GetAudioResponseForMaterial(const UPhysicalMaterial* PhysMaterial) const;
 
     // ========================================
     // 配置资产引用
@@ -149,7 +149,7 @@ public:
     /** 声场配置预设（包含材质库引用、默认混响、Wet参数等） */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "IM|Configuration",
         meta=(Tooltip="声场配置预设资产（必需）"))
-    TObjectPtr<class UDA_IM_AcousticFieldConfig> ConfigAsset;
+    TObjectPtr<class UIMAcousticFieldConfig> ConfigAsset;
 
     
     // ========================================
@@ -235,7 +235,7 @@ private:
      * @param HitResults 一批发声源周围的射线检测结果。
      * @return 计算出的FAIM_AudioMaterialResponse。
      */
-    FIM_AudioReverbParameters CalculateCellReverbParameters(const FVector QueryPos,const FIM_GridAudioCell& CellResults);
+    FIM_AudioReverbParameters CalculateCellReverbParameters(const FVector QueryPos,const FIMGridAudioCell& CellResults);
 
     void AddAudioFieldForLod(const FHitResult& HitResult);
     bool InterpolateAtLod(const int32 LodIndex, const FVector QueryLocation, FIM_AudioReverbParameters& OutInterpolatedResponse, int32* OutCells = nullptr, int32* OutProbes = nullptr, int32* OutHits = nullptr);
@@ -246,7 +246,7 @@ private:
     FIM_WetCalculationParameters GetWetCalculationParameters() const;
 
     // --- 内部状态 ---
-    TArray< TMap<FIntVector, FIM_GridAudioCell> > AcousticGridArray;
+    TArray< TMap<FIntVector, FIMGridAudioCell> > AcousticGridArray;
     // CellSubBitMaskArray[0] 存储 LOD 1 对 LOD 0 的掩码
     // CellSubBitMaskArray[1] 存储 LOD 2 对 LOD 1 的掩码
     TArray< TMap<FIntVector, uint64> > CellSubBitMaskArray;
@@ -256,14 +256,14 @@ private:
 
     // --- 平滑查询缓存 ---
     // 查询缓存结构
-    struct FAcousticQueryCache
+    struct FIMAcousticQueryCache
     {
         FIM_AudioReverbParameters LastResult;
         float LastQueryTime;
         FVector LastQueryLocation;
         TWeakObjectPtr<UObject> SourceObject; // 绑定 Owner：UniqueID 可回收，命中时校验，不一致即重置条目
 
-        FAcousticQueryCache()
+        FIMAcousticQueryCache()
             : LastResult()
             , LastQueryTime(0.0f)
             , LastQueryLocation(FVector::ZeroVector)
@@ -271,7 +271,7 @@ private:
         {}
     };
     // 缓存Map：Key为 "ActorUniqueID_SoundSlot"（配合 SourceObject 弱引用防回收复用）
-    TMap<FName, FAcousticQueryCache> SmoothQueryCache;
+    TMap<FName, FIMAcousticQueryCache> SmoothQueryCache;
 
     // --- 探针回调串行队列（P0 前置唯一合同：回调只入队，Tick 出队；生产消费皆 GameThread） ---
     TArray<FHitResult> PendingProbeQueue;

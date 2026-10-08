@@ -21,12 +21,12 @@
 #include "HAL/FileManager.h"
 #include "Serialization/JsonWriter.h"
 
-namespace
+namespace IMAcousticMetaSoundClosureTestPrivate
 {
-class IM_AcousticMetaSoundClosureCommand final : public IAutomationLatentCommand
+class FIMAcousticMetaSoundClosureCommand final : public IAutomationLatentCommand
 {
 public:
-    explicit IM_AcousticMetaSoundClosureCommand(FAutomationTestBase* InTest)
+    explicit FIMAcousticMetaSoundClosureCommand(FAutomationTestBase* InTest)
         : Test(InTest), Started(FPlatformTime::Seconds()) {}
     bool Update() override
     {
@@ -48,7 +48,7 @@ public:
                 if (auto* Marker = It->FindComponentByClass<UIMAcousticSourceComponent>()) Source = Marker->AudioComponent;
             }
         }
-        if (!Context && World->GetAudioDeviceRaw()) Context = IM_FindAcousticMetaSoundContext(World->GetAudioDeviceRaw()->DeviceID);
+        if (!Context && World->GetAudioDeviceRaw()) Context = IMAcousticMetaSound::FindAcousticMetaSoundContext(World->GetAudioDeviceRaw()->DeviceID);
         // NullRHI omits the view update that normally forwards the controller's
         // listener override. Supply that same public device input explicitly;
         // all voice registration, simulation, bus and DSP remain product-owned.
@@ -63,7 +63,7 @@ public:
         if (Now - Started > 20 && Context->LastIRSequence.load() == 0)
             return Finish(false, TEXT("Ordinary graph has not consumed any IR: ") + Volume->Status);
         if (Volume->ReverbSubmix) return Finish(false, TEXT("Ordinary graph entry created legacy convolution submix."));
-        if (!IM_IsAcousticMetaSound(Source->Sound) || Source->bAllowSpatialization) return Finish(false, TEXT("Ordinary source is not the isolated graph DSP path."));
+        if (!IMAcousticMetaSound::IsAcousticMetaSound(Source->Sound) || Source->bAllowSpatialization) return Finish(false, TEXT("Ordinary source is not the isolated graph DSP path."));
         const uint64 Frames = Context->SourceFrames.load(std::memory_order_acquire);
         if (Stage == 0 && Frames >= 3ull * 1352448)
         {
@@ -106,7 +106,7 @@ public:
         return false;
     }
 private:
-    bool IdentityProbePass(const IM_AcousticIdentityInjectionProbe& Probe, uint32 ExpectedDetail) const
+    bool IdentityProbePass(const FIMAcousticIdentityInjectionProbe& Probe, uint32 ExpectedDetail) const
     {
         return Probe.Observed.load(std::memory_order_acquire)
             && Probe.Rejected.load(std::memory_order_acquire)
@@ -127,7 +127,7 @@ private:
     {
         const auto& D = *Context->Device;
         FString Snapshots = TEXT("captured_s,submit_s,submitted,fail_code\n");
-        const uint64 SN = FMath::Min<uint64>(D.SnapshotProbePushes.load(std::memory_order_acquire), IM_AcousticDeviceBridge::ProbeSnapshotCapacity);
+        const uint64 SN = FMath::Min<uint64>(D.SnapshotProbePushes.load(std::memory_order_acquire), FIMAcousticDeviceBridge::ProbeSnapshotCapacity);
         for (uint64 I = 0; I < SN && D.SnapshotDone[I].load(std::memory_order_acquire); ++I)
         {
             const auto& P = D.SnapshotProbes[I];
@@ -135,7 +135,7 @@ private:
             Snapshots += FString::Printf(TEXT("%.9f,%.9f,%u,%u\n"), P.CapturedSeconds, P.SubmitSeconds, P.Submitted, P.FailCode);
         }
         FString Workers = TEXT("loop_s,snapshot_s,valid,reason,eval_start_s,eval_end_s,reverb_start_s,reverb_end_s,sequence,reverb_snapshot_s,wait_end_s\n");
-        const uint64 WN = FMath::Min<uint64>(D.WorkerProbePushes.load(std::memory_order_acquire), IM_AcousticDeviceBridge::ProbeWorkerCapacity);
+        const uint64 WN = FMath::Min<uint64>(D.WorkerProbePushes.load(std::memory_order_acquire), FIMAcousticDeviceBridge::ProbeWorkerCapacity);
         for (uint64 I = 0; I < WN && D.WorkerDone[I].load(std::memory_order_acquire); ++I)
         {
             const auto& P = D.WorkerProbes[I];
@@ -196,7 +196,7 @@ private:
             FString JSON; auto W = TJsonWriterFactory<>::Create(&JSON); W->WriteObjectStart();
             W->WriteValue(TEXT("status"), Pass ? TEXT("CAPTURED_ANALYSIS_PENDING") : TEXT("FAIL"));
             W->WriteValue(TEXT("reason"), EffectiveReason); W->WriteValue(TEXT("sample_rate"), int32(Context->Device->SampleRate));
-            W->WriteValue(TEXT("graph_frames"), int32(IM_AcousticMetaSoundContext::Frames));
+            W->WriteValue(TEXT("graph_frames"), int32(FIMAcousticMetaSoundContext::Frames));
             W->WriteValue(TEXT("headless_listener_adapter"), !FApp::CanEverRender());
             W->WriteValue(TEXT("source_frames"), double(S)); W->WriteValue(TEXT("environment_frames"), double(E));
             W->WriteValue(TEXT("a_end_source_frame"), double(AEnd)); W->WriteValue(TEXT("stop_source_frame"), double(StopFrame));
@@ -218,7 +218,7 @@ private:
             W->WriteValue(TEXT("dry_capture_component_gain_not_applied"), 0.7);
             W->WriteObjectStart(TEXT("identity_negative"));
             W->WriteValue(TEXT("status"), IdentityPass ? TEXT("PASS_FOCUSED_FAIL_CLOSED") : TEXT("FAIL_FOCUSED_FAIL_CLOSED"));
-            auto WriteIdentityProbe = [&](const TCHAR* Name, const IM_AcousticIdentityInjectionProbe& Probe, uint32 ExpectedDetail)
+            auto WriteIdentityProbe = [&](const TCHAR* Name, const FIMAcousticIdentityInjectionProbe& Probe, uint32 ExpectedDetail)
             {
                 W->WriteObjectStart(Name);
                 W->WriteValue(TEXT("observed"), Probe.Observed.load(std::memory_order_acquire) != 0);
@@ -249,7 +249,7 @@ private:
             FFileHelper::SaveStringToFile(JSON, *FPaths::Combine(Directory, TEXT("capture.json")), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
         }
         if (!Pass) Test->AddError(EffectiveReason);
-        IM_EnableAcousticMetaSoundCaptureForTest(false);
+        IMAcousticMetaSound::EnableAcousticMetaSoundCaptureForTest(false);
         UE_LOG(LogTemp, Display, TEXT("IMExitEditor %s MetaSoundClosure capture %s"), Pass ? TEXT("PASS") : TEXT("FAIL"), *EffectiveReason);
         UE_LOG(LogTemp, Display, TEXT("[IM][PIE_TEST] MetaSoundClosure capture %s"), Pass ? TEXT("PASS") : TEXT("FAIL"));
         if (GEditor && GEditor->PlayWorld) GEditor->RequestEndPlayMap();
@@ -260,7 +260,7 @@ private:
     uint64 AEnd = 0, StopFrame = 0;
     int32 Stage = 0;
     FString Directory;
-    IM_AcousticMetaSoundContextPtr Context;
+    FIMAcousticMetaSoundContextPtr Context;
     TWeakObjectPtr<APlayerController> Listener;
     TWeakObjectPtr<UAudioComponent> Source;
     TWeakObjectPtr<AIMAcousticBakeVolume> Volume;
@@ -271,14 +271,14 @@ private:
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FIMAcousticMetaSoundClosure, "IceMoon.AcousticField.MetaSound.OrdinaryClosure", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FIMAcousticMetaSoundClosure::RunTest(const FString&)
 {
-    IM_EnableAcousticMetaSoundCaptureForTest(true);
+    IMAcousticMetaSound::EnableAcousticMetaSoundCaptureForTest(true);
     FApp::SetUnfocusedVolumeMultiplier(1.f);
     GetMutableDefault<ULevelEditorMiscSettings>()->bAllowBackgroundAudio = true;
     GetMutableDefault<UEditorPerformanceSettings>()->bThrottleCPUWhenNotForeground = false;
     FString Error;
     GUnrealEd->AutomationLoadMap(TEXT("/IceMoonAcousticField/Tests/IM_V2Audition"), false, &Error);
-    if (!Error.IsEmpty()) { AddError(Error); IM_EnableAcousticMetaSoundCaptureForTest(false); return false; }
-    ADD_LATENT_AUTOMATION_COMMAND(IM_AcousticMetaSoundClosureCommand(this));
+    if (!Error.IsEmpty()) { AddError(Error); IMAcousticMetaSound::EnableAcousticMetaSoundCaptureForTest(false); return false; }
+    ADD_LATENT_AUTOMATION_COMMAND(IMAcousticMetaSoundClosureTestPrivate::FIMAcousticMetaSoundClosureCommand(this));
     return true;
 }
 #endif

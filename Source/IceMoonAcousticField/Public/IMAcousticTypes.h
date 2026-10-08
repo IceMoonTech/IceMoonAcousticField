@@ -1,19 +1,19 @@
-// AcousticIdentifier/Source/AcousticIdentifier/Public/IM_AcousticTypes.h
+// AcousticIdentifier/Source/AcousticIdentifier/Public/IMAcousticTypes.h
 
 #pragma once
 
 #include "CoreMinimal.h"
 //#include "Runtime/Engine/Classes/Engine/NetSerialization.h"   //需要PhysicsCore
-#include "IM_AcousticTypes.generated.h"
+#include "IMAcousticTypes.generated.h"
 
 //--------------------------------------------------------------------------------------------------
 // 音频材质响应 - 这是音效设计师真正关心的参数
 //--------------------------------------------------------------------------------------------------
 USTRUCT(BlueprintType)
-struct FIM_AudioMaterialResponse
+struct FIMAudioMaterialResponse
 {
     GENERATED_BODY()
-    FIM_AudioMaterialResponse()
+    FIMAudioMaterialResponse()
     : Occlusion(0.3f),
     Diffusion(0.5f),
     LowDampening(0.5f),
@@ -34,7 +34,7 @@ struct FIM_AudioMaterialResponse
     float HighDampening = 0.5f;
 };
 USTRUCT(BlueprintType)
-struct FIM_AudioRayResponse
+struct FIMAudioRayResponse
 {
     GENERATED_BODY()
 
@@ -60,15 +60,15 @@ struct FIM_AudioRayResponse
 // 网格单元
 //--------------------------------------------------------------------------------------------------
 USTRUCT(BlueprintType)
-struct FIM_GridAudioCell
+struct FIMGridAudioCell
 {
     GENERATED_BODY()
 
     UPROPERTY(BlueprintReadOnly, Category = "AIM|Cell")
-    FIM_AudioRayResponse RayRes;
+    FIMAudioRayResponse RayRes;
     
     UPROPERTY(BlueprintReadOnly, Category = "AIM|Cell")
-    FIM_AudioMaterialResponse MatRes;
+    FIMAudioMaterialResponse MatRes;
     
     float LastUpdateTime = 0.0f;
     
@@ -126,7 +126,7 @@ struct FIM_GridAudioCell
     //
     // **策略3: 批量验证 + 帧分摊（性能优化）**
     //   - 每帧验证预算：最多验证N个Cell（如10个）
-    //   - 维护TArray<FIM_GridAudioCell*> PendingValidationQueue
+    //   - 维护TArray<FIMGridAudioCell*> PendingValidationQueue
     //   - 单次Compute Shader批量处理整个队列
     //   优势：避免单帧大量GPU任务，平滑性能曲线
     //
@@ -143,7 +143,7 @@ struct FIM_GridAudioCell
     //
     // 【推荐实现优先级】
     //   短期（立即可用）：
-    //     1. 添加ECellValidationState枚举到FIM_GridAudioCell
+    //     1. 添加ECellValidationState枚举到FIMGridAudioCell
     //     2. 修改查询逻辑跳过Pending/Validating状态
     //     3. 实现CPU预过滤函数（0延迟，立即可用）
     //   中期（异步优化）：
@@ -154,7 +154,7 @@ struct FIM_GridAudioCell
     //
     // ========================================================================================================
 
-    void AddProbeData(const FVector& NewProbeHitLocation, float NewProbeDistance, bool HitValid, float HitDirectionVariance, const FIM_AudioMaterialResponse& NewProbeResponse, const float GameTime){
+    void AddProbeData(const FVector& NewProbeHitLocation, float NewProbeDistance, bool HitValid, float HitDirectionVariance, const FIMAudioMaterialResponse& NewProbeResponse, const float GameTime){
         if (!HitValid)
         {
             RayRes.ProbeCount++;

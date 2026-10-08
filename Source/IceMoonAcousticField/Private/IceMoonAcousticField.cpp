@@ -10,14 +10,14 @@ METASOUND_IMPLEMENT_MODULE_REGISTRATION_LIST
 
 void FIceMoonAcousticFieldModule::StartupModule()
 {
-	IM_RegisterAcousticSpatialization();
+	IMAcousticSpatialization::RegisterAcousticSpatialization();
 	METASOUND_REGISTER_ITEMS_IN_MODULE
 }
 
 void FIceMoonAcousticFieldModule::ShutdownModule()
 {
 	METASOUND_UNREGISTER_ITEMS_IN_MODULE
-	IM_UnregisterAcousticSpatialization();
+	IMAcousticSpatialization::UnregisterAcousticSpatialization();
 }
 
 #undef LOCTEXT_NAMESPACE

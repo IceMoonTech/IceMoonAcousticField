@@ -28,15 +28,15 @@
 #include "Sound/SoundWaveProcedural.h"
 #include "Serialization/JsonWriter.h"
 
-namespace
+namespace IMAcousticW3TestPrivate
 {
-constexpr int32 IMW3Voices=16,IMW3Rate=48000;
-constexpr double IMW3MotionPeriod=0.05; // Match the product's 20 Hz GT snapshot cadence.
-constexpr double IMW3Duration=600;
-constexpr double IMW3RareTailNearBudgetFraction=0.90;
-constexpr uint32 IMW3RareTailNearTailUs=20000;
-constexpr uint32 IMW3RareTailSelfTestUs=10000;
-class IM_AcousticUnderrunObserver final:public FOutputDevice
+constexpr int32 W3Voices=16,W3Rate=48000;
+constexpr double W3MotionPeriod=0.05; // Match the product's 20 Hz GT snapshot cadence.
+constexpr double W3Duration=600;
+constexpr double W3RareTailNearBudgetFraction=0.90;
+constexpr uint32 W3RareTailNearTailUs=20000;
+constexpr uint32 W3RareTailSelfTestUs=10000;
+class FIMAcousticUnderrunObserver final:public FOutputDevice
 {
 public:
     std::atomic<uint64> Count{0};std::atomic<bool> Enabled{false};
@@ -44,21 +44,21 @@ public:
     {if(Enabled.load(std::memory_order_relaxed)&&FCString::Strifind(Text,TEXT("Audio Buffer Underrun (starvation) detected")))Count.fetch_add(1,std::memory_order_relaxed);}
     bool CanBeUsedOnAnyThread() const override{return true;}
 };
-static uint64 IMW3ProbeComplete(const std::atomic<uint64>* Done,uint32 Capacity,uint64 Pushes)
+static uint64 W3ProbeComplete(const std::atomic<uint64>* Done,uint32 Capacity,uint64 Pushes)
 {
     const uint64 Limit=Pushes<Capacity?Pushes:Capacity;
     for(uint64 I=0;I<Limit;++I)if(Done[I].load(std::memory_order_acquire)!=I+1)return I;
     return Limit;
 }
-static bool IMW3ExportCallbackCorrelation(IM_AcousticDeviceBridge* Bridge,const FString& EvidenceDir)
+static bool W3ExportCallbackCorrelation(FIMAcousticDeviceBridge* Bridge,const FString& EvidenceDir)
 {
     if(!Bridge)return false;
     const uint64 SourcePushes=Bridge->SourceBlockProbePushes.load(std::memory_order_acquire);
-    const uint64 SourceLimit=SourcePushes<IM_AcousticDeviceBridge::CallbackBlockProbeCapacity?SourcePushes:IM_AcousticDeviceBridge::CallbackBlockProbeCapacity;
-    const uint64 SourceComplete=IMW3ProbeComplete(Bridge->SourceBlockDone.data(),IM_AcousticDeviceBridge::CallbackBlockProbeCapacity,SourcePushes);
+    const uint64 SourceLimit=SourcePushes<FIMAcousticDeviceBridge::CallbackBlockProbeCapacity?SourcePushes:FIMAcousticDeviceBridge::CallbackBlockProbeCapacity;
+    const uint64 SourceComplete=W3ProbeComplete(Bridge->SourceBlockDone.data(),FIMAcousticDeviceBridge::CallbackBlockProbeCapacity,SourcePushes);
     const uint64 ReverbPushes=Bridge->ReverbBlockProbePushes.load(std::memory_order_acquire);
-    const uint64 ReverbLimit=ReverbPushes<IM_AcousticDeviceBridge::CallbackBlockProbeCapacity?ReverbPushes:IM_AcousticDeviceBridge::CallbackBlockProbeCapacity;
-    const uint64 ReverbComplete=IMW3ProbeComplete(Bridge->ReverbBlockDone.data(),IM_AcousticDeviceBridge::CallbackBlockProbeCapacity,ReverbPushes);
+    const uint64 ReverbLimit=ReverbPushes<FIMAcousticDeviceBridge::CallbackBlockProbeCapacity?ReverbPushes:FIMAcousticDeviceBridge::CallbackBlockProbeCapacity;
+    const uint64 ReverbComplete=W3ProbeComplete(Bridge->ReverbBlockDone.data(),FIMAcousticDeviceBridge::CallbackBlockProbeCapacity,ReverbPushes);
     FString Sources=TEXT("audio_block,callback_count,valid_source_count,source_sum_us,start_s,end_s\n");
     for(uint64 I=0;I<SourceComplete;++I)
     {
@@ -73,7 +73,7 @@ static bool IMW3ExportCallbackCorrelation(IM_AcousticDeviceBridge* Bridge,const 
     }
     FString Snapshots=TEXT("block,world,captured_s,submit_s,submit_span_us,num_sources,submitted,fail_code\n");
     const uint64 SnapshotPushes=Bridge->SnapshotProbePushes.load(std::memory_order_acquire);
-    const uint64 SnapshotComplete=IMW3ProbeComplete(Bridge->SnapshotDone.data(),IM_AcousticDeviceBridge::ProbeSnapshotCapacity,SnapshotPushes);
+    const uint64 SnapshotComplete=W3ProbeComplete(Bridge->SnapshotDone.data(),FIMAcousticDeviceBridge::ProbeSnapshotCapacity,SnapshotPushes);
     for(uint64 I=0;I<SnapshotComplete;++I)
     {
         const auto& P=Bridge->SnapshotProbes[I];
@@ -81,7 +81,7 @@ static bool IMW3ExportCallbackCorrelation(IM_AcousticDeviceBridge* Bridge,const 
     }
     FString Workers=TEXT("block,world,loop_start_s,snap_captured_s,eval_start_s,eval_end_s,reverb_start_s,reverb_end_s,push_s,wait_end_s,num_inputs,published,eval_ok,reverb_attempt,reverb_ok\n");
     const uint64 WorkerPushes=Bridge->WorkerProbePushes.load(std::memory_order_acquire);
-    const uint64 WorkerComplete=IMW3ProbeComplete(Bridge->WorkerDone.data(),IM_AcousticDeviceBridge::ProbeWorkerCapacity,WorkerPushes);
+    const uint64 WorkerComplete=W3ProbeComplete(Bridge->WorkerDone.data(),FIMAcousticDeviceBridge::ProbeWorkerCapacity,WorkerPushes);
     for(uint64 I=0;I<WorkerComplete;++I)
     {
         const auto& P=Bridge->WorkerProbes[I];
@@ -89,8 +89,8 @@ static bool IMW3ExportCallbackCorrelation(IM_AcousticDeviceBridge* Bridge,const 
     }
     const bool SourceOk=Bridge->SourceBlockProbeOverflows.load(std::memory_order_acquire)==0&&SourceComplete==SourceLimit;
     const bool ReverbOk=Bridge->ReverbBlockProbeOverflows.load(std::memory_order_acquire)==0&&ReverbComplete==ReverbLimit;
-    const bool SnapshotOk=Bridge->SnapshotProbeOverflows.load(std::memory_order_acquire)==0&&SnapshotComplete==(SnapshotPushes<IM_AcousticDeviceBridge::ProbeSnapshotCapacity?SnapshotPushes:IM_AcousticDeviceBridge::ProbeSnapshotCapacity);
-    const bool WorkerOk=Bridge->WorkerProbeOverflows.load(std::memory_order_acquire)==0&&WorkerComplete==(WorkerPushes<IM_AcousticDeviceBridge::ProbeWorkerCapacity?WorkerPushes:IM_AcousticDeviceBridge::ProbeWorkerCapacity);
+    const bool SnapshotOk=Bridge->SnapshotProbeOverflows.load(std::memory_order_acquire)==0&&SnapshotComplete==(SnapshotPushes<FIMAcousticDeviceBridge::ProbeSnapshotCapacity?SnapshotPushes:FIMAcousticDeviceBridge::ProbeSnapshotCapacity);
+    const bool WorkerOk=Bridge->WorkerProbeOverflows.load(std::memory_order_acquire)==0&&WorkerComplete==(WorkerPushes<FIMAcousticDeviceBridge::ProbeWorkerCapacity?WorkerPushes:FIMAcousticDeviceBridge::ProbeWorkerCapacity);
     const FString Summary=FString::Printf(TEXT("{\"complete\":%s,\"source_blocks\":{\"complete\":%s,\"pushed\":%llu,\"exported\":%llu,\"overflow\":%llu},\"reverb_blocks\":{\"complete\":%s,\"pushed\":%llu,\"exported\":%llu,\"overflow\":%llu},\"snapshots\":{\"complete\":%s,\"pushed\":%llu,\"exported\":%llu,\"overflow\":%llu},\"workers\":{\"complete\":%s,\"pushed\":%llu,\"exported\":%llu,\"overflow\":%llu}}"),
         (SourceOk&&ReverbOk&&SnapshotOk&&WorkerOk)?TEXT("true"):TEXT("false"),SourceOk?TEXT("true"):TEXT("false"),SourcePushes,SourceComplete,Bridge->SourceBlockProbeOverflows.load(),ReverbOk?TEXT("true"):TEXT("false"),ReverbPushes,ReverbComplete,Bridge->ReverbBlockProbeOverflows.load(),SnapshotOk?TEXT("true"):TEXT("false"),SnapshotPushes,SnapshotComplete,Bridge->SnapshotProbeOverflows.load(),WorkerOk?TEXT("true"):TEXT("false"),WorkerPushes,WorkerComplete,Bridge->WorkerProbeOverflows.load());
     const bool SavedSources=FFileHelper::SaveStringToFile(Sources,*FPaths::Combine(EvidenceDir,TEXT("callback-source-blocks.csv")),FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
@@ -101,7 +101,7 @@ static bool IMW3ExportCallbackCorrelation(IM_AcousticDeviceBridge* Bridge,const 
     UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticW3CallbackCorrelation complete=%d source=%llu/%llu reverb=%llu/%llu snapshots=%llu workers=%llu evidence=%s"),SourceOk&&ReverbOk&&SnapshotOk&&WorkerOk,SourceComplete,SourcePushes,ReverbComplete,ReverbPushes,SnapshotComplete,WorkerComplete,*EvidenceDir);
     return SavedSources&&SavedReverbs&&SavedSnapshots&&SavedWorkers&&SavedSummary&&SourceOk&&ReverbOk&&SnapshotOk&&WorkerOk;
 }
-static bool IMW3ExportMetaSoundCorrelation(const IM_AcousticMetaSoundContextPtr& Context,const FString& EvidenceDir)
+static bool W3ExportMetaSoundCorrelation(const FIMAcousticMetaSoundContextPtr& Context,const FString& EvidenceDir)
 {
     if (!Context.IsValid()) return false;
     const uint32 SourceCount = FMath::Min<uint32>(Context->CapturedSourceBlockCount.load(std::memory_order_acquire), uint32(Context->CapturedSourceBlocks.Num()));
@@ -133,11 +133,11 @@ static bool IMW3ExportMetaSoundCorrelation(const IM_AcousticMetaSoundContextPtr&
     UE_LOG(LogTemp, Display, TEXT("IMLogs AcousticW3MetaSoundCorrelation source=%u environment=%u evidence=%s"), SourceCount, EnvironmentCount, *EvidenceDir);
     return SavedSources && SavedEnvironments && SavedSummary && SourceCount > 0 && EnvironmentCount > 0;
 }
-static bool IMW3ExportRareTailCorrelation(IM_AcousticDeviceBridge* Bridge,const FString& EvidenceDir,bool Requested,bool SelfTest)
+static bool W3ExportRareTailCorrelation(FIMAcousticDeviceBridge* Bridge,const FString& EvidenceDir,bool Requested,bool SelfTest)
 {
     if(!Bridge)return false;
     const uint64 Pushes=Bridge->RareTailProbePushes.load(std::memory_order_acquire);
-    const uint64 Capacity=IM_AcousticDeviceBridge::RareTailProbeCapacity;
+    const uint64 Capacity=FIMAcousticDeviceBridge::RareTailProbeCapacity;
     const uint64 Begin=Pushes>Capacity?Pushes-Capacity:0;
     const uint64 Retained=Pushes<Capacity?Pushes:Capacity;
     bool Complete=Bridge->RareTailProbeOverflows.load(std::memory_order_acquire)==0;
@@ -165,11 +165,11 @@ static bool IMW3ExportRareTailCorrelation(IM_AcousticDeviceBridge* Bridge,const 
         Requested,SelfTest,Complete,Pushes,Exported,Overflow,DeviceBudgetUs,NearBudgetUs,NearTailUs,*EvidenceDir);
     return SavedCSV&&SavedSummary&&Complete;
 }
-class IM_AcousticW3PressureCommand final:public IAutomationLatentCommand
+class FIMAcousticW3PressureCommand final:public IAutomationLatentCommand
 {
 public:
-    explicit IM_AcousticW3PressureCommand(FAutomationTestBase* In,double InDuration=IMW3Duration,bool InDropWet=false,bool InStaleProbe=false):Test(In),Created(FPlatformTime::Seconds()),Duration(InDuration),DropWet(InDropWet),StaleProbe(InStaleProbe){}
-    ~IM_AcousticW3PressureCommand() override {Cleanup();}
+    explicit FIMAcousticW3PressureCommand(FAutomationTestBase* In,double InDuration=W3Duration,bool InDropWet=false,bool InStaleProbe=false):Test(In),Created(FPlatformTime::Seconds()),Duration(InDuration),DropWet(InDropWet),StaleProbe(InStaleProbe){}
+    ~FIMAcousticW3PressureCommand() override {Cleanup();}
     bool Update() override
     {
         const double Now=FPlatformTime::Seconds();
@@ -180,7 +180,7 @@ public:
         {
             for(TActorIterator<AIMAcousticBakeVolume> It(World);It;++It)Volume=*It;
             Listener=World->GetFirstPlayerController();if(!Volume.IsValid()||!Listener.IsValid())return false;
-            Bridge=IM_AcousticTestSupport::FindBridge(World);if(!Bridge)return false;
+            Bridge=IMAcousticTestSupport::FindBridge(World);if(!Bridge)return false;
             BackgroundVolume=FApp::GetUnfocusedVolumeMultiplier();FApp::SetUnfocusedVolumeMultiplier(1);
             bAllowBackgroundAudioOrig=GetMutableDefault<ULevelEditorMiscSettings>()->bAllowBackgroundAudio;GetMutableDefault<ULevelEditorMiscSettings>()->bAllowBackgroundAudio=true;SettingsChanged=true;
             auto* Performance=GetMutableDefault<UEditorPerformanceSettings>();PreviousThrottle=Performance->bThrottleCPUWhenNotForeground;
@@ -190,39 +190,39 @@ public:
             LogInterval=IConsoleManager::Get().FindConsoleVariable(TEXT("au.MinLogTimeBetweenUnderrunWarnings"));
             if(LogInterval){PreviousLogInterval=LogInterval->GetFloat();LogInterval->Set(0.f,ECVF_SetByCode);}
             GLog->AddOutputDevice(&Underruns);ObserverRegistered=true;
-            PCM.SetNumUninitialized(IMW3Rate*2);
+            PCM.SetNumUninitialized(W3Rate*2);
             // Two seconds of low-level periodic input; all voices together remain
             // below clipping. Queue replenishment is GT-only and measured separately.
-            for(int32 I=0;I<PCM.Num();++I)PCM[I]=int16(300*FMath::Sin(2*PI*440*I/IMW3Rate));
-            for(int32 I=0;I<IMW3Voices;++I)
+            for(int32 I=0;I<PCM.Num();++I)PCM[I]=int16(300*FMath::Sin(2*PI*440*I/W3Rate));
+            for(int32 I=0;I<W3Voices;++I)
             {
                 auto* Actor=World->SpawnActor<AActor>();auto* Audio=NewObject<UAudioComponent>(Actor);
                 Actor->SetRootComponent(Audio);Actor->AddInstanceComponent(Audio);Audio->bAutoActivate=false;Audio->RegisterComponent();
                 auto* Source=NewObject<UIMAcousticSourceComponent>(Actor);Actor->AddInstanceComponent(Source);Source->AudioComponent=Audio;Source->RegisterComponent();
                 FString SourceError;
-                if(!IM_AcousticTestSupport::ConfigureGraphSource(Audio,SourceError))return Finish(false,SourceError);
+                if(!IMAcousticTestSupport::ConfigureGraphSource(Audio,SourceError))return Finish(false,SourceError);
                 FString ValidationError;
                 if(!Source->ValidateSource(ValidationError))return Finish(false,ValidationError);
                 Audio->Play();Sources.Add(Audio);Sounds.Add(Audio->Sound);
             }
             if (FAudioDevice* AudioDevice = World->GetAudioDeviceRaw())
-                MetaContext = IM_FindAcousticMetaSoundContext(AudioDevice->DeviceID);
+                MetaContext = IMAcousticMetaSound::FindAcousticMetaSoundContext(AudioDevice->DeviceID);
             Volume->bEnableV2=true;Volume->bDirectRoute=true;Volume->bPathRoute=true;Volume->bReverbRoute=true;
             Directory=FPaths::ConvertRelativePathToFull(FPaths::Combine(FPaths::ProjectSavedDir(),TEXT("AcousticV2/W3-UE"),FGuid::NewGuid().ToString(EGuidFormats::Digits)));
             IFileManager::Get().MakeDirectory(*Directory,true);CSV=TEXT("elapsed_s,rendered,rejected,reverb_rejected,dry_dropped,used_physical_bytes,reverb_calls,reverb_dry,reverb_raw,reverb_audible,max_snapshot_gap_us,max_worker_gap_us\n");
             Stage=1;StageStarted=Now;
         }
-        Bridge=IM_AcousticTestSupport::FindBridge(World);
+        Bridge=IMAcousticTestSupport::FindBridge(World);
         if (!MetaContext.IsValid())
         {
             if (FAudioDevice* AudioDevice = World->GetAudioDeviceRaw())
-                MetaContext = IM_FindAcousticMetaSoundContext(AudioDevice->DeviceID);
+                MetaContext = IMAcousticMetaSound::FindAcousticMetaSoundContext(AudioDevice->DeviceID);
         }
         if(!Volume.IsValid()||!Listener.IsValid()||!Bridge||!Bridge->Alive.load())return Finish(false,TEXT("Pressure world/device disappeared."));
         const double Motion=Now-Created;
         if(Now>=NextMotionUpdate)
         {
-            NextMotionUpdate=Now+IMW3MotionPeriod;
+            NextMotionUpdate=Now+W3MotionPeriod;
             Listener->SetAudioListenerOverride(nullptr,FVector(900+350*FMath::Sin(Motion*.23),300,150),FRotator(0,20*FMath::Sin(Motion*.17),0));
             if(FParse::Param(FCommandLine::Get(),TEXT("nullrhi")))
             {
@@ -249,23 +249,23 @@ public:
         if(Stage==1&&Now-StageStarted>=30)
         {
             UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticW3RenderFaultCounts frame=%llu input=%llu direct=%llu path=%llu"),
-                Bridge->RenderFailures[size_t(IM_AcousticRenderFailure::InvalidFrame)].load(),Bridge->RenderFailures[size_t(IM_AcousticRenderFailure::NonfiniteInput)].load(),
-                Bridge->RenderFailures[size_t(IM_AcousticRenderFailure::NonfiniteDirect)].load(),Bridge->RenderFailures[size_t(IM_AcousticRenderFailure::NonfinitePath)].load());
+                Bridge->RenderFailures[size_t(EIMAcousticRenderFailure::InvalidFrame)].load(),Bridge->RenderFailures[size_t(EIMAcousticRenderFailure::NonfiniteInput)].load(),
+                Bridge->RenderFailures[size_t(EIMAcousticRenderFailure::NonfiniteDirect)].load(),Bridge->RenderFailures[size_t(EIMAcousticRenderFailure::NonfinitePath)].load());
             UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticW3Warmup elapsed_s=%g rendered=%llu reverb=%llu rejected=%llu stale=%llu missing=%llu reverb_calls=%llu dry=%llu raw=%llu snapshot_gap_us=%llu worker_gap_us=%llu status=%s"),
                 Now-StageStarted,Bridge->RenderedBlocks.load(),Bridge->ReverbNonzeroBlocks.load(),Bridge->RejectedBlocks.load(),
                 Bridge->StaleResultBlocks.load(),Bridge->MissingResultBlocks.load(),Bridge->ReverbProcessedBlocks.load(),
                 Bridge->ReverbDryBlocks.load(),Bridge->ReverbRawNonzeroBlocks.load(),Bridge->MaxSnapshotGapUs.load(),Bridge->MaxWorkerGapUs.load(),*Volume->Status);
-            if(Bridge->RenderedBlocks.load()<IMW3Voices*50||Bridge->ReverbNonzeroBlocks.load()<10)
+            if(Bridge->RenderedBlocks.load()<W3Voices*50||Bridge->ReverbNonzeroBlocks.load()<10)
                 return Finish(false,TEXT("Actual complex-scene sound routes did not become audible."));
             RejectedStart=Bridge->RejectedBlocks.load();ReverbRejectedStart=Bridge->ReverbRejectedBlocks.load();
             DryDroppedStart=Bridge->DryDroppedBlocks.load();RenderedStart=Bridge->RenderedBlocks.load();
             Bridge->ResetPressureDiagnostics();
             Bridge->MaxSnapshotGapUs.store(0);Bridge->MaxWorkerGapUs.store(0);
             Bridge->ProfilingEnabled.store(true);CallbackTraceRequested=Duration<=30.0;
-            RareTailRequested=!DropWet&&!StaleProbe;RareTailSelfTest=RareTailRequested&&Duration<IMW3Duration;
+            RareTailRequested=!DropWet&&!StaleProbe;RareTailSelfTest=RareTailRequested&&Duration<W3Duration;
             const uint32 DeviceBudgetUs=static_cast<uint32>(FMath::CeilToDouble(double(Bridge->BlockFrames)/Bridge->SampleRate*1.e6));
-            const uint32 NearBudgetUs=RareTailSelfTest?IMW3RareTailSelfTestUs:static_cast<uint32>(FMath::CeilToDouble(double(DeviceBudgetUs)*IMW3RareTailNearBudgetFraction));
-            const uint32 NearTailUs=RareTailSelfTest?IMW3RareTailSelfTestUs:IMW3RareTailNearTailUs;
+            const uint32 NearBudgetUs=RareTailSelfTest?W3RareTailSelfTestUs:static_cast<uint32>(FMath::CeilToDouble(double(DeviceBudgetUs)*W3RareTailNearBudgetFraction));
+            const uint32 NearTailUs=RareTailSelfTest?W3RareTailSelfTestUs:W3RareTailNearTailUs;
             Bridge->ConfigureRareTailDiagnostics(RareTailRequested,RareTailSelfTest,DeviceBudgetUs,NearBudgetUs,NearTailUs);
             Bridge->CallbackDiagnosticsEnabled.store(CallbackTraceRequested);Underruns.Enabled.store(true);StartMemory=FPlatformMemory::GetStats().UsedPhysical;
             UAudioMixerBlueprintLibrary::StartRecordingOutput(World,12,nullptr);Recording=true;
@@ -328,12 +328,12 @@ public:
             // Profiling is disabled before serialization; allow in-flight callback
             // scopes to retire so histogram totals are stable without audio locks.
             FString Json;auto W=TJsonWriterFactory<>::Create(&Json);W->WriteObjectStart();
-            W->WriteValue(TEXT("duration_s"),MeasuredSeconds);W->WriteValue(TEXT("voices"),IMW3Voices);
+            W->WriteValue(TEXT("duration_s"),MeasuredSeconds);W->WriteValue(TEXT("voices"),W3Voices);
             const bool HeadlessDiagnostic=FParse::Param(FCommandLine::Get(),TEXT("nullrhi"));
             W->WriteValue(TEXT("nullrhi_diagnostic_only"),HeadlessDiagnostic);
             W->WriteValue(TEXT("sample_rate"),Bridge->SampleRate);W->WriteValue(TEXT("block_frames"),Bridge->BlockFrames);
             const double DeadlineUs=double(Bridge->BlockFrames)/Bridge->SampleRate*1.e6;W->WriteValue(TEXT("device_block_deadline_us"),DeadlineUs);
-            auto Stats=[&W](const TCHAR* Name,const IM_AcousticTiming& T)
+            auto Stats=[&W](const TCHAR* Name,const FIMAcousticTiming& T)
             {
                 const uint64 Count=T.Count.load();uint64 Cumulative=0;double P99=-1;
                 W->WriteObjectStart(Name);W->WriteValue(TEXT("count"),double(Count));W->WriteValue(TEXT("bin_width_us"),T.BinMicroseconds);
@@ -367,7 +367,7 @@ public:
             W->WriteValue(TEXT("first_reverb_reject_time_s"),FirstReverbRejectUs?double(FirstReverbRejectUs)*1.e-6-MeasurementStarted:-1.0);
             W->WriteValue(TEXT("first_reverb_reject_reason"),double(Bridge->FirstPressureReverbRejectReason.load(std::memory_order_relaxed)));
             W->WriteObjectStart(TEXT("pressure_reject_detail_counts"));
-            for(uint32 I=0;I<IM_AcousticDeviceBridge::PressureRejectDetailCapacity;++I)
+            for(uint32 I=0;I<FIMAcousticDeviceBridge::PressureRejectDetailCapacity;++I)
             {
                 const uint64 Count=Bridge->PressureRejectDetails[I].load(std::memory_order_relaxed);
                 if(Count)W->WriteValue(FString::Printf(TEXT("%u"),I),double(Count));
@@ -393,13 +393,13 @@ public:
             const bool CallbackTraceSaved=!CallbackTraceRequested||(
                 CallbackTraceComplete&&FFileHelper::SaveStringToFile(CallbackTraceCSV,*FPaths::Combine(Directory,TEXT("callback-trace.csv"))));
             const bool CallbackCorrelationSaved=!CallbackTraceRequested||(
-                MetaContext.IsValid() ? IMW3ExportMetaSoundCorrelation(MetaContext,Directory) : IMW3ExportCallbackCorrelation(Bridge.Get(),Directory));
-            const bool RareTailCorrelationSaved=IMW3ExportRareTailCorrelation(Bridge.Get(),Directory,RareTailRequested,RareTailSelfTest);
+                MetaContext.IsValid() ? W3ExportMetaSoundCorrelation(MetaContext,Directory) : W3ExportCallbackCorrelation(Bridge.Get(),Directory));
+            const bool RareTailCorrelationSaved=W3ExportRareTailCorrelation(Bridge.Get(),Directory,RareTailRequested,RareTailSelfTest);
             const bool Saved=FFileHelper::SaveStringToFile(Json,*FPaths::Combine(Directory,TEXT("pressure.json")))
                 &&FFileHelper::SaveStringToFile(CSV,*FPaths::Combine(Directory,TEXT("pressure-timeseries.csv")))&&CallbackTraceSaved&&CallbackCorrelationSaved&&RareTailCorrelationSaved;
-            const double Expected=MeasuredSeconds*Bridge->SampleRate/Bridge->BlockFrames*IMW3Voices;
+            const double Expected=MeasuredSeconds*Bridge->SampleRate/Bridge->BlockFrames*W3Voices;
             const bool WetOracle=DropWet?(!ContinuousReverb&&WetDropDetected&&WetRecoveryObserved):ContinuousReverb;
-            const bool Success=Saved&&(!HeadlessDiagnostic||Duration<IMW3Duration)&&WetOracle&&Bridge->SourceTiming.Count.load()>=Expected*.9&&Bridge->SourceBlockTiming.Count.load()>0
+            const bool Success=Saved&&(!HeadlessDiagnostic||Duration<W3Duration)&&WetOracle&&Bridge->SourceTiming.Count.load()>=Expected*.9&&Bridge->SourceBlockTiming.Count.load()>0
                 &&ConservativeMaxUs<DeadlineUs&&Underruns.Count.load()==0&&Bridge->RejectedBlocks.load()==RejectedStart
                 &&Bridge->ReverbRejectedBlocks.load()==ReverbRejectedStart&&Bridge->DryDroppedBlocks.load()==DryDroppedStart;
             if(DropWet)return Finish(Success,Success?TEXT("Wet-outage negative control detected silence and recovery."):TEXT("Wet-outage negative control did not meet its detector and audio gates."));
@@ -417,7 +417,7 @@ private:
     bool Finish(bool Success,const FString& Message)
     {
         Cleanup();if(!Success)Test->AddError(Message);
-        IM_EnableAcousticMetaSoundCaptureForTest(false);
+        IMAcousticMetaSound::EnableAcousticMetaSoundCaptureForTest(false);
         UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticW3Pressure %s evidence=%s"),*Message,*Directory);
         UE_LOG(LogTemp,Display,TEXT("[IM][PIE_TEST] AcousticW3Pressure %s"),Success?TEXT("PASS"):TEXT("FAIL"));
         UE_LOG(LogTemp,Display,TEXT("IMExitEditor %s"),Success?TEXT("PASS"):TEXT("FAIL"));GEditor->RequestEndPlayMap();return true;
@@ -429,45 +429,45 @@ private:
     uint64 LastReverbCalls=0,LastReverbDry=0,LastReverbRaw=0,LastReverbAudible=0;
     TWeakObjectPtr<AIMAcousticBakeVolume> Volume;TWeakObjectPtr<APlayerController> Listener;
     TArray<TWeakObjectPtr<UAudioComponent>> Sources;TArray<TWeakObjectPtr<USoundBase>> Sounds;TArray<int16> PCM;
-    TSharedPtr<IM_AcousticDeviceBridge,ESPMode::ThreadSafe> Bridge;IM_AcousticMetaSoundContextPtr MetaContext;IM_AcousticUnderrunObserver Underruns;
+    TSharedPtr<FIMAcousticDeviceBridge,ESPMode::ThreadSafe> Bridge;FIMAcousticMetaSoundContextPtr MetaContext;FIMAcousticUnderrunObserver Underruns;
     FString Directory,CSV;bool ObserverRegistered=false,SettingsChanged=false,Recording=false,PreviousThrottle=false,bAllowBackgroundAudioOrig=false;float BackgroundVolume=1,PreviousLogInterval=0;
     IConsoleVariable* LogInterval=nullptr;uint64 RejectedStart=0,ReverbRejectedStart=0,DryDroppedStart=0,RenderedStart=0,StartMemory=0,PeakMemory=0;
 };
 }
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(IM_AcousticW3Pressure,"IceMoon.AcousticField.W3.Pressure16x600",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FIMAcousticW3Pressure,"IceMoon.AcousticField.W3.Pressure16x600",
     EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
-bool IM_AcousticW3Pressure::RunTest(const FString&)
+bool FIMAcousticW3Pressure::RunTest(const FString&)
 {
-    IM_EnableAcousticMetaSoundCaptureForTest(true);
+    IMAcousticMetaSound::EnableAcousticMetaSoundCaptureForTest(true);
     FString Error;GUnrealEd->AutomationLoadMap(TEXT("/IceMoonAcousticField/L_IceMoonAcousticField"),false,&Error);
-    if(!Error.IsEmpty()){IM_EnableAcousticMetaSoundCaptureForTest(false);AddError(Error);return false;}
-    ADD_LATENT_AUTOMATION_COMMAND(IM_AcousticW3PressureCommand(this));return true;
+    if(!Error.IsEmpty()){IMAcousticMetaSound::EnableAcousticMetaSoundCaptureForTest(false);AddError(Error);return false;}
+    ADD_LATENT_AUTOMATION_COMMAND(IMAcousticW3TestPrivate::FIMAcousticW3PressureCommand(this));return true;
 }
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(IM_AcousticW3Diagnostic,"IceMoon.AcousticField.W3.Diagnostic16x30",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FIMAcousticW3Diagnostic,"IceMoon.AcousticField.W3.Diagnostic16x30",
     EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
-bool IM_AcousticW3Diagnostic::RunTest(const FString&)
+bool FIMAcousticW3Diagnostic::RunTest(const FString&)
 {
-    IM_EnableAcousticMetaSoundCaptureForTest(true);
+    IMAcousticMetaSound::EnableAcousticMetaSoundCaptureForTest(true);
     FString Error;GUnrealEd->AutomationLoadMap(TEXT("/IceMoonAcousticField/L_IceMoonAcousticField"),false,&Error);
-    if(!Error.IsEmpty()){IM_EnableAcousticMetaSoundCaptureForTest(false);AddError(Error);return false;}
-    ADD_LATENT_AUTOMATION_COMMAND(IM_AcousticW3PressureCommand(this,30));return true;
+    if(!Error.IsEmpty()){IMAcousticMetaSound::EnableAcousticMetaSoundCaptureForTest(false);AddError(Error);return false;}
+    ADD_LATENT_AUTOMATION_COMMAND(IMAcousticW3TestPrivate::FIMAcousticW3PressureCommand(this,30));return true;
 }
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(IM_AcousticW3WetDrop,"IceMoon.AcousticField.W3.WetDropCounterexample",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FIMAcousticW3WetDrop,"IceMoon.AcousticField.W3.WetDropCounterexample",
     EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
-bool IM_AcousticW3WetDrop::RunTest(const FString&)
+bool FIMAcousticW3WetDrop::RunTest(const FString&)
 {
-    IM_EnableAcousticMetaSoundCaptureForTest(true);
+    IMAcousticMetaSound::EnableAcousticMetaSoundCaptureForTest(true);
     FString Error;GUnrealEd->AutomationLoadMap(TEXT("/IceMoonAcousticField/L_IceMoonAcousticField"),false,&Error);
-    if(!Error.IsEmpty()){IM_EnableAcousticMetaSoundCaptureForTest(false);AddError(Error);return false;}
-    ADD_LATENT_AUTOMATION_COMMAND(IM_AcousticW3PressureCommand(this,30,true));return true;
+    if(!Error.IsEmpty()){IMAcousticMetaSound::EnableAcousticMetaSoundCaptureForTest(false);AddError(Error);return false;}
+    ADD_LATENT_AUTOMATION_COMMAND(IMAcousticW3TestPrivate::FIMAcousticW3PressureCommand(this,30,true));return true;
 }
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(IM_AcousticW3StaleDrain,"IceMoon.AcousticField.W3.StaleDrainProbe",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FIMAcousticW3StaleDrain,"IceMoon.AcousticField.W3.StaleDrainProbe",
     EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
-bool IM_AcousticW3StaleDrain::RunTest(const FString&)
+bool FIMAcousticW3StaleDrain::RunTest(const FString&)
 {
-    IM_EnableAcousticMetaSoundCaptureForTest(true);
+    IMAcousticMetaSound::EnableAcousticMetaSoundCaptureForTest(true);
     FString Error;GUnrealEd->AutomationLoadMap(TEXT("/IceMoonAcousticField/L_IceMoonAcousticField"),false,&Error);
-    if(!Error.IsEmpty()){IM_EnableAcousticMetaSoundCaptureForTest(false);AddError(Error);return false;}
-    ADD_LATENT_AUTOMATION_COMMAND(IM_AcousticW3PressureCommand(this,45,false,true));return true;
+    if(!Error.IsEmpty()){IMAcousticMetaSound::EnableAcousticMetaSoundCaptureForTest(false);AddError(Error);return false;}
+    ADD_LATENT_AUTOMATION_COMMAND(IMAcousticW3TestPrivate::FIMAcousticW3PressureCommand(this,45,false,true));return true;
 }
 #endif

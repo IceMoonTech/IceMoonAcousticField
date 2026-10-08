@@ -7,10 +7,10 @@
 #include "Engine/World.h"
 #include "HAL/PlatformTime.h"
 
-namespace
+namespace IMAcousticLiveTestPrivate
 {
 	// Deterministic stratified table: room tag per point (A/COR/B/Cwing/Maze/Yard counts).
-	const int32 IMTableRooms[100] = {
+	const int32 TableRooms[100] = {
 		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, // 30 A
 		1,1,1,1,1,1,1,1,1,1, // 10 corridor
 		2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2, // 30 B
@@ -19,23 +19,23 @@ namespace
 		5,5,5,5,5,5,5,5,5,5, // 10 yard
 	};
 	// Room boxes in cm: {Min, Max}.
-	const FVector IMRoomMin[6] = {
+	const FVector RoomMin[6] = {
 		FVector(0, 0, 30), FVector(1000, 200, 30), FVector(1600, 0, 30),
 		FVector(1000, 400, 30), FVector(-800, 0, 30), FVector(2400, 0, 30),
 	};
-	const FVector IMRoomMax[6] = {
+	const FVector RoomMax[6] = {
 		FVector(1000, 600, 270), FVector(1600, 400, 270), FVector(2400, 600, 270),
 		FVector(1600, 1000, 270), FVector(0, 600, 270), FVector(3400, 600, 270),
 	};
 }
 
-AIM_AcousticLiveTest::AIM_AcousticLiveTest()
+AIMAcousticLiveTest::AIMAcousticLiveTest()
 {
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.bStartWithTickEnabled = true;
 }
 
-void AIM_AcousticLiveTest::BeginPlay()
+void AIMAcousticLiveTest::BeginPlay()
 {
 	Super::BeginPlay();
 	if (!bRunOnBeginPlay) { return; }
@@ -46,7 +46,7 @@ void AIM_AcousticLiveTest::BeginPlay()
 	UE_LOG(LogTemp, Log, TEXT("IMACOUSTIC_LIVE_BEGIN {\"map\":\"%s\"}"), *GetWorld()->GetMapName());
 
 	// Build whitebox scene in this world (same process, no MCP round-trip).
-	AIM_AcousticTestSceneBuilder* Builder = World->SpawnActor<AIM_AcousticTestSceneBuilder>();
+	AIMAcousticTestSceneBuilder* Builder = World->SpawnActor<AIMAcousticTestSceneBuilder>();
 	if (ensure(Builder))
 	{
 		Builder->BuildTestScene();
@@ -54,17 +54,17 @@ void AIM_AcousticLiveTest::BeginPlay()
 	}
 
 	// Ensure field actor exists, then fire probes at every table point.
-	AIceMoonAcousticField* Field = AIceMoonAcousticField::GetAcousticFieldActor(this);
+	AIMAcousticFieldActor* Field = AIMAcousticFieldActor::GetAcousticFieldActor(this);
 	if (!ensure(Field)) { return; }
 	FRandomStream Rng(908);
 	int32 Fired = 0;
 	for (int32 i = 0; i < 100; ++i)
 	{
-		const int32 Room = IMTableRooms[i];
+		const int32 Room = IMAcousticLiveTestPrivate::TableRooms[i];
 		const FVector P(
-			Rng.FRandRange(IMRoomMin[Room].X, IMRoomMax[Room].X),
-			Rng.FRandRange(IMRoomMin[Room].Y, IMRoomMax[Room].Y),
-			Rng.FRandRange(IMRoomMin[Room].Z, IMRoomMax[Room].Z));
+			Rng.FRandRange(IMAcousticLiveTestPrivate::RoomMin[Room].X, IMAcousticLiveTestPrivate::RoomMax[Room].X),
+			Rng.FRandRange(IMAcousticLiveTestPrivate::RoomMin[Room].Y, IMAcousticLiveTestPrivate::RoomMax[Room].Y),
+			Rng.FRandRange(IMAcousticLiveTestPrivate::RoomMin[Room].Z, IMAcousticLiveTestPrivate::RoomMax[Room].Z));
 		Field->AsyncFireProbes(P, 16, 2000.0f);
 		++Fired;
 	}
@@ -73,7 +73,7 @@ void AIM_AcousticLiveTest::BeginPlay()
 	PhaseTime = 0.0f;
 }
 
-void AIM_AcousticLiveTest::Tick(float DeltaTime)
+void AIMAcousticLiveTest::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 	if (TestPhase < 1) { return; }
@@ -106,9 +106,9 @@ void AIM_AcousticLiveTest::Tick(float DeltaTime)
 	}
 }
 
-void AIM_AcousticLiveTest::RunTableTiming()
+void AIMAcousticLiveTest::RunTableTiming()
 {
-	AIceMoonAcousticField* Field = AIceMoonAcousticField::GetAcousticFieldActor(this);
+	AIMAcousticFieldActor* Field = AIMAcousticFieldActor::GetAcousticFieldActor(this);
 	if (!Field) { return; }
 	// Rebuild identical table (same seed) for measurement.
 	FRandomStream Rng(908);
@@ -116,11 +116,11 @@ void AIM_AcousticLiveTest::RunTableTiming()
 	Samples.Reserve(100);
 	for (int32 i = 0; i < 100; ++i)
 	{
-		const int32 Room = IMTableRooms[i];
+		const int32 Room = IMAcousticLiveTestPrivate::TableRooms[i];
 		const FVector P(
-			Rng.FRandRange(IMRoomMin[Room].X, IMRoomMax[Room].X),
-			Rng.FRandRange(IMRoomMin[Room].Y, IMRoomMax[Room].Y),
-			Rng.FRandRange(IMRoomMin[Room].Z, IMRoomMax[Room].Z));
+			Rng.FRandRange(IMAcousticLiveTestPrivate::RoomMin[Room].X, IMAcousticLiveTestPrivate::RoomMax[Room].X),
+			Rng.FRandRange(IMAcousticLiveTestPrivate::RoomMin[Room].Y, IMAcousticLiveTestPrivate::RoomMax[Room].Y),
+			Rng.FRandRange(IMAcousticLiveTestPrivate::RoomMin[Room].Z, IMAcousticLiveTestPrivate::RoomMax[Room].Z));
 		FIM_AudioReverbParameters Ignored;
 		const uint64 T0 = FPlatformTime::Cycles64();
 		Field->QueryAcousticField(P, Ignored);
@@ -133,9 +133,9 @@ void AIM_AcousticLiveTest::RunTableTiming()
 	UE_LOG(LogTemp, Log, TEXT("IMACOUSTIC_LIVE_TABLE {\"n\":100,\"p50_us\":%.2f,\"p95_us\":%.2f}"), P50, P95);
 }
 
-void AIM_AcousticLiveTest::RunSmoothStep()
+void AIMAcousticLiveTest::RunSmoothStep()
 {
-	AIceMoonAcousticField* Field = AIceMoonAcousticField::GetAcousticFieldActor(this);
+	AIMAcousticFieldActor* Field = AIMAcousticFieldActor::GetAcousticFieldActor(this);
 	if (!Field) { return; }
 	// Fixed 25-point trajectory A(200,300,150) -> B(2200,300,150) in cm, then dwell:
 	// steps 0-6 lerp, steps 7-24 repeat B endpoint (~9s ~= 3tau at tau=3s) so the

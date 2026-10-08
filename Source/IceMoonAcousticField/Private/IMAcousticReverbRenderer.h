@@ -25,14 +25,14 @@
 #include <array>
 #include <vector>
 
-struct IM_AcousticReverbMetrics { double InputEnergy=0,AmbisonicsEnergy=0; };
-class IM_AcousticReverbRenderer final
+struct FIMAcousticReverbMetrics { double InputEnergy=0,AmbisonicsEnergy=0; };
+class FIMAcousticReverbRenderer final
 {
 public:
-    IM_AcousticReverbRenderer() = default;
-    ~IM_AcousticReverbRenderer();
-    IM_AcousticReverbRenderer(const IM_AcousticReverbRenderer&) = delete;
-    IM_AcousticReverbRenderer& operator=(const IM_AcousticReverbRenderer&) = delete;
+    FIMAcousticReverbRenderer() = default;
+    ~FIMAcousticReverbRenderer();
+    FIMAcousticReverbRenderer(const FIMAcousticReverbRenderer&) = delete;
+    FIMAcousticReverbRenderer& operator=(const FIMAcousticReverbRenderer&) = delete;
 
     // Retains Context/HRTF, creates the convolution reflection effect
     // (type CONVOLUTION, numChannels 4, irSize IRSizeSamples) and the order-1
@@ -57,7 +57,7 @@ public:
     // No allocation, lock, file, or UObject access inside.
     bool Render(const float* Mono, int Frames,
         const IPLReflectionEffectParams& EffectParams,
-        const IPLCoordinateSpace3& Listener, float* Stereo, IM_AcousticReverbMetrics* Metrics=nullptr);
+        const IPLCoordinateSpace3& Listener, float* Stereo, FIMAcousticReverbMetrics* Metrics=nullptr);
 
 private:
     void Cleanup();

@@ -5,9 +5,9 @@
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonSerializer.h"
 
-namespace
+namespace IMAcousticBakeAssetPrivate
 {
-bool IMReadMetadata(const FString& Text,TSharedPtr<FJsonObject>& Root,FString& Failure)
+bool ReadMetadata(const FString& Text,TSharedPtr<FJsonObject>& Root,FString& Failure)
 {
     auto Reader=TJsonReaderFactory<>::Create(Text);
     if(!FJsonSerializer::Deserialize(Reader,Root)||!Root.IsValid())
@@ -25,7 +25,7 @@ bool IMReadMetadata(const FString& Text,TSharedPtr<FJsonObject>& Root,FString& F
     };
     const TArray<TSharedPtr<FJsonValue>> *Materials=nullptr,*Probes=nullptr;
     const TSharedPtr<FJsonObject> *Reflection=nullptr,*Path=nullptr;
-    bool Valid=Number(*Root,TEXT("recipe_version"),IM_AcousticRecipe::Version,IM_AcousticRecipe::Version,true)
+    bool Valid=Number(*Root,TEXT("recipe_version"),IMAcousticRecipe::Version,IMAcousticRecipe::Version,true)
         &&Number(*Root,TEXT("sdk_version"),UIMAcousticBakeAsset::SDKVersion,UIMAcousticBakeAsset::SDKVersion,true)
         &&Number(*Root,TEXT("triangles"),1,MAX_int32,true)&&Number(*Root,TEXT("probe_count"),1,MAX_int32,true)
         &&Number(*Root,TEXT("probe_spacing_cm"),25,MAX_flt)&&Number(*Root,TEXT("probe_height_cm"),25,MAX_flt)
@@ -52,18 +52,18 @@ bool IMReadMetadata(const FString& Text,TSharedPtr<FJsonObject>& Root,FString& F
         // contain plausible numbers; changing quality requires a recipe revision.
         FString Type;
         Valid=Valid&&(*Reflection)->TryGetStringField(TEXT("type"),Type)&&Type==TEXT("CONVOLUTION")
-            &&Number(**Reflection,TEXT("num_rays"),IM_AcousticRecipe::ReverbNumRays,IM_AcousticRecipe::ReverbNumRays)
-            &&Number(**Reflection,TEXT("num_bounces"),IM_AcousticRecipe::ReverbNumBounces,IM_AcousticRecipe::ReverbNumBounces)
-            &&Number(**Reflection,TEXT("num_diffuse_samples"),IM_AcousticRecipe::ReverbNumDiffuse,IM_AcousticRecipe::ReverbNumDiffuse)
-            &&Number(**Reflection,TEXT("sim_duration_s"),IM_AcousticRecipe::ReverbSimDurationS,IM_AcousticRecipe::ReverbSimDurationS)
-            &&Number(**Reflection,TEXT("saved_duration_s"),IM_AcousticRecipe::ReverbSavedDurationS,IM_AcousticRecipe::ReverbSavedDurationS)
-            &&Number(**Reflection,TEXT("irradiance_min_m"),IM_AcousticRecipe::IrradianceMinM-1.e-8,IM_AcousticRecipe::IrradianceMinM+1.e-8)
-            &&Number(**Reflection,TEXT("order"),IM_AcousticAudioFrame::Order,IM_AcousticAudioFrame::Order)
-            &&Number(**Path,TEXT("num_samples"),IM_AcousticRecipe::PathNumSamples,IM_AcousticRecipe::PathNumSamples)
-            &&Number(**Path,TEXT("radius_m"),IM_AcousticRecipe::PathRadiusM,IM_AcousticRecipe::PathRadiusM)
-            &&Number(**Path,TEXT("threshold"),IM_AcousticRecipe::PathThreshold,IM_AcousticRecipe::PathThreshold)
-            &&Number(**Path,TEXT("vis_range_m"),IM_AcousticRecipe::PathVisRangeM,IM_AcousticRecipe::PathVisRangeM)
-            &&Number(**Path,TEXT("path_range_m"),IM_AcousticRecipe::PathRangeM,IM_AcousticRecipe::PathRangeM);
+            &&Number(**Reflection,TEXT("num_rays"),IMAcousticRecipe::ReverbNumRays,IMAcousticRecipe::ReverbNumRays)
+            &&Number(**Reflection,TEXT("num_bounces"),IMAcousticRecipe::ReverbNumBounces,IMAcousticRecipe::ReverbNumBounces)
+            &&Number(**Reflection,TEXT("num_diffuse_samples"),IMAcousticRecipe::ReverbNumDiffuse,IMAcousticRecipe::ReverbNumDiffuse)
+            &&Number(**Reflection,TEXT("sim_duration_s"),IMAcousticRecipe::ReverbSimDurationS,IMAcousticRecipe::ReverbSimDurationS)
+            &&Number(**Reflection,TEXT("saved_duration_s"),IMAcousticRecipe::ReverbSavedDurationS,IMAcousticRecipe::ReverbSavedDurationS)
+            &&Number(**Reflection,TEXT("irradiance_min_m"),IMAcousticRecipe::IrradianceMinM-1.e-8,IMAcousticRecipe::IrradianceMinM+1.e-8)
+            &&Number(**Reflection,TEXT("order"),FIMAcousticAudioFrame::Order,FIMAcousticAudioFrame::Order)
+            &&Number(**Path,TEXT("num_samples"),IMAcousticRecipe::PathNumSamples,IMAcousticRecipe::PathNumSamples)
+            &&Number(**Path,TEXT("radius_m"),IMAcousticRecipe::PathRadiusM,IMAcousticRecipe::PathRadiusM)
+            &&Number(**Path,TEXT("threshold"),IMAcousticRecipe::PathThreshold,IMAcousticRecipe::PathThreshold)
+            &&Number(**Path,TEXT("vis_range_m"),IMAcousticRecipe::PathVisRangeM,IMAcousticRecipe::PathVisRangeM)
+            &&Number(**Path,TEXT("path_range_m"),IMAcousticRecipe::PathRangeM,IMAcousticRecipe::PathRangeM);
     }
     if(!Valid)Failure=TEXT("Acoustic metadata is incomplete or does not match the bake recipe.");
     return Valid;
@@ -105,7 +105,7 @@ bool UIMAcousticBakeAsset::Validate(const FString& ExpectedWorld,
     { Failure = TEXT("Acoustic bake is stale: scene, material or probe settings changed."); }
     else if (SceneData.IsEmpty() || ProbeData.IsEmpty() || PayloadDigest != Digest(MetadataJson,SceneData, ProbeData))
     { Failure = TEXT("Acoustic bake payload is incomplete or corrupt."); }
-    else {TSharedPtr<FJsonObject> Root;IMReadMetadata(MetadataJson,Root,Failure);}
+    else {TSharedPtr<FJsonObject> Root;IMAcousticBakeAssetPrivate::ReadMetadata(MetadataJson,Root,Failure);}
     return Failure.IsEmpty();
 }
 
@@ -119,7 +119,7 @@ bool UIMAcousticBakeAsset::CommitCompleteBake(const FString& InWorld,
         Failure = TEXT("Incomplete bake cannot replace the previous asset.");
         return false;
     }
-    TSharedPtr<FJsonObject> Root;if(!IMReadMetadata(InMetadata,Root,Failure))return false;
+    TSharedPtr<FJsonObject> Root;if(!IMAcousticBakeAssetPrivate::ReadMetadata(InMetadata,Root,Failure))return false;
     const FString NewDigest = Digest(InMetadata,InScene, InProbes);
     Modify();
     WorldPackage = InWorld;
@@ -138,7 +138,7 @@ bool UIMAcousticBakeAsset::GetProbePreview(const FString& ExpectedWorld,const FS
 {
     check(IsInGameThread());Out.Reset();Failure.Reset();
     if(!Validate(ExpectedWorld,ExpectedFingerprint,Failure))return false;
-    TSharedPtr<FJsonObject> Root;if(!IMReadMetadata(MetadataJson,Root,Failure))return false;
+    TSharedPtr<FJsonObject> Root;if(!IMAcousticBakeAssetPrivate::ReadMetadata(MetadataJson,Root,Failure))return false;
     const auto& Origin=Root->GetArrayField(TEXT("bounds_origin_cm"));
     OriginCm=FVector(Origin[0]->AsNumber(),Origin[1]->AsNumber(),Origin[2]->AsNumber());
     for(const auto& Value:Root->GetArrayField(TEXT("probes_m")))

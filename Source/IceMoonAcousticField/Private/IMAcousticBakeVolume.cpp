@@ -40,25 +40,25 @@
 #include "AssetRegistry/AssetRegistryModule.h"
 #endif
 
-namespace
+namespace IMAcousticBakeVolumePrivate
 {
-std::atomic<uint64> IMNextWorldEpoch{1};
-struct IM_BakeJob
+std::atomic<uint64> NextWorldEpoch{1};
+struct FIMBakeJob
 {
     std::atomic<bool> Cancelled{false};
     std::atomic<bool> Done{false};
     bool Success=false;
-    IM_AcousticBakeData Data;
+    FIMAcousticBakeData Data;
     std::string Error;
     FString Fingerprint;
     FString WorldPackage;
     FString MetadataJson;
     TFuture<void> Future;
 };
-FString IMBakeMetadata(const AIMAcousticBakeVolume& Volume,const IM_AcousticSceneInput& Geometry,const FVector& Origin)
+FString BakeMetadata(const AIMAcousticBakeVolume& Volume,const FIMAcousticSceneInput& Geometry,const FVector& Origin)
 {
     FString Json;auto W=TJsonWriterFactory<>::Create(&Json);
-    W->WriteObjectStart();W->WriteValue(TEXT("recipe_version"),IM_AcousticRecipe::Version);
+    W->WriteObjectStart();W->WriteValue(TEXT("recipe_version"),IMAcousticRecipe::Version);
     W->WriteValue(TEXT("sdk_version"),UIMAcousticBakeAsset::SDKVersion);W->WriteValue(TEXT("triangles"),int32(Geometry.Triangles.size()));
     W->WriteValue(TEXT("probe_count"),int32(Geometry.Probes.size()));
     W->WriteValue(TEXT("probe_spacing_cm"),Volume.ProbeSpacingCm);W->WriteValue(TEXT("probe_height_cm"),Volume.ProbeHeightCm);
@@ -74,14 +74,14 @@ FString IMBakeMetadata(const AIMAcousticBakeVolume& Volume,const IM_AcousticScen
     for(const auto& P:Geometry.Probes)
     {W->WriteArrayStart();W->WriteValue(P.center.x);W->WriteValue(P.center.y);W->WriteValue(P.center.z);W->WriteValue(P.radius);W->WriteArrayEnd();}
     W->WriteArrayEnd();W->WriteObjectStart(TEXT("reflection"));
-    W->WriteValue(TEXT("num_rays"),IM_AcousticRecipe::ReverbNumRays);W->WriteValue(TEXT("num_bounces"),IM_AcousticRecipe::ReverbNumBounces);
-    W->WriteValue(TEXT("num_diffuse_samples"),IM_AcousticRecipe::ReverbNumDiffuse);
-    W->WriteValue(TEXT("irradiance_min_m"),IM_AcousticRecipe::IrradianceMinM);
-    W->WriteValue(TEXT("sim_duration_s"),IM_AcousticRecipe::ReverbSimDurationS);W->WriteValue(TEXT("saved_duration_s"),IM_AcousticRecipe::ReverbSavedDurationS);
-    W->WriteValue(TEXT("order"),IM_AcousticAudioFrame::Order);W->WriteValue(TEXT("type"),TEXT("CONVOLUTION"));W->WriteObjectEnd();
-    W->WriteObjectStart(TEXT("path"));W->WriteValue(TEXT("num_samples"),IM_AcousticRecipe::PathNumSamples);
-    W->WriteValue(TEXT("radius_m"),IM_AcousticRecipe::PathRadiusM);W->WriteValue(TEXT("threshold"),IM_AcousticRecipe::PathThreshold);
-    W->WriteValue(TEXT("vis_range_m"),IM_AcousticRecipe::PathVisRangeM);W->WriteValue(TEXT("path_range_m"),IM_AcousticRecipe::PathRangeM);
+    W->WriteValue(TEXT("num_rays"),IMAcousticRecipe::ReverbNumRays);W->WriteValue(TEXT("num_bounces"),IMAcousticRecipe::ReverbNumBounces);
+    W->WriteValue(TEXT("num_diffuse_samples"),IMAcousticRecipe::ReverbNumDiffuse);
+    W->WriteValue(TEXT("irradiance_min_m"),IMAcousticRecipe::IrradianceMinM);
+    W->WriteValue(TEXT("sim_duration_s"),IMAcousticRecipe::ReverbSimDurationS);W->WriteValue(TEXT("saved_duration_s"),IMAcousticRecipe::ReverbSavedDurationS);
+    W->WriteValue(TEXT("order"),FIMAcousticAudioFrame::Order);W->WriteValue(TEXT("type"),TEXT("CONVOLUTION"));W->WriteObjectEnd();
+    W->WriteObjectStart(TEXT("path"));W->WriteValue(TEXT("num_samples"),IMAcousticRecipe::PathNumSamples);
+    W->WriteValue(TEXT("radius_m"),IMAcousticRecipe::PathRadiusM);W->WriteValue(TEXT("threshold"),IMAcousticRecipe::PathThreshold);
+    W->WriteValue(TEXT("vis_range_m"),IMAcousticRecipe::PathVisRangeM);W->WriteValue(TEXT("path_range_m"),IMAcousticRecipe::PathRangeM);
     W->WriteObjectEnd();W->WriteObjectEnd();W->Close();return Json;
 }
 
@@ -91,7 +91,7 @@ FString IMBakeMetadata(const AIMAcousticBakeVolume& Volume,const IM_AcousticScen
 // select a probe on either side of the slab and produce a large, discontinuous
 // reverb change. Test the exported acoustic triangles themselves so this guard
 // follows the same geometry contract as the bake.
-static bool IMPointInsideAcousticTriangleRange(const IM_AcousticSceneInput& Geometry, int32 StartTriangle, int32 EndTriangle, const IPLVector3& Point)
+static bool PointInsideAcousticTriangleRange(const FIMAcousticSceneInput& Geometry, int32 StartTriangle, int32 EndTriangle, const IPLVector3& Point)
 {
     const int32 TriangleCount = static_cast<int32>(Geometry.Triangles.size());
     const int32 Start = FMath::Clamp(StartTriangle, 0, TriangleCount);
@@ -143,7 +143,7 @@ static bool IMPointInsideAcousticTriangleRange(const IM_AcousticSceneInput& Geom
     return InsideVotes >= 2;
 }
 
-static bool IMPointInsideAcousticGeometry(const IM_AcousticSceneInput& Geometry, const TArray<TPair<int32, int32>>& TriangleRanges, const IPLVector3& Point)
+static bool PointInsideAcousticGeometry(const FIMAcousticSceneInput& Geometry, const TArray<TPair<int32, int32>>& TriangleRanges, const IPLVector3& Point)
 {
     // Test each exported static-mesh instance independently. A whole-scene
     // parity pass is not valid when separate walls, floors, or open doorways
@@ -152,12 +152,12 @@ static bool IMPointInsideAcousticGeometry(const IM_AcousticSceneInput& Geometry,
     // shell around that opening still rejects a listener placed in the shell.
     for (const TPair<int32, int32>& Range : TriangleRanges)
     {
-        if (IMPointInsideAcousticTriangleRange(Geometry, Range.Key, Range.Value, Point)) return true;
+        if (PointInsideAcousticTriangleRange(Geometry, Range.Key, Range.Value, Point)) return true;
     }
     return false;
 }
 
-IPLMatrix4x4 IMToSDKDynamicTransform(const FTransform& Transform, const FVector& Origin)
+IPLMatrix4x4 ToSDKDynamicTransform(const FTransform& Transform, const FVector& Origin)
 {
     IPLMatrix4x4 Matrix{};
     // Instance visibility (validation raycasts) treats the instance matrix as
@@ -168,12 +168,12 @@ IPLMatrix4x4 IMToSDKDynamicTransform(const FTransform& Transform, const FVector&
     const FVector UEAxes[3] = { FVector::RightVector, FVector::UpVector, -FVector::ForwardVector };
     for (int32 Column = 0; Column < 3; ++Column)
     {
-        const IPLVector3 Axis = IMToSDKDirection(Rigid.RotateVector(UEAxes[Column]));
+        const IPLVector3 Axis = ToSDKDirection(Rigid.RotateVector(UEAxes[Column]));
         Matrix.elements[0][Column] = Axis.x;
         Matrix.elements[1][Column] = Axis.y;
         Matrix.elements[2][Column] = Axis.z;
     }
-    const IPLVector3 Translation = IMToSDKPosition(Transform.GetLocation(), Origin);
+    const IPLVector3 Translation = ToSDKPosition(Transform.GetLocation(), Origin);
     Matrix.elements[0][3] = Translation.x;
     Matrix.elements[1][3] = Translation.y;
     Matrix.elements[2][3] = Translation.z;
@@ -188,15 +188,15 @@ IPLMatrix4x4 IMToSDKDynamicTransform(const FTransform& Transform, const FVector&
 // a minimal triangulation with no interior edges. Operates in place; any ambiguity
 // keeps the original triangles (fail-safe: coverage never shrinks). GT context
 // only (allocates); the static bake path is untouched (static walls seal today).
-struct IMPlaneKey
+struct FIMPlaneKey
 {
     int32 Axis = 0;
     FIntVector Nq = FIntVector::ZeroValue;
     int32 Dq = 0;
     int32 Mat = 0;
-    bool operator==(const IMPlaneKey& O) const { return Axis == O.Axis && Nq == O.Nq && Dq == O.Dq && Mat == O.Mat; }
+    bool operator==(const FIMPlaneKey& O) const { return Axis == O.Axis && Nq == O.Nq && Dq == O.Dq && Mat == O.Mat; }
 };
-static uint32 GetTypeHash(const IMPlaneKey& K)
+static uint32 GetTypeHash(const FIMPlaneKey& K)
 {
     uint32 H = ::GetTypeHash(K.Axis);
     H = HashCombine(H, ::GetTypeHash(K.Nq.X));
@@ -205,18 +205,18 @@ static uint32 GetTypeHash(const IMPlaneKey& K)
     H = HashCombine(H, ::GetTypeHash(K.Mat));
     return HashCombine(H, ::GetTypeHash(K.Dq));
 }
-static double IMPolyArea2(const FVector2D& A, const FVector2D& B, const FVector2D& C)
+static double PolyArea2(const FVector2D& A, const FVector2D& B, const FVector2D& C)
 {
     return (double(B.X) - A.X) * (C.Y - A.Y) - (double(B.Y) - A.Y) * (C.X - A.X);
 }
-static bool IMPointStrictlyInTri(const FVector2D& Q, const FVector2D& A, const FVector2D& B, const FVector2D& C)
+static bool PointStrictlyInTri(const FVector2D& Q, const FVector2D& A, const FVector2D& B, const FVector2D& C)
 {
-    const double S1 = IMPolyArea2(Q, A, B);
-    const double S2 = IMPolyArea2(Q, B, C);
-    const double S3 = IMPolyArea2(Q, C, A);
+    const double S1 = PolyArea2(Q, A, B);
+    const double S2 = PolyArea2(Q, B, C);
+    const double S3 = PolyArea2(Q, C, A);
     return S1 > 1e-9 && S2 > 1e-9 && S3 > 1e-9;
 }
-static bool IMEarClip(const TArray<FVector2D>& P, TArray<int32>& OutFlat)
+static bool EarClip(const TArray<FVector2D>& P, TArray<int32>& OutFlat)
 {
     TArray<int32> V;
     for (int32 I = 0; I < P.Num(); ++I) { V.Add(I); }
@@ -231,12 +231,12 @@ static bool IMEarClip(const TArray<FVector2D>& P, TArray<int32>& OutFlat)
             const FVector2D& A = P[V[Ip]];
             const FVector2D& B = P[V[I]];
             const FVector2D& C = P[V[In]];
-            if (IMPolyArea2(A, B, C) <= 1e-9) { continue; }
+            if (PolyArea2(A, B, C) <= 1e-9) { continue; }
             bool bInside = false;
             for (int32 J = 0; J < V.Num(); ++J)
             {
                 if (J == I || J == Ip || J == In) { continue; }
-                if (IMPointStrictlyInTri(P[V[J]], A, B, C)) { bInside = true; break; }
+                if (PointStrictlyInTri(P[V[J]], A, B, C)) { bInside = true; break; }
             }
             if (bInside) { continue; }
             OutFlat.Add(V[Ip]); OutFlat.Add(V[I]); OutFlat.Add(V[In]);
@@ -248,7 +248,7 @@ static bool IMEarClip(const TArray<FVector2D>& P, TArray<int32>& OutFlat)
     OutFlat.Add(V[0]); OutFlat.Add(V[1]); OutFlat.Add(V[2]);
     return true;
 }
-static void IMMergeCoplanarDynamicTris(TArray<IPLVector3>& Verts, TArray<IPLTriangle>& Tris, TArray<int32>& MatIds)
+static void MergeCoplanarDynamicTris(TArray<IPLVector3>& Verts, TArray<IPLTriangle>& Tris, TArray<int32>& MatIds)
 {
     const int32 TriCount = Tris.Num();
     if (TriCount < 2 || MatIds.Num() != TriCount || Verts.Num() <= 0) { return; }
@@ -269,8 +269,8 @@ static void IMMergeCoplanarDynamicTris(TArray<IPLVector3>& Verts, TArray<IPLTria
         if (const int32* Found = WeldId.Find(P)) { Remap[I] = *Found; }
         else { Remap[I] = Welded.Num(); WeldId.Add(P, Welded.Num()); Welded.Add(Verts[I]); }
     }
-    struct IMWTri { int32 V[3]; int32 Mat; FVector N; float D; };
-    TArray<IMWTri> Work;
+    struct FIMWTri { int32 V[3]; int32 Mat; FVector N; float D; };
+    TArray<FIMWTri> Work;
     Work.Reserve(TriCount);
     for (int32 I = 0; I < TriCount; ++I)
     {
@@ -283,17 +283,17 @@ static void IMMergeCoplanarDynamicTris(TArray<IPLVector3>& Verts, TArray<IPLTria
         const FVector VC(Welded[C].x, Welded[C].y, Welded[C].z);
         const FVector N = FVector::CrossProduct(VB - VA, VC - VA);
         if (N.SizeSquared() < 1e-12) { continue; }
-        IMWTri T; T.V[0] = A; T.V[1] = B; T.V[2] = C; T.Mat = MatIds[I];
+        FIMWTri T; T.V[0] = A; T.V[1] = B; T.V[2] = C; T.Mat = MatIds[I];
         T.N = N.GetSafeNormal(); T.D = -FVector::DotProduct(T.N, VA);
         Work.Add(T);
     }
     if (Work.Num() < 1) { return; }
-    TMap<IMPlaneKey, TArray<int32>> Groups;
+    TMap<FIMPlaneKey, TArray<int32>> Groups;
     for (int32 I = 0; I < Work.Num(); ++I)
     {
         const FVector& N = Work[I].N;
         const float AX = FMath::Abs(N.X), AY = FMath::Abs(N.Y), AZ = FMath::Abs(N.Z);
-        IMPlaneKey K;
+        FIMPlaneKey K;
         K.Axis = (AX >= AY && AX >= AZ) ? 0 : ((AY >= AZ) ? 1 : 2);
         K.Nq = FIntVector(FMath::RoundToInt(N.X * 4096.0f), FMath::RoundToInt(N.Y * 4096.0f), FMath::RoundToInt(N.Z * 4096.0f));
         K.Dq = FMath::RoundToInt(Work[I].D * 10000.0f);
@@ -414,7 +414,7 @@ static void IMMergeCoplanarDynamicTris(TArray<IPLVector3>& Verts, TArray<IPLTria
                 Pts.Add(Axis == 0 ? FVector2D(P.y, P.z) : (Axis == 1 ? FVector2D(P.x, P.z) : FVector2D(P.x, P.y)));
             }
             double LoopArea = 0.0;
-            for (int32 I = 0; I < Pts.Num(); ++I) { LoopArea += IMPolyArea2(Pts[I], Pts[(I + 1) % Pts.Num()], Pts[(I + 2) % Pts.Num()]); }
+            for (int32 I = 0; I < Pts.Num(); ++I) { LoopArea += PolyArea2(Pts[I], Pts[(I + 1) % Pts.Num()], Pts[(I + 2) % Pts.Num()]); }
             if (FMath::Abs(LoopArea) < 1e-9) { for (int32 WI : Comp) { EmitOriginal(WI); } continue; }
             if (LoopArea < 0.0)
             {
@@ -427,15 +427,15 @@ static void IMMergeCoplanarDynamicTris(TArray<IPLVector3>& Verts, TArray<IPLTria
                 }
             }
             TArray<int32> Flat;
-            if (!IMEarClip(Pts, Flat)) { for (int32 WI : Comp) { EmitOriginal(WI); } continue; }
+            if (!EarClip(Pts, Flat)) { for (int32 WI : Comp) { EmitOriginal(WI); } continue; }
             const int32 RefA = Work[Comp[0]].V[0], RefB = Work[Comp[0]].V[1], RefC = Work[Comp[0]].V[2];
             auto ProjOf = [&](int32 VI) -> FVector2D
             {
                 const IPLVector3& P = Welded[VI];
                 return Axis == 0 ? FVector2D(P.y, P.z) : (Axis == 1 ? FVector2D(P.x, P.z) : FVector2D(P.x, P.y));
             };
-            const double RefSign = IMPolyArea2(ProjOf(RefA), ProjOf(RefB), ProjOf(RefC));
-            const double OutSign = IMPolyArea2(Pts[Flat[0]], Pts[Flat[1]], Pts[Flat[2]]);
+            const double RefSign = PolyArea2(ProjOf(RefA), ProjOf(RefB), ProjOf(RefC));
+            const double OutSign = PolyArea2(Pts[Flat[0]], Pts[Flat[1]], Pts[Flat[2]]);
             const bool bSwap = (RefSign < 0.0) != (OutSign < 0.0);
             for (int32 I = 0; I + 2 < Flat.Num(); I += 3)
             {
@@ -453,9 +453,9 @@ static void IMMergeCoplanarDynamicTris(TArray<IPLVector3>& Verts, TArray<IPLTria
     Tris = MoveTemp(NewTris);
     MatIds = MoveTemp(NewMats);
 }
-bool IMBuildDynamicMeshSnapshot(UStaticMeshComponent* Component, int32 InstanceIndex,
+bool BuildDynamicMeshSnapshot(UStaticMeshComponent* Component, int32 InstanceIndex,
     const FVector& Origin, const TMap<UMaterialInterface*, int32>& MaterialIndices,
-    const TArray<IPLMaterial>& Materials, IM_AcousticDynamicMeshSnapshot& Out, FString& Failure)
+    const TArray<IPLMaterial>& Materials, FIMAcousticDynamicMeshSnapshot& Out, FString& Failure)
 {
     if (!IsValid(Component) || !Component->GetStaticMesh() || !Component->GetStaticMesh()->GetRenderData()
         || Component->GetStaticMesh()->GetRenderData()->LODResources.IsEmpty())
@@ -499,14 +499,14 @@ bool IMBuildDynamicMeshSnapshot(UStaticMeshComponent* Component, int32 InstanceI
         ^ (static_cast<uint64>(IndexView.Num()) << 1)
         ^ static_cast<uint64>(Materials.Num())
         ^ static_cast<uint64>(GetTypeHash(MeshScale));
-    Out.Transform = IMToSDKDynamicTransform(Transform, Origin);
+    Out.Transform = ToSDKDynamicTransform(Transform, Origin);
     Out.Materials.Append(Materials);
     Out.Vertices.Reserve(Positions.GetNumVertices());
     for (uint32 VertexIndex = 0; VertexIndex < Positions.GetNumVertices(); ++VertexIndex)
     {
         const FVector RawVertex(Positions.VertexPosition(VertexIndex));
         const FVector ScaledVertex(RawVertex.X * MeshScale.X, RawVertex.Y * MeshScale.Y, RawVertex.Z * MeshScale.Z);
-        Out.Vertices.Add(IMToSDKDirection(ScaledVertex * 0.01f));
+        Out.Vertices.Add(ToSDKDirection(ScaledVertex * 0.01f));
     }
     // UE faces wind CW; IMToSDKDirection (Y,Z,-X, det -1) already converts to
     // SDK-CCW-outward, so swap only when the instance itself mirrors (det<0).
@@ -543,7 +543,7 @@ bool IMBuildDynamicMeshSnapshot(UStaticMeshComponent* Component, int32 InstanceI
     {
         const int32 IMergeInTris = Out.Triangles.Num();
         const int32 IMergeInVerts = Out.Vertices.Num();
-        IMMergeCoplanarDynamicTris(Out.Vertices, Out.Triangles, Out.MaterialIndices);
+        MergeCoplanarDynamicTris(Out.Vertices, Out.Triangles, Out.MaterialIndices);
         UE_LOG(LogTemp, Display, TEXT("IMLogs AcousticMergeDynamic in_tris=%d out_tris=%d in_verts=%d out_verts=%d mesh=%s"),
             IMergeInTris, Out.Triangles.Num(), IMergeInVerts, Out.Vertices.Num(), *Mesh->GetPathName());
     }
@@ -556,19 +556,19 @@ bool IMBuildDynamicMeshSnapshot(UStaticMeshComponent* Component, int32 InstanceI
 }
 }
 
-struct IM_AcousticFieldRuntime
+struct FIMAcousticFieldRuntime
 {
-    IM_AcousticSceneInput Geometry;
+    FIMAcousticSceneInput Geometry;
     TArray<TPair<int32, int32>> GeometryTriangleRanges;
     IPLProbeGenerationParams ProbeParams{};
     FString Fingerprint;
     FString ProbeFingerprint;
     FVector Origin=FVector::ZeroVector;
-    TSharedPtr<IM_BakeJob,ESPMode::ThreadSafe> Job;
-    TUniquePtr<IM_AcousticSimulationWorker> Worker;
-    TSharedPtr<IM_AcousticDeviceBridge,ESPMode::ThreadSafe> Bridge;
-    TSharedPtr<IM_AcousticReverbPool,ESPMode::ThreadSafe> Reverb;
-    IM_AcousticMetaSoundContextPtr MetaSoundContext;
+    TSharedPtr<IMAcousticBakeVolumePrivate::FIMBakeJob,ESPMode::ThreadSafe> Job;
+    TUniquePtr<FIMAcousticSimulationWorker> Worker;
+    TSharedPtr<FIMAcousticDeviceBridge,ESPMode::ThreadSafe> Bridge;
+    TSharedPtr<FIMAcousticReverbPool,ESPMode::ThreadSafe> Reverb;
+    FIMAcousticMetaSoundContextPtr MetaSoundContext;
     TStrongObjectPtr<UAudioBus> MetaSoundBus;
     TStrongObjectPtr<UAudioComponent> MetaSoundEnvironment;
     TSet<uint64> MetaSoundRegisteredSources;
@@ -592,7 +592,7 @@ AIMAcousticBakeVolume::AIMAcousticBakeVolume()
     SetRootComponent(BakeBounds);
     BakeBounds->SetBoxExtent(FVector(500,500,250));
     BakeBounds->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-    Runtime=MakeUnique<IM_AcousticFieldRuntime>();
+    Runtime=MakeUnique<FIMAcousticFieldRuntime>();
 }
 AIMAcousticBakeVolume::~AIMAcousticBakeVolume() = default;
 
@@ -668,8 +668,8 @@ bool AIMAcousticBakeVolume::CaptureScene()
         Components.Append(ActorComponents);
     }
     Components.Sort([](const UPrimitiveComponent& A,const UPrimitiveComponent& B){return A.GetPathName()<B.GetPathName();});
-    TMap<FString,int32> IMActorTris;
-    TArray<TPair<int32,FString>> IMActorRanges;
+    TMap<FString,int32> ActorTris;
+    TArray<TPair<int32,FString>> ActorRanges;
     for(UPrimitiveComponent* Primitive:Components)
     {
         if(!IsValid(Primitive)||!Region.Intersect(Primitive->Bounds.GetBox()))continue;
@@ -710,7 +710,7 @@ bool AIMAcousticBakeVolume::CaptureScene()
         { SceneIssues.Add(FString::Printf(TEXT("REQUIRED mesh CPU geometry unavailable: %s"),*Mesh->GetPathName()));Failed=true;continue; }
         UInstancedStaticMeshComponent* Instances=Cast<UInstancedStaticMeshComponent>(MeshComponent);
         const int32 Count=Instances?Instances->GetInstanceCount():1;
-        const int32 IMActorStart=static_cast<int32>(Runtime->Geometry.Triangles.size());
+        const int32 ActorStart=static_cast<int32>(Runtime->Geometry.Triangles.size());
         for(int32 Instance=0;Instance<Count;++Instance)
         {
             FTransform Transform=MeshComponent->GetComponentTransform();
@@ -718,10 +718,10 @@ bool AIMAcousticBakeVolume::CaptureScene()
             { SceneIssues.Add(TEXT("REQUIRED instance transform unavailable."));Failed=true;continue; }
             if(Transform.ContainsNaN()||FMath::IsNearlyZero(Transform.GetDeterminant()))
             { SceneIssues.Add(TEXT("REQUIRED instance has invalid/singular transform."));Failed=true;continue; }
-            const int32 IMInstanceStart=static_cast<int32>(Runtime->Geometry.Triangles.size());
+            const int32 InstanceStart=static_cast<int32>(Runtime->Geometry.Triangles.size());
             const int32 Base=static_cast<int32>(Runtime->Geometry.Vertices.size());
             for(uint32 V=0;V<Positions.GetNumVertices();++V)
-                Runtime->Geometry.Vertices.push_back(IMToSDKPosition(Transform.TransformPosition(FVector(Positions.VertexPosition(V))),Runtime->Origin));
+                Runtime->Geometry.Vertices.push_back(ToSDKPosition(Transform.TransformPosition(FVector(Positions.VertexPosition(V))),Runtime->Origin));
             // UE faces wind CW; IMToSDKPosition (Y,Z,-X, det -1) already converts
             // to SDK-CCW-outward, so swap only when the instance itself mirrors
             // (det<0). Swapping det>0 wound static geometry inward and conducted
@@ -740,105 +740,105 @@ bool AIMAcousticBakeVolume::CaptureScene()
                     Runtime->Geometry.Triangles.push_back(Triangle);Runtime->Geometry.MaterialIndices.push_back(*Material);
                 }
             }
-            const int32 IMInstanceEnd=static_cast<int32>(Runtime->Geometry.Triangles.size());
-            if(IMInstanceEnd>IMInstanceStart)
+            const int32 InstanceEnd=static_cast<int32>(Runtime->Geometry.Triangles.size());
+            if(InstanceEnd>InstanceStart)
             {
-                Runtime->GeometryTriangleRanges.Add(TPair<int32,int32>(IMInstanceStart,IMInstanceEnd));
-                IMActorRanges.Add(TPair<int32,FString>(IMInstanceStart,Primitive->GetPathName()));
+                Runtime->GeometryTriangleRanges.Add(TPair<int32,int32>(InstanceStart,InstanceEnd));
+                ActorRanges.Add(TPair<int32,FString>(InstanceStart,Primitive->GetPathName()));
             }
             {
-                IPLVector3 IMMn{1e30f,1e30f,1e30f},IMMx{-1e30f,-1e30f,-1e30f};
-                for(int32 TI=IMInstanceStart;TI<IMInstanceEnd;++TI)
+                IPLVector3 Mn{1e30f,1e30f,1e30f},Mx{-1e30f,-1e30f,-1e30f};
+                for(int32 TI=InstanceStart;TI<InstanceEnd;++TI)
                 {
-                    const IPLTriangle& IMTr=Runtime->Geometry.Triangles[TI];
-                    const int32 IMIdx[3]={IMTr.indices[0],IMTr.indices[1],IMTr.indices[2]};
+                    const IPLTriangle& TrLocal=Runtime->Geometry.Triangles[TI];
+                    const int32 IdxLocal[3]={TrLocal.indices[0],TrLocal.indices[1],TrLocal.indices[2]};
                     for(int32 KI=0;KI<3;++KI)
                     {
-                        const IPLVector3& IMV=Runtime->Geometry.Vertices[IMIdx[KI]];
-                        IMMn.x=FMath::Min(IMMn.x,IMV.x);IMMn.y=FMath::Min(IMMn.y,IMV.y);IMMn.z=FMath::Min(IMMn.z,IMV.z);
-                        IMMx.x=FMath::Max(IMMx.x,IMV.x);IMMx.y=FMath::Max(IMMx.y,IMV.y);IMMx.z=FMath::Max(IMMx.z,IMV.z);
+                        const IPLVector3& VLocal=Runtime->Geometry.Vertices[IdxLocal[KI]];
+                        Mn.x=FMath::Min(Mn.x,VLocal.x);Mn.y=FMath::Min(Mn.y,VLocal.y);Mn.z=FMath::Min(Mn.z,VLocal.z);
+                        Mx.x=FMath::Max(Mx.x,VLocal.x);Mx.y=FMath::Max(Mx.y,VLocal.y);Mx.z=FMath::Max(Mx.z,VLocal.z);
                     }
                 }
-                UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticBakeBounds sdkmin=(%.3f,%.3f,%.3f) sdkmax=(%.3f,%.3f,%.3f) %s"),IMMn.x,IMMn.y,IMMn.z,IMMx.x,IMMx.y,IMMx.z,*Primitive->GetPathName());
+                UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticBakeBounds sdkmin=(%.3f,%.3f,%.3f) sdkmax=(%.3f,%.3f,%.3f) %s"),Mn.x,Mn.y,Mn.z,Mx.x,Mx.y,Mx.z,*Primitive->GetPathName());
             }
         }
-        IMActorTris.Add(Primitive->GetPathName(),static_cast<int32>(Runtime->Geometry.Triangles.size())-IMActorStart);
+        ActorTris.Add(Primitive->GetPathName(),static_cast<int32>(Runtime->Geometry.Triangles.size())-ActorStart);
     }
     ExportedTriangles=static_cast<int32>(Runtime->Geometry.Triangles.size());
-    for(const auto& IMKV:IMActorTris)UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticBakeActor tris=%d %s"),IMKV.Value,*IMKV.Key);
-    for(UPrimitiveComponent* IMPrim:Components)if(IMActorTris.Contains(IMPrim->GetPathName()))UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticBakePlace loc=%s scale=%s mob=%d %s"),*IMPrim->GetComponentLocation().ToString(),*IMPrim->GetComponentScale().ToString(),int(IMPrim->Mobility),*IMPrim->GetPathName());
+    for(const auto& KVLocal:ActorTris)UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticBakeActor tris=%d %s"),KVLocal.Value,*KVLocal.Key);
+    for(UPrimitiveComponent* Prim:Components)if(ActorTris.Contains(Prim->GetPathName()))UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticBakePlace loc=%s scale=%s mob=%d %s"),*Prim->GetComponentLocation().ToString(),*Prim->GetComponentScale().ToString(),int(Prim->Mobility),*Prim->GetPathName());
     {
         // Segment-piercing test: the exact hole-axis segment the sweep measures.
         // Lists baked tris the ray must cross (or total=0 = baked data truly open).
-        const FVector IMSegA(-2.0f,0.0f,1.5f),IMSegB(2.0f,0.0f,1.5f);
-        int32 IMSegHits=0;
-        for(int32 RI=0;RI<IMActorRanges.Num()&&IMSegHits<20;++RI)
+        const FVector SegA(-2.0f,0.0f,1.5f),SegB(2.0f,0.0f,1.5f);
+        int32 SegHits=0;
+        for(int32 RI=0;RI<ActorRanges.Num()&&SegHits<20;++RI)
         {
-            const int32 IMStart=IMActorRanges[RI].Key;
-            const int32 IMEnd=(RI+1<IMActorRanges.Num())?IMActorRanges[RI+1].Key:Runtime->Geometry.Triangles.size();
-            for(int32 TI=IMStart;TI<IMEnd;++TI)
+            const int32 StartLocal=ActorRanges[RI].Key;
+            const int32 EndLocal=(RI+1<ActorRanges.Num())?ActorRanges[RI+1].Key:Runtime->Geometry.Triangles.size();
+            for(int32 TI=StartLocal;TI<EndLocal;++TI)
             {
-                const IPLTriangle& IMPT=Runtime->Geometry.Triangles[TI];
-                const IPLVector3& PA=Runtime->Geometry.Vertices[IMPT.indices[0]];
-                const IPLVector3& PB=Runtime->Geometry.Vertices[IMPT.indices[1]];
-                const IPLVector3& PC=Runtime->Geometry.Vertices[IMPT.indices[2]];
+                const IPLTriangle& PT=Runtime->Geometry.Triangles[TI];
+                const IPLVector3& PA=Runtime->Geometry.Vertices[PT.indices[0]];
+                const IPLVector3& PB=Runtime->Geometry.Vertices[PT.indices[1]];
+                const IPLVector3& PC=Runtime->Geometry.Vertices[PT.indices[2]];
                 const FVector VA(PA.x,PA.y,PA.z),VB(PB.x,PB.y,PB.z),VC(PC.x,PC.y,PC.z);
-                const FVector IMD=IMSegB-IMSegA,IME1=VB-VA,IME2=VC-VA;
-                const FVector IMP=FVector::CrossProduct(IMD,IME2);
-                const double IMDet=FVector::DotProduct(IME1,IMP);
-                bool IMPierce=false;FVector IMHit(0,0,0);
-                if(!FMath::IsNearlyZero(IMDet))
+                const FVector DLocal=SegB-SegA,E1Local=VB-VA,E2Local=VC-VA;
+                const FVector PLocal=FVector::CrossProduct(DLocal,E2Local);
+                const double DetLocal=FVector::DotProduct(E1Local,PLocal);
+                bool Pierce=false;FVector HitLocal(0,0,0);
+                if(!FMath::IsNearlyZero(DetLocal))
                 {
-                    const double IMInv=1.0/IMDet;
-                    const FVector IMT=IMSegA-VA;
-                    const double IMU=FVector::DotProduct(IMT,IMP)*IMInv;
-                    if(IMU>=-1e-6&&IMU<=1.0+1e-6)
+                    const double InvLocal=1.0/DetLocal;
+                    const FVector TLocal=SegA-VA;
+                    const double ULocal=FVector::DotProduct(TLocal,PLocal)*InvLocal;
+                    if(ULocal>=-1e-6&&ULocal<=1.0+1e-6)
                     {
-                        const FVector IMQ=FVector::CrossProduct(IMT,IME1);
-                        const double IMV=FVector::DotProduct(IMD,IMQ)*IMInv;
-                        if(IMV>=-1e-6&&IMU+IMV<=1.0+1e-6)
+                        const FVector QLocal=FVector::CrossProduct(TLocal,E1Local);
+                        const double VLocal=FVector::DotProduct(DLocal,QLocal)*InvLocal;
+                        if(VLocal>=-1e-6&&ULocal+VLocal<=1.0+1e-6)
                         {
-                            const double IMTp=FVector::DotProduct(IME2,IMQ)*IMInv;
-                            if(IMTp>=-1e-6&&IMTp<=1.0+1e-6){IMPierce=true;IMHit=IMSegA+IMD*float(IMTp);}
+                            const double Tp=FVector::DotProduct(E2Local,QLocal)*InvLocal;
+                            if(Tp>=-1e-6&&Tp<=1.0+1e-6){Pierce=true;HitLocal=SegA+DLocal*float(Tp);}
                         }
                     }
                 }
-                if(IMPierce)
+                if(Pierce)
                 {
-                    ++IMSegHits;
-                    UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticBakePierce tri=%d hit=(%.3f,%.3f,%.3f) %s"),TI,IMHit.X,IMHit.Y,IMHit.Z,*IMActorRanges[RI].Value);
+                    ++SegHits;
+                    UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticBakePierce tri=%d hit=(%.3f,%.3f,%.3f) %s"),TI,HitLocal.X,HitLocal.Y,HitLocal.Z,*ActorRanges[RI].Value);
                 }
             }
         }
-        UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticBakePierce totalhits=%d"),IMSegHits);
-        int32 IMHoleDumped=0,IMHoleTotal=0;
-        for(int32 RI=0;RI<IMActorRanges.Num()&&IMHoleDumped<60;++RI)
+        UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticBakePierce totalhits=%d"),SegHits);
+        int32 HoleDumped=0,HoleTotal=0;
+        for(int32 RI=0;RI<ActorRanges.Num()&&HoleDumped<60;++RI)
         {
-            const int32 IMStart=IMActorRanges[RI].Key;
-            const int32 IMEnd=(RI+1<IMActorRanges.Num())?IMActorRanges[RI+1].Key:Runtime->Geometry.Triangles.size();
-            for(int32 TI=IMStart;TI<IMEnd;++TI)
+            const int32 StartLocal=ActorRanges[RI].Key;
+            const int32 EndLocal=(RI+1<ActorRanges.Num())?ActorRanges[RI+1].Key:Runtime->Geometry.Triangles.size();
+            for(int32 TI=StartLocal;TI<EndLocal;++TI)
             {
-                const IPLTriangle& IMT=Runtime->Geometry.Triangles[TI];
-                const IPLVector3& A=Runtime->Geometry.Vertices[IMT.indices[0]];
-                const IPLVector3& B=Runtime->Geometry.Vertices[IMT.indices[1]];
-                const IPLVector3& C=Runtime->Geometry.Vertices[IMT.indices[2]];
+                const IPLTriangle& TLocal=Runtime->Geometry.Triangles[TI];
+                const IPLVector3& A=Runtime->Geometry.Vertices[TLocal.indices[0]];
+                const IPLVector3& B=Runtime->Geometry.Vertices[TLocal.indices[1]];
+                const IPLVector3& C=Runtime->Geometry.Vertices[TLocal.indices[2]];
                 const float CX=(A.x+B.x+C.x)/3, CY=(A.y+B.y+C.y)/3, CZ=(A.z+B.z+C.z)/3;
                 if(CX>-0.6f&&CX<0.6f&&CY>-0.6f&&CY<0.6f&&CZ>0.5f&&CZ<2.5f)
                 {
-                    ++IMHoleTotal;
-                    if(IMHoleDumped<60)
+                    ++HoleTotal;
+                    if(HoleDumped<60)
                     {
-                        ++IMHoleDumped;
-                        UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticBakeHole tri=%d c=(%.3f,%.3f,%.3f) v0=(%.3f,%.3f,%.3f) v1=(%.3f,%.3f,%.3f) v2=(%.3f,%.3f,%.3f) %s"),TI,CX,CY,CZ,A.x,A.y,A.z,B.x,B.y,B.z,C.x,C.y,C.z,*IMActorRanges[RI].Value);
+                        ++HoleDumped;
+                        UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticBakeHole tri=%d c=(%.3f,%.3f,%.3f) v0=(%.3f,%.3f,%.3f) v1=(%.3f,%.3f,%.3f) v2=(%.3f,%.3f,%.3f) %s"),TI,CX,CY,CZ,A.x,A.y,A.z,B.x,B.y,B.z,C.x,C.y,C.z,*ActorRanges[RI].Value);
                     }
                 }
             }
         }
-        UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticBakeHole total=%d"),IMHoleTotal);
+        UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticBakeHole total=%d"),HoleTotal);
     }
     if(Failed||ExportedTriangles==0)
     { Status=TEXT("Scene check failed: required geometry/material incomplete. See Scene Issues.");return false; }
-    const IPLVector3 Min=IMToSDKPosition(Region.Min,Runtime->Origin),Max=IMToSDKPosition(Region.Max,Runtime->Origin);
+    const IPLVector3 Min=ToSDKPosition(Region.Min,Runtime->Origin),Max=ToSDKPosition(Region.Max,Runtime->Origin);
     auto& Params=Runtime->ProbeParams;Params={};Params.type=IPL_PROBEGENERATIONTYPE_UNIFORMFLOOR;
     Params.spacing=ProbeSpacingCm*.01f;Params.height=ProbeHeightCm*.01f;
     const float Lo[3]={FMath::Min(Min.x,Max.x),FMath::Min(Min.y,Max.y),FMath::Min(Min.z,Max.z)};
@@ -856,7 +856,7 @@ bool AIMAcousticBakeVolume::CaptureScene()
     };
     Feed(Runtime->Geometry.Vertices);Feed(Runtime->Geometry.Triangles);Feed(Runtime->Geometry.MaterialIndices);Feed(Runtime->Geometry.Materials);
     Hash.Update(reinterpret_cast<const uint8*>(&Params),sizeof(Params));
-    const int RecipeVersion=IM_AcousticRecipe::Version;Hash.Update(reinterpret_cast<const uint8*>(&RecipeVersion),sizeof(RecipeVersion));
+    const int RecipeVersion=IMAcousticRecipe::Version;Hash.Update(reinterpret_cast<const uint8*>(&RecipeVersion),sizeof(RecipeVersion));
     for(int I=0;I<3;++I){const double V=Runtime->Origin[I];Hash.Update(reinterpret_cast<const uint8*>(&V),sizeof(V));}
     Hash.Final();uint8 Digest[20];Hash.GetHash(Digest);Runtime->Fingerprint=BytesToHex(Digest,20);
     if(Runtime->ProbeFingerprint==Runtime->Fingerprint)Runtime->Geometry.Probes=MoveTemp(PreviousProbes);
@@ -876,7 +876,7 @@ void AIMAcousticBakeVolume::GenerateProbes()
 {
     if(Runtime->Job){Status=TEXT("Wait for the current bake or cancel it.");return;}
     if(!CaptureScene())return;
-    IM_AcousticSimulation Simulation;std::string Error;
+    FIMAcousticSimulation Simulation;std::string Error;
     if(!Simulation.GenerateProbes(Runtime->Geometry,Runtime->ProbeParams,Runtime->Geometry.Probes,Error))
     {Status=UTF8_TO_TCHAR(Error.c_str());return;}
     GeneratedProbes=static_cast<int32>(Runtime->Geometry.Probes.size());
@@ -923,7 +923,7 @@ void AIMAcousticBakeVolume::DrawEditorFieldOverlay()
     if(!Runtime->Geometry.Probes.empty())
     {
         Points.Reserve(int32(Runtime->Geometry.Probes.size()));
-        for(const auto& P:Runtime->Geometry.Probes)Points.Add(IMFromSDKPosition(P.center,Runtime->Origin));
+        for(const auto& P:Runtime->Geometry.Probes)Points.Add(FromSDKPosition(P.center,Runtime->Origin));
     }
     else if(BakedField)
     {
@@ -963,20 +963,20 @@ void AIMAcousticBakeVolume::Bake()
     if(!CaptureScene())return;
     if(Runtime->Geometry.Probes.empty()||Runtime->ProbeFingerprint!=Runtime->Fingerprint)
     {Status=TEXT("Generate probes again: scene or probe configuration changed.");return;}
-    auto Job=MakeShared<IM_BakeJob,ESPMode::ThreadSafe>();Runtime->Job=Job;
+    auto Job=MakeShared<IMAcousticBakeVolumePrivate::FIMBakeJob,ESPMode::ThreadSafe>();Runtime->Job=Job;
     Job->Fingerprint=Runtime->Fingerprint;Job->WorldPackage=UWorld::RemovePIEPrefix(GetWorld()->GetOutermost()->GetName());
-    Job->MetadataJson=IMBakeMetadata(*this,Runtime->Geometry,Runtime->Origin);
+    Job->MetadataJson=IMAcousticBakeVolumePrivate::BakeMetadata(*this,Runtime->Geometry,Runtime->Origin);
     auto Input=Runtime->Geometry;
     Job->Future=Async(EAsyncExecution::Thread,[Job,Input=MoveTemp(Input)]()
     {
-        IM_AcousticSimulation Simulation;
+        FIMAcousticSimulation Simulation;
         Job->Success=Simulation.Bake(Input,Job->Data,Job->Error,&Job->Cancelled);
         Job->Done.store(true,std::memory_order_release);
     });
     // Editor actor ticks depend on viewport realtime. Completion must also work
     // with a paused viewport, so a weak GT ticker owns only the pending bake.
     TWeakObjectPtr<AIMAcousticBakeVolume> WeakOwner(this);
-    TWeakPtr<IM_BakeJob,ESPMode::ThreadSafe> WeakJob(Job);
+    TWeakPtr<IMAcousticBakeVolumePrivate::FIMBakeJob,ESPMode::ThreadSafe> WeakJob(Job);
     Runtime->BakeTicker=FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda(
         [WeakOwner,WeakJob](float)
         {
@@ -994,7 +994,7 @@ void AIMAcousticBakeVolume::CancelBake()
 
 void AIMAcousticBakeVolume::BeginPlay()
 {
-    Super::BeginPlay();Runtime->Epoch=IMNextWorldEpoch.fetch_add(1);
+    Super::BeginPlay();Runtime->Epoch=IMAcousticBakeVolumePrivate::NextWorldEpoch.fetch_add(1);
     CaptureScene();
     if(!Runtime->SceneValid||!BakedField)
     {
@@ -1017,7 +1017,7 @@ void AIMAcousticBakeVolume::ShutdownOwnedWork()
         Runtime->Bridge->ReverbWorldGeneration.compare_exchange_strong(Expected,0,std::memory_order_acq_rel);
     }
     if(Runtime->Job){Runtime->Job->Cancelled.store(true);Runtime->Job->Future.Wait();Runtime->Job.Reset();}
-    if(Runtime->MetaSoundContext) IM_StopAcousticMetaSoundContext(Runtime->MetaSoundContext);
+    if(Runtime->MetaSoundContext) IMAcousticMetaSound::StopAcousticMetaSoundContext(Runtime->MetaSoundContext);
     if(Runtime->MetaSoundEnvironment.IsValid())
     {
         Runtime->MetaSoundEnvironment->Stop();
@@ -1070,18 +1070,18 @@ void AIMAcousticBakeVolume::PollBakeCompletion()
     }
 #endif
 }
-bool AIMAcousticBakeVolume::IM_SetPathingValidationForTest(bool bOn)
+bool AIMAcousticBakeVolume::SetPathingValidationForTest(bool bOn)
 {
     if (!Runtime || !Runtime->Worker) { return false; }
     Runtime->Worker->RequestPathingValidationForTest(bOn);
     return true;
 }
-int AIMAcousticBakeVolume::IM_GetAppliedPathingValidationForTest() const
+int AIMAcousticBakeVolume::ReadAppliedPathingValidationForTest() const
 {
     if (!Runtime || !Runtime->Worker) { return -2; }
     return Runtime->Worker->GetAppliedPathingValidationForTest();
 }
-bool AIMAcousticBakeVolume::IM_SetApertureTransitForTest(bool bOn, const FVector& CenterUE,
+bool AIMAcousticBakeVolume::SetApertureTransitForTest(bool bOn, const FVector& CenterUE,
     const FVector& HalfExtentUE)
 {
     if(!Runtime)return false;
@@ -1126,7 +1126,7 @@ void AIMAcousticBakeVolume::Tick(float DeltaSeconds)
         TArray<UIMAcousticSourceComponent*> Sources; It->GetComponents(Sources);
         for (auto* Source : Sources)
         {
-            bGraphPipeline |= IsValid(Source->AudioComponent) && IM_IsAcousticMetaSound(Source->AudioComponent->Sound);
+            bGraphPipeline |= IsValid(Source->AudioComponent) && IMAcousticMetaSound::IsAcousticMetaSound(Source->AudioComponent->Sound);
         }
     }
     if (Runtime->Worker && (Runtime->MetaSoundContext.IsValid() != bGraphPipeline))
@@ -1136,7 +1136,7 @@ void AIMAcousticBakeVolume::Tick(float DeltaSeconds)
             bWasGraph ? TEXT("graph") : TEXT("legacy"),
             bGraphPipeline ? TEXT("graph") : TEXT("legacy"), Runtime->Epoch);
         ShutdownOwnedWork();
-        Runtime->Epoch = IMNextWorldEpoch.fetch_add(1, std::memory_order_relaxed);
+        Runtime->Epoch = IMAcousticBakeVolumePrivate::NextWorldEpoch.fetch_add(1, std::memory_order_relaxed);
         Status = TEXT("V2 rebind: acoustic consumer pipeline changed; rebuilding.");
         return;
     }
@@ -1146,20 +1146,20 @@ void AIMAcousticBakeVolume::Tick(float DeltaSeconds)
         if(!BakedField->Validate(UWorld::RemovePIEPrefix(GetWorld()->GetOutermost()->GetName()),Runtime->Fingerprint,Error)){Status=Error;return;}
         if (bGraphPipeline)
         {
-            Runtime->MetaSoundContext = IM_CreateAcousticMetaSoundContext(Device->DeviceID, Mixer->SampleRate, Runtime->Epoch);
+            Runtime->MetaSoundContext = IMAcousticMetaSound::CreateAcousticMetaSoundContext(Device->DeviceID, Mixer->SampleRate, Runtime->Epoch);
             if (!Runtime->MetaSoundContext) { Status = TEXT("MetaSound environment already owned on this device."); return; }
             Runtime->Bridge = Runtime->MetaSoundContext->Device;
         }
-        else Runtime->Bridge=IM_FindAcousticDevice(Device);
+        else Runtime->Bridge=IMAcousticSpatialization::FindAcousticDevice(Device);
         if(!Runtime->Bridge){Status=TEXT("V2 degraded: select IceMoon Acoustic Field as Windows spatialization plugin.");return;}
-        IM_AcousticBakeData Data;Data.Scene.assign(BakedField->SceneData.GetData(),BakedField->SceneData.GetData()+BakedField->SceneData.Num());Data.ProbeBatch.assign(BakedField->ProbeData.GetData(),BakedField->ProbeData.GetData()+BakedField->ProbeData.Num());
+        FIMAcousticBakeData Data;Data.Scene.assign(BakedField->SceneData.GetData(),BakedField->SceneData.GetData()+BakedField->SceneData.Num());Data.ProbeBatch.assign(BakedField->ProbeData.GetData(),BakedField->ProbeData.GetData()+BakedField->ProbeData.Num());
         TArray<FVector4> ProbePreview;FVector ProbeOrigin;
         if(!BakedField->GetProbePreview(UWorld::RemovePIEPrefix(GetWorld()->GetOutermost()->GetName()),Runtime->Fingerprint,ProbePreview,ProbeOrigin,Error))
         {ShutdownOwnedWork();Status=Error;return;}
         for(const auto& P:ProbePreview)Data.CoverageProbes.push_back({{float(P.X),float(P.Y),float(P.Z)},float(P.W)});
-        Runtime->Worker=MakeUnique<IM_AcousticSimulationWorker>();
+        Runtime->Worker=MakeUnique<FIMAcousticSimulationWorker>();
         Runtime->Reverb=Runtime->MetaSoundContext ? Runtime->MetaSoundContext->Pool
-            : MakeShared<IM_AcousticReverbPool,ESPMode::ThreadSafe>(Runtime->Epoch);
+            : MakeShared<FIMAcousticReverbPool,ESPMode::ThreadSafe>(Runtime->Epoch);
         if(!Runtime->Worker->Start(Runtime->Bridge,Runtime->Epoch,MoveTemp(Data),Runtime->Reverb)){ShutdownOwnedWork();Status=TEXT("V2 degraded: audio device already belongs to another acoustic world.");return;}
         Runtime->DeviceHandle=GetWorld()->GetAudioDevice();
         if (Runtime->MetaSoundContext)
@@ -1204,9 +1204,9 @@ void AIMAcousticBakeVolume::Tick(float DeltaSeconds)
         }
         Runtime->Bridge->ReverbWorldGeneration.store(Runtime->Epoch,std::memory_order_release);
     }
-    if(Runtime->Worker->GetState()==IM_AcousticSimulationWorker::State::LoadFailed){Status=TEXT("V2 degraded: SDK bake load failed.");return;}
-    IM_AcousticTimingScope Timing(Runtime->Bridge->ProfilingEnabled.load(std::memory_order_relaxed)?&Runtime->Bridge->GameThreadTiming:nullptr);
-    if(Runtime->PreviousSnapshot)IM_AcousticRecordMaximum(Runtime->Bridge->MaxSnapshotGapUs,uint64((Now-Runtime->PreviousSnapshot)*1.e6));
+    if(Runtime->Worker->GetState()==FIMAcousticSimulationWorker::EIMWorkerState::LoadFailed){Status=TEXT("V2 degraded: SDK bake load failed.");return;}
+    FIMAcousticTimingScope Timing(Runtime->Bridge->ProfilingEnabled.load(std::memory_order_relaxed)?&Runtime->Bridge->GameThreadTiming:nullptr);
+    if(Runtime->PreviousSnapshot)IMAcousticTiming::AcousticRecordMaximum(Runtime->Bridge->MaxSnapshotGapUs,uint64((Now-Runtime->PreviousSnapshot)*1.e6));
     Runtime->PreviousSnapshot=Now;
     Runtime->Bridge->Enabled.store(bEnableV2,std::memory_order_release);
     Runtime->Bridge->RenderRoutes.store((bDirectRoute?1u:0u)|(bPathRoute?2u:0u)|(bReverbRoute?4u:0u),std::memory_order_relaxed);
@@ -1230,13 +1230,13 @@ void AIMAcousticBakeVolume::Tick(float DeltaSeconds)
                 if (!Source) continue;
                 if (!Source->ValidateSource(SourceFailure)) continue;
                 UAudioComponent* Audio = Source->AudioComponent;
-                if (!Audio || !IM_IsAcousticMetaSound(Audio->Sound)) continue;
+                if (!Audio || !IMAcousticMetaSound::IsAcousticMetaSound(Audio->Sound)) continue;
                 const uint64 Id = Audio->GetAudioComponentID();
-                const int32 Slot = IM_RegisterAcousticMetaSoundSource(Runtime->MetaSoundContext, Id);
+                const int32 Slot = IMAcousticMetaSound::RegisterAcousticMetaSoundSource(Runtime->MetaSoundContext, Id);
                 if (Slot == INDEX_NONE) continue;
                 Runtime->MetaSoundContext->SendGains[Slot].store(Audio->VolumeMultiplier, std::memory_order_relaxed);
                 const float SourceListenerDistanceM = float(FVector::Distance(Audio->GetComponentLocation(), Listener.GetLocation()) * .01);
-                const float ReverbSendDistanceGain = IM_AcousticRecipe::ReverbSendDistanceGain(SourceListenerDistanceM);
+                const float ReverbSendDistanceGain = IMAcousticRecipe::ReverbSendDistanceGain(SourceListenerDistanceM);
                 Runtime->MetaSoundContext->ReverbSendGains[Slot].store(
                     Audio->VolumeMultiplier * ReverbSendDistanceGain, std::memory_order_relaxed);
                 Runtime->MetaSoundContext->DistanceGains[Slot].store(
@@ -1264,8 +1264,8 @@ void AIMAcousticBakeVolume::Tick(float DeltaSeconds)
         Runtime->Bridge->RenderRoutes.store((bDirectRoute ? 1u : 0u) | (bPathRoute ? 2u : 0u), std::memory_order_relaxed);
         Status=TEXT("V2 degraded: listener outside bake bounds.");return;
     }
-    const IPLCoordinateSpace3 ListenerSpace = IMToSDKSpace(Listener, Runtime->Origin);
-    if (IMPointInsideAcousticGeometry(Runtime->Geometry, Runtime->GeometryTriangleRanges, ListenerSpace.origin))
+    const IPLCoordinateSpace3 ListenerSpace = ToSDKSpace(Listener, Runtime->Origin);
+    if (IMAcousticBakeVolumePrivate::PointInsideAcousticGeometry(Runtime->Geometry, Runtime->GeometryTriangleRanges, ListenerSpace.origin))
     {
         // Do not let an invalid wall-interior position keep selecting a
         // nearest baked probe. Stop publishing the snapshot and immediately
@@ -1277,12 +1277,12 @@ void AIMAcousticBakeVolume::Tick(float DeltaSeconds)
         Status = TEXT("V2 degraded: listener inside baked acoustic geometry.");
         return;
     }
-    auto Snapshot=MakeShared<IM_AcousticWorldSnapshot,ESPMode::ThreadSafe>();
+    auto Snapshot=MakeShared<FIMAcousticWorldSnapshot,ESPMode::ThreadSafe>();
     Snapshot->WorldGeneration=Runtime->Epoch;Snapshot->CapturedSeconds=Now;Snapshot->Listener=ListenerSpace;
     Snapshot->ApertureTransitEnabled=Runtime->ApertureTransitEnabled;
     if(Runtime->ApertureTransitEnabled)
     {
-        Snapshot->ApertureTransitCenter=IMToSDKPosition(Runtime->ApertureTransitCenterUE,Runtime->Origin);
+        Snapshot->ApertureTransitCenter=ToSDKPosition(Runtime->ApertureTransitCenterUE,Runtime->Origin);
         const FVector E=Runtime->ApertureTransitHalfExtentUE.GetAbs()*0.01f;
         Snapshot->ApertureTransitHalfExtent={float(E.Y),float(E.Z),float(E.X)};
     }
@@ -1304,7 +1304,7 @@ void AIMAcousticBakeVolume::Tick(float DeltaSeconds)
         DynamicMaterials.Add(Material);
     }
     // Sub-phase diagnostic: world traversal isolated from worker submit.
-    const uint64 IMTravStart=FPlatformTime::Cycles64();
+    const uint64 TravStart=FPlatformTime::Cycles64();
     for(TActorIterator<AActor> It(GetWorld());It;++It)
     {
         TArray<UIMAcousticSourceComponent*> Sources;It->GetComponents(Sources);
@@ -1313,17 +1313,17 @@ void AIMAcousticBakeVolume::Tick(float DeltaSeconds)
             if(!Source->ValidateSource(Failure))continue;
             UAudioComponent* Audio=Source->AudioComponent;
             if(!Region.IsInsideOrOn(Audio->GetComponentLocation())){Failure=TEXT("Source outside bake bounds.");continue;}
-            Snapshot->Sources.Add({Audio->GetAudioComponentID(),IMToSDKSpace(Audio->GetComponentTransform(),Runtime->Origin)});
+            Snapshot->Sources.Add({Audio->GetAudioComponentID(),ToSDKSpace(Audio->GetComponentTransform(),Runtime->Origin)});
         }
     }
     if (Snapshot->Sources.Num() > 1)
     {
-        static double IM_SrcCountLast = 0;
-        if (Now - IM_SrcCountLast > 5.0)
+        static double SrcCountLast = 0;
+        if (Now - SrcCountLast > 5.0)
         {
-            IM_SrcCountLast = Now;
-            const uint64 IM_FirstId = Snapshot->Sources.Num() ? Snapshot->Sources[0].AudioComponentId : 0;
-            UE_LOG(LogTemp, Display, TEXT("IMLogs AcousticSourceCount n=%d first_id=%llu"), Snapshot->Sources.Num(), IM_FirstId);
+            SrcCountLast = Now;
+            const uint64 FirstId = Snapshot->Sources.Num() ? Snapshot->Sources[0].AudioComponentId : 0;
+            UE_LOG(LogTemp, Display, TEXT("IMLogs AcousticSourceCount n=%d first_id=%llu"), Snapshot->Sources.Num(), FirstId);
         }
     }
     // H1 W2: collect registered dynamic blockers into this snapshot. Validity
@@ -1331,60 +1331,60 @@ void AIMAcousticBakeVolume::Tick(float DeltaSeconds)
     // failed entries are omitted so the worker removes them, degrading to
     // unoccluded audio rather than stale geometry. Skips are observable via
     // the snapshot probe counters and verbose log, not via the source status.
-    int32 IMDynamicSkipped = 0;
+    int32 DynamicSkipped = 0;
     for (const TObjectPtr<UStaticMeshComponent>& Blocker : DynamicBlockers)
     {
-        if (!IsValid(Blocker)) { ++IMDynamicSkipped; continue; }
-        IM_AcousticDynamicMeshSnapshot DynamicEntry;
+        if (!IsValid(Blocker)) { ++DynamicSkipped; continue; }
+        FIMAcousticDynamicMeshSnapshot DynamicEntry;
         FString DynamicFailure;
-        if (!IMBuildDynamicMeshSnapshot(Blocker.Get(), 0, Runtime->Origin, DynamicMaterialIndices, DynamicMaterials, DynamicEntry, DynamicFailure))
+        if (!IMAcousticBakeVolumePrivate::BuildDynamicMeshSnapshot(Blocker.Get(), 0, Runtime->Origin, DynamicMaterialIndices, DynamicMaterials, DynamicEntry, DynamicFailure))
         {
-            ++IMDynamicSkipped;
+            ++DynamicSkipped;
             UE_LOG(LogTemp, Verbose, TEXT("[IM] Acoustic dynamic blocker skipped: %s (%s)"), *Blocker->GetPathName(), *DynamicFailure);
             continue;
         }
         Snapshot->DynamicMeshes.Add(MoveTemp(DynamicEntry));
     }
-    if(Runtime->Bridge->ProfilingEnabled.load(std::memory_order_relaxed))Runtime->Bridge->GTTraverseTiming.Record(IMTravStart);
+    if(Runtime->Bridge->ProfilingEnabled.load(std::memory_order_relaxed))Runtime->Bridge->GTTraverseTiming.Record(TravStart);
     // Sub-phase diagnostic: worker submit isolated from traversal.
-    const uint64 IMSubStart=FPlatformTime::Cycles64();
-    const bool IMProbeHasWorker = (Runtime->Worker != nullptr);
-    const bool IMProbeSubmitted = IMProbeHasWorker && Runtime->Worker->Submit(Snapshot);
-    if(Runtime->Bridge->ProfilingEnabled.load(std::memory_order_relaxed))Runtime->Bridge->GTSubmitTiming.Record(IMSubStart);
-    const double IMProbeSubmitDone = FPlatformTime::Seconds();
+    const uint64 SubStart=FPlatformTime::Cycles64();
+    const bool ProbeHasWorker = (Runtime->Worker != nullptr);
+    const bool ProbeSubmitted = ProbeHasWorker && Runtime->Worker->Submit(Snapshot);
+    if(Runtime->Bridge->ProfilingEnabled.load(std::memory_order_relaxed))Runtime->Bridge->GTSubmitTiming.Record(SubStart);
+    const double ProbeSubmitDone = FPlatformTime::Seconds();
     // W1 causal probe (GT side): actual AudioDevice listener snapshot that the
     // worker will consume. Joins to worker results and audio blocks by
     // (WorldGeneration, CapturedSeconds). Preallocated write-once log; zero behavior.
     // Times are FPlatformTime::Seconds() wall clock, seconds.
-    IM_AcousticSnapshotProbe IMProbeSnap{};
-    IMProbeSnap.WorldGeneration = Snapshot->WorldGeneration;
-    IMProbeSnap.CapturedSeconds = Snapshot->CapturedSeconds;
-    IMProbeSnap.SubmitSeconds = IMProbeHasWorker ? IMProbeSubmitDone : 0.0;
-    IMProbeSnap.ListenerUEX = float(Listener.GetLocation().X);
-    IMProbeSnap.ListenerUEY = float(Listener.GetLocation().Y);
-    IMProbeSnap.ListenerUEZ = float(Listener.GetLocation().Z);
-    IMProbeSnap.ListenerSDKX = Snapshot->Listener.origin.x;
-    IMProbeSnap.ListenerSDKY = Snapshot->Listener.origin.y;
-    IMProbeSnap.ListenerSDKZ = Snapshot->Listener.origin.z;
+    FIMAcousticSnapshotProbe ProbeSnap{};
+    ProbeSnap.WorldGeneration = Snapshot->WorldGeneration;
+    ProbeSnap.CapturedSeconds = Snapshot->CapturedSeconds;
+    ProbeSnap.SubmitSeconds = ProbeHasWorker ? ProbeSubmitDone : 0.0;
+    ProbeSnap.ListenerUEX = float(Listener.GetLocation().X);
+    ProbeSnap.ListenerUEY = float(Listener.GetLocation().Y);
+    ProbeSnap.ListenerUEZ = float(Listener.GetLocation().Z);
+    ProbeSnap.ListenerSDKX = Snapshot->Listener.origin.x;
+    ProbeSnap.ListenerSDKY = Snapshot->Listener.origin.y;
+    ProbeSnap.ListenerSDKZ = Snapshot->Listener.origin.z;
     if (Snapshot->Sources.Num() > 0)
     {
-        IMProbeSnap.Source0X = Snapshot->Sources[0].Source.origin.x;
-        IMProbeSnap.Source0Y = Snapshot->Sources[0].Source.origin.y;
-        IMProbeSnap.Source0Z = Snapshot->Sources[0].Source.origin.z;
-        IMProbeSnap.Source0AudioId = Snapshot->Sources[0].AudioComponentId;
+        ProbeSnap.Source0X = Snapshot->Sources[0].Source.origin.x;
+        ProbeSnap.Source0Y = Snapshot->Sources[0].Source.origin.y;
+        ProbeSnap.Source0Z = Snapshot->Sources[0].Source.origin.z;
+        ProbeSnap.Source0AudioId = Snapshot->Sources[0].AudioComponentId;
     }
-    IMProbeSnap.NumSources = uint32(Snapshot->Sources.Num());
-    IMProbeSnap.NumDynamicMeshes = uint32(Snapshot->DynamicMeshes.Num());
-    IMProbeSnap.NumDynamicSkipped = uint32(IMDynamicSkipped);
+    ProbeSnap.NumSources = uint32(Snapshot->Sources.Num());
+    ProbeSnap.NumDynamicMeshes = uint32(Snapshot->DynamicMeshes.Num());
+    ProbeSnap.NumDynamicSkipped = uint32(DynamicSkipped);
     if (Snapshot->DynamicMeshes.Num() > 0)
     {
-        IMProbeSnap.Door0TX = Snapshot->DynamicMeshes[0].Transform.elements[0][3];
-        IMProbeSnap.Door0TY = Snapshot->DynamicMeshes[0].Transform.elements[1][3];
-        IMProbeSnap.Door0TZ = Snapshot->DynamicMeshes[0].Transform.elements[2][3];
+        ProbeSnap.Door0TX = Snapshot->DynamicMeshes[0].Transform.elements[0][3];
+        ProbeSnap.Door0TY = Snapshot->DynamicMeshes[0].Transform.elements[1][3];
+        ProbeSnap.Door0TZ = Snapshot->DynamicMeshes[0].Transform.elements[2][3];
     }
-    IMProbeSnap.Submitted = IMProbeSubmitted ? 1 : 0;
-    IMProbeSnap.FailCode = IMProbeSubmitted ? 0 : (IMProbeHasWorker ? 1 : 2);
-    Runtime->Bridge->TraceSnapshot(IMProbeSnap);
+    ProbeSnap.Submitted = ProbeSubmitted ? 1 : 0;
+    ProbeSnap.FailCode = ProbeSubmitted ? 0 : (ProbeHasWorker ? 1 : 2);
+    Runtime->Bridge->TraceSnapshot(ProbeSnap);
     Status=Failure.IsEmpty()?FString::Printf(TEXT("V2 routing %d sources; rendered %llu, degraded %llu, reverb audible %llu blocks."),Snapshot->Sources.Num(),Runtime->Bridge->RenderedBlocks.load(),Runtime->Bridge->RejectedBlocks.load(),Runtime->Bridge->ReverbNonzeroBlocks.load()):TEXT("V2 source rejected: ")+Failure;
     if (Runtime->MetaSoundContext && !Runtime->MetaSoundAudibleReported && Runtime->Bridge->ReverbNonzeroBlocks.load() >= 50)
     {

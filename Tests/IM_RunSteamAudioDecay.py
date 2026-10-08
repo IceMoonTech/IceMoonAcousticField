@@ -24,7 +24,7 @@ def main():
         raise RuntimeError('MSVC vcvars64.bat not found')
     # Production sources reused with the same native-cl method as IM_RunSteamAudioSmoke.py.
     # IM_AcousticReverbData is header-only, so it needs no cpp entry here.
-    inputs = [Path(__file__).parent / 'IM_SteamAudioDecay.cpp', source / 'IMAcousticReverbRenderer.cpp', source / 'IMAcousticSimulation.cpp', source / 'IMAcousticSDKContext.cpp']
+    inputs = [Path(__file__).parent / 'IMSteamAudioDecay.cpp', source / 'IMAcousticReverbRenderer.cpp', source / 'IMAcousticSimulation.cpp', source / 'IMAcousticSDKContext.cpp']
     for path in [output, vcvars, *inputs, sdk, source]:
         if any(c in str(path) for c in '\r\n"%&|<>^'):
             raise ValueError('Path contains unsupported shell/response characters')

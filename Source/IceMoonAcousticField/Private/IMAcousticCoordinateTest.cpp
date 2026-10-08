@@ -2,9 +2,9 @@
 #include "Misc/AutomationTest.h"
 #include "IMAcousticCoordinates.h"
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(IM_AcousticCoordinateMapping,"IceMoon.AcousticField.W0.CoordinateMapping",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FIMAcousticCoordinateMapping,"IceMoon.AcousticField.W0.CoordinateMapping",
     EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
-bool IM_AcousticCoordinateMapping::RunTest(const FString&)
+bool FIMAcousticCoordinateMapping::RunTest(const FString&)
 {
     bool Success=true;
     const auto CheckSDKVector=[this,&Success](const TCHAR* Name,const IPLVector3& Actual,const IPLVector3& Expected)
@@ -18,14 +18,14 @@ bool IM_AcousticCoordinateMapping::RunTest(const FString&)
         UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticCoordinateMapping %s expected=(%g,%g,%g) actual=(%g,%g,%g) %s"),Name,
             Expected.x,Expected.y,Expected.z,Actual.x,Actual.y,Actual.z,Pass?TEXT("PASS"):TEXT("FAIL"));
     };
-    CheckSDKVector(TEXT("axis_x_to_sdk"),IMToSDKDirection(FVector(1,0,0)),IPLVector3(0,0,-1));
-    CheckSDKVector(TEXT("axis_y_to_sdk"),IMToSDKDirection(FVector(0,1,0)),IPLVector3(1,0,0));
-    CheckSDKVector(TEXT("axis_z_to_sdk"),IMToSDKDirection(FVector(0,0,1)),IPLVector3(0,1,0));
+    CheckSDKVector(TEXT("axis_x_to_sdk"),ToSDKDirection(FVector(1,0,0)),IPLVector3(0,0,-1));
+    CheckSDKVector(TEXT("axis_y_to_sdk"),ToSDKDirection(FVector(0,1,0)),IPLVector3(1,0,0));
+    CheckSDKVector(TEXT("axis_z_to_sdk"),ToSDKDirection(FVector(0,0,1)),IPLVector3(0,1,0));
 
     const FVector Origin(1000,2000,300);
     const FVector P=Origin+FVector(100,200,-400);
     // (P-Origin)*0.01 = (1,2,-4)m; IMToSDKDirection maps (x,y,z) to (y,z,-x), hence (2,-4,-1)m.
-    const IPLVector3 Position=IMToSDKPosition(P,Origin);
+    const IPLVector3 Position=ToSDKPosition(P,Origin);
     CheckSDKVector(TEXT("position_cm_to_m"),Position,IPLVector3(2,-4,-1));
 
     // UE FVector is double-based while IPLVector3 is float-based; never memcpy across these layouts.
@@ -38,7 +38,7 @@ bool IM_AcousticCoordinateMapping::RunTest(const FString&)
         FVector(-1234.567,7890.123,-3456.789)};
     for(int32 Index=0;Index<Points.Num();++Index)
     {
-        const FVector RoundTrip=IMFromSDKPosition(IMToSDKPosition(Points[Index],FVector::ZeroVector),FVector::ZeroVector);
+        const FVector RoundTrip=FromSDKPosition(ToSDKPosition(Points[Index],FVector::ZeroVector),FVector::ZeroVector);
         const double Error=(RoundTrip-Points[Index]).GetAbsMax();
         const bool Pass=Error<=RoundTripToleranceCm;Success=Pass&&Success;
         if(!Pass)AddError(FString::Printf(TEXT("roundtrip[%d] error_cm=%g tolerance_cm=%g"),Index,Error,RoundTripToleranceCm));

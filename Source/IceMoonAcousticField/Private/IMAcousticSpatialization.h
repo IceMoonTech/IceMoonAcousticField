@@ -17,21 +17,21 @@ class FAudioDevice;
 // passed through as worker Result.PublishedSeconds), WorldGeneration, voice
 // Generation, AudioComponentId, Frame.Sequence. No new state machine,
 // manager, or dependency.
-enum class IM_AcousticProbeReject : uint8
+enum class EIMAcousticProbeReject : uint8
 {
-    Accepted = 0,      // rendered through IM_AcousticAudioRenderer
+    Accepted = 0,      // rendered through FIMAcousticAudioRenderer
     BadBlockShape = 1, // null buffer, unknown voice, or unsupported layout
     Bypassed = 2,      // whole-V2 bypass (Enabled==false), dry reference
     MissingResult = 3, // no usable result yet (never a stale age)
     StaleResult = 4,   // result age exceeded the frozen 250ms safety lease
-    RendererFailed = 5 // IM_AcousticAudioRenderer::Render returned false
+    RendererFailed = 5 // FIMAcousticAudioRenderer::Render returned false
 };
 
 // One GT snapshot publication. Producer is GT Tick only; consumer is GT/test-end export only.
 // Clocks: CapturedSeconds/SubmitSeconds are FPlatformTime::Seconds() wall clock, unit seconds.
-// Lifecycle: preallocated in IM_AcousticDeviceBridge at device init, never grown/freed until device shutdown.
+// Lifecycle: preallocated in FIMAcousticDeviceBridge at device init, never grown/freed until device shutdown.
 // Overflow: bounded write-once log; once full, newest entries are dropped and counted, earliest preserved.
-struct IM_AcousticSnapshotProbe
+struct FIMAcousticSnapshotProbe
 {
     uint64 Block = 0; // log index; publication order key (write-once, never overwritten)
     uint64 WorldGeneration = 0;
@@ -52,7 +52,7 @@ struct IM_AcousticSnapshotProbe
 
 // One audio-callback block consumption. Producers are concurrent UE source
 // jobs; each claims a slot with a single atomic fetch_add (wait-free).
-struct IM_AcousticBlockProbe
+struct FIMAcousticBlockProbe
 {
     uint64 Block = 0; // audio-side monotonic claim index; PCM-window order key
     uint32 Voice = 0;
@@ -70,8 +70,8 @@ struct IM_AcousticBlockProbe
     float DistanceGain = 0.0f;        // Frame.Direct.distanceAttenuation
     uint32 Routes = 0;                // audition mask observed at consumption (direct=1,path=2,reverb=4)
     uint8 DirectValid = 0, PathValid = 0;
-    IM_AcousticProbeReject Reject = IM_AcousticProbeReject::Accepted;
-    uint8 RenderFailure = 0; // IM_AcousticRenderFailure code when Reject==RendererFailed
+    EIMAcousticProbeReject Reject = EIMAcousticProbeReject::Accepted;
+    uint8 RenderFailure = 0; // EIMAcousticRenderFailure code when Reject==RendererFailed
     uint8 Fallback = 0;      // dry fallback output taken
     uint8 ResetReason = 0;   // renderer Reset cause: 0 none,1 invalid-result,2 world-change,3 bypass,4 render-fail
     uint8 Pad = 0;
@@ -99,7 +99,7 @@ struct IM_AcousticBlockProbe
 // Short-run callback timing probe. Enabled only by the bounded W3 diagnostic;
 // source callbacks write it and OnAllSourcesProcessed finalizes the same-block
 // valid-source count. No callback performs I/O, waits, or allocation.
-struct IM_AcousticCallbackProbe
+struct FIMAcousticCallbackProbe
 {
     uint64 CallbackIndex = 0;
     uint64 AudioBlock = 0;
@@ -122,7 +122,7 @@ struct IM_AcousticCallbackProbe
 // Short-run source-block join. The audio extension publishes the exact
 // PendingSourceCycles sum after all source callbacks for one audio block have
 // completed; GT/test-end exports it with the per-source callback trace.
-struct IM_AcousticSourceBlockProbe
+struct FIMAcousticSourceBlockProbe
 {
     uint64 AudioBlock = 0;
     uint32 CallbackCount = 0;
@@ -134,7 +134,7 @@ struct IM_AcousticSourceBlockProbe
 
 // Short-run submix timing join. The probe is written by the audio submix
 // callback and is enabled only by the bounded W3 diagnostic.
-struct IM_AcousticReverbBlockProbe
+struct FIMAcousticReverbBlockProbe
 {
     uint64 AudioBlock = 0;
     uint32 Outcome = 0; // 0 normal, 1 bypass, 2 invalid, 3 rendered, 4 stale/fail
@@ -149,7 +149,7 @@ struct IM_AcousticReverbBlockProbe
 // configured budget trigger is written. The ring is exported after both audio
 // flags are disabled and the final callbacks have drained; an overwrite is an
 // explicit evidence failure, never silently treated as complete.
-struct IM_AcousticRareTailProbe
+struct FIMAcousticRareTailProbe
 {
     uint64 AudioBlock = 0; // reverb block label, or source block for source-only trigger
     uint64 SourceBlock = 0;
@@ -171,7 +171,7 @@ struct IM_AcousticRareTailProbe
 // Source finalizer publishes one atomic join value per measured audio block.
 // Reverb reads it by sequence; no source callback trace is retained in a long
 // window unless the paired budget predicate fires.
-struct IM_AcousticRareTailSourceJoin
+struct FIMAcousticRareTailSourceJoin
 {
     std::atomic<uint64> Sequence{0}; // stored as audio block + 1; zero means empty
     std::atomic<uint64> SourceCycles{0};
@@ -182,9 +182,9 @@ struct IM_AcousticRareTailSourceJoin
 // clock, unit seconds. First-result fields describe the first published voice
 // result of the iteration (W1 runs a single source, so identity is complete for
 // the W1 join keys); multi-voice iterations record the count plus first only.
-// Lifecycle: preallocated in IM_AcousticDeviceBridge at device init, never
+// Lifecycle: preallocated in FIMAcousticDeviceBridge at device init, never
 // grown/freed until device shutdown. Overflow drops newest, preserves earliest.
-struct IM_AcousticWorkerProbe
+struct FIMAcousticWorkerProbe
 {
     uint64 Block = 0; // log index; loop order key (write-once, never overwritten)
     uint64 WorldGeneration = 0;
@@ -210,7 +210,7 @@ struct IM_AcousticWorkerProbe
     float Occlusion = 0.0f, DistanceGain = 0.0f, Directivity = 1.0f;
     float AirAbsorption[3] = {};
     float PathEQ[3] = {};
-    float PathSH[4] = {};    // IM_AcousticAudioFrame::Coefficients (Order 1)
+    float PathSH[4] = {};    // FIMAcousticAudioFrame::Coefficients (Order 1)
     // inc109 worker-side door truth (append-only, diagnostic): first-frame
     // path verdict, applied validation flag, dynamic-mesh count this loop.
     uint8 PathValid0 = 0;         // 1 path valid, 0 invalid, 2 no frame published
@@ -222,7 +222,7 @@ struct IM_AcousticWorkerProbe
 // Fixed SPSC ring: one producer and one consumer per voice. Neither side can
 // overwrite a slot the other owns. Queue-full drops a publication, never blocks.
 template<typename T, uint32 Capacity = 8>
-class IM_AcousticSpscRing final
+class FIMAcousticSpscRing final
 {
 public:
     bool Push(const T& Value)
@@ -248,7 +248,7 @@ private:
     alignas(64) std::atomic<uint32> Write{0};
 };
 
-struct IM_AcousticVoiceRequest
+struct FIMAcousticVoiceRequest
 {
     uint32 Voice = 0;
     uint64 Generation = 0;
@@ -256,23 +256,23 @@ struct IM_AcousticVoiceRequest
     bool Active = false;
 };
 
-struct IM_AcousticVoiceResult
+struct FIMAcousticVoiceResult
 {
-    IM_AcousticAudioFrame Frame;
+    FIMAcousticAudioFrame Frame;
     uint64 AudioComponentId = 0;
     uint64 WorldGeneration = 0;
     double PublishedSeconds = 0.0;
 };
 
-struct IM_AcousticVoiceBridge
+struct FIMAcousticVoiceBridge
 {
-    IM_AcousticSpscRing<IM_AcousticVoiceRequest> Requests;
-    IM_AcousticSpscRing<IM_AcousticVoiceResult> Results;
+    FIMAcousticSpscRing<FIMAcousticVoiceRequest> Requests;
+    FIMAcousticSpscRing<FIMAcousticVoiceResult> Results;
     // One outstanding dry block per voice. Source jobs finish before UE submix
     // processing, but this ownership ring also makes skipped submix blocks safe.
     // Buffers allocate at device init, never in either callback.
-    struct IM_DrySlot { TArray<float> Samples; uint64 Epoch=0,Generation=0; double Captured=0; };
-    std::array<IM_DrySlot,2> Dry;
+    struct FIMDrySlot { TArray<float> Samples; uint64 Epoch=0,Generation=0; double Captured=0; };
+    std::array<FIMDrySlot,2> Dry;
     std::atomic<uint32> DryWrite{0},DryRead{0};
     std::atomic<uint64> LiveGeneration{0};
     void InitDry(uint32 Frames){for(auto& Slot:Dry)Slot.Samples.SetNumZeroed(Frames);}
@@ -303,7 +303,7 @@ struct IM_AcousticVoiceBridge
 
 // Created once at device initialization. Worker leases keep queues alive after
 // device shutdown; Alive closes publication before audio resources are released.
-struct IM_AcousticDeviceBridge
+struct FIMAcousticDeviceBridge
 {
     // W3 pressure attribution is bounded, preallocated telemetry. It is
     // reset at the start of each measured window and exported by the test on
@@ -355,7 +355,7 @@ struct IM_AcousticDeviceBridge
         }
     }
 
-    TArray<TUniquePtr<IM_AcousticVoiceBridge>> Voices;
+    TArray<TUniquePtr<FIMAcousticVoiceBridge>> Voices;
     uint32 SampleRate = 0;
     uint32 BlockFrames = 0;
     std::atomic<bool> Alive{false};
@@ -364,7 +364,7 @@ struct IM_AcousticDeviceBridge
     std::atomic<uint64> WorldGeneration{0};
     std::atomic<uint64> RejectedBlocks{0};
     std::atomic<uint64> InvalidResultBlocks{0},RendererFailedBlocks{0};
-    std::array<std::atomic<uint64>,size_t(IM_AcousticRenderFailure::Count)> RenderFailures{};
+    std::array<std::atomic<uint64>,size_t(EIMAcousticRenderFailure::Count)> RenderFailures{};
     std::atomic<uint64> RenderedBlocks{0};
     std::atomic<uint64> DirectNonzeroBlocks{0};
     std::atomic<uint64> PathNonzeroBlocks{0};
@@ -391,21 +391,21 @@ struct IM_AcousticDeviceBridge
     static constexpr uint32 ProbeBlockCapacity = 8192;    // ~47 blocks/s/voice: ~174s single voice
     static constexpr uint32 ProbeWorkerCapacity = 4096;   // 20Hz worker loops: ~204s
     static constexpr uint32 CallbackProbeCapacity = 65536; // >=30s of 16-voice blocks at 48 kHz/1024 frames
-    std::array<IM_AcousticSnapshotProbe, ProbeSnapshotCapacity> SnapshotProbes{};
+    std::array<FIMAcousticSnapshotProbe, ProbeSnapshotCapacity> SnapshotProbes{};
     std::array<std::atomic<uint64>, ProbeSnapshotCapacity> SnapshotDone{};
-    std::array<IM_AcousticBlockProbe, ProbeBlockCapacity> BlockProbes{};
+    std::array<FIMAcousticBlockProbe, ProbeBlockCapacity> BlockProbes{};
     std::array<std::atomic<uint64>, ProbeBlockCapacity> BlockDone{};
-    std::array<IM_AcousticWorkerProbe, ProbeWorkerCapacity> WorkerProbes{};
+    std::array<FIMAcousticWorkerProbe, ProbeWorkerCapacity> WorkerProbes{};
     std::array<std::atomic<uint64>, ProbeWorkerCapacity> WorkerDone{};
-    std::array<IM_AcousticCallbackProbe, CallbackProbeCapacity> CallbackProbes{};
+    std::array<FIMAcousticCallbackProbe, CallbackProbeCapacity> CallbackProbes{};
     std::array<std::atomic<uint64>, CallbackProbeCapacity> CallbackDone{};
-    std::array<IM_AcousticSourceBlockProbe, CallbackBlockProbeCapacity> SourceBlockProbes{};
+    std::array<FIMAcousticSourceBlockProbe, CallbackBlockProbeCapacity> SourceBlockProbes{};
     std::array<std::atomic<uint64>, CallbackBlockProbeCapacity> SourceBlockDone{};
-    std::array<IM_AcousticReverbBlockProbe, CallbackBlockProbeCapacity> ReverbBlockProbes{};
+    std::array<FIMAcousticReverbBlockProbe, CallbackBlockProbeCapacity> ReverbBlockProbes{};
     std::array<std::atomic<uint64>, CallbackBlockProbeCapacity> ReverbBlockDone{};
-    std::array<IM_AcousticRareTailProbe, RareTailProbeCapacity> RareTailProbes{};
+    std::array<FIMAcousticRareTailProbe, RareTailProbeCapacity> RareTailProbes{};
     std::array<std::atomic<uint64>, RareTailProbeCapacity> RareTailDone{};
-    std::array<IM_AcousticRareTailSourceJoin, CallbackBlockProbeCapacity> RareTailSourceJoins{};
+    std::array<FIMAcousticRareTailSourceJoin, CallbackBlockProbeCapacity> RareTailSourceJoins{};
     std::atomic<uint64> SnapshotProbePushes{0}, SnapshotProbeOverflows{0};
     std::atomic<uint64> BlockProbePushes{0}, BlockProbeOverflows{0};
     std::atomic<uint64> WorkerProbePushes{0}, WorkerProbeOverflows{0};
@@ -467,7 +467,7 @@ struct IM_AcousticDeviceBridge
         RareTailSelfTestEnabled.store(InSelfTest, std::memory_order_relaxed);
         RareTailDiagnosticsEnabled.store(InEnabled, std::memory_order_release);
     }
-    void TraceSnapshot(IM_AcousticSnapshotProbe& Entry) // GT Tick only
+    void TraceSnapshot(FIMAcousticSnapshotProbe& Entry) // GT Tick only
     {
         const uint64 N = SnapshotProbePushes.fetch_add(1, std::memory_order_relaxed);
         if (N >= ProbeSnapshotCapacity) { SnapshotProbeOverflows.fetch_add(1, std::memory_order_relaxed); return; }
@@ -475,7 +475,7 @@ struct IM_AcousticDeviceBridge
         SnapshotProbes[N] = Entry;
         SnapshotDone[N].store(N + 1, std::memory_order_release);
     }
-    void TraceBlock(IM_AcousticBlockProbe& Entry) // audio callbacks, concurrent voices
+    void TraceBlock(FIMAcousticBlockProbe& Entry) // audio callbacks, concurrent voices
     {
         // Wait-free: one atomic claim plus POD stores plus one release store.
         // No UE_LOG, no file I/O, no wait, no lock, no dynamic allocation.
@@ -485,7 +485,7 @@ struct IM_AcousticDeviceBridge
         BlockProbes[N] = Entry;
         BlockDone[N].store(N + 1, std::memory_order_release);
     }
-    void TraceWorker(IM_AcousticWorkerProbe& Entry) // worker thread only
+    void TraceWorker(FIMAcousticWorkerProbe& Entry) // worker thread only
     {
         const uint64 N = WorkerProbePushes.fetch_add(1, std::memory_order_relaxed);
         if (N >= ProbeWorkerCapacity) { WorkerProbeOverflows.fetch_add(1, std::memory_order_relaxed); return; }
@@ -493,7 +493,7 @@ struct IM_AcousticDeviceBridge
         WorkerProbes[N] = Entry;
         WorkerDone[N].store(N + 1, std::memory_order_release);
     }
-    void TraceCallback(IM_AcousticCallbackProbe& Entry) // source callbacks, concurrent voices
+    void TraceCallback(FIMAcousticCallbackProbe& Entry) // source callbacks, concurrent voices
     {
         const uint64 N = CallbackProbePushes.fetch_add(1, std::memory_order_relaxed);
         if (N >= CallbackProbeCapacity) { CallbackProbeOverflows.fetch_add(1, std::memory_order_relaxed); return; }
@@ -501,21 +501,21 @@ struct IM_AcousticDeviceBridge
         CallbackProbes[N] = Entry;
         CallbackDone[N].store(N + 1, std::memory_order_release);
     }
-    void TraceSourceBlock(const IM_AcousticSourceBlockProbe& Entry) // audio extension join
+    void TraceSourceBlock(const FIMAcousticSourceBlockProbe& Entry) // audio extension join
     {
         const uint64 N = SourceBlockProbePushes.fetch_add(1, std::memory_order_relaxed);
         if (N >= CallbackBlockProbeCapacity) { SourceBlockProbeOverflows.fetch_add(1, std::memory_order_relaxed); return; }
         SourceBlockProbes[N] = Entry;
         SourceBlockDone[N].store(N + 1, std::memory_order_release);
     }
-    void TraceReverbBlock(const IM_AcousticReverbBlockProbe& Entry) // submix callback
+    void TraceReverbBlock(const FIMAcousticReverbBlockProbe& Entry) // submix callback
     {
         const uint64 N = ReverbBlockProbePushes.fetch_add(1, std::memory_order_relaxed);
         if (N >= CallbackBlockProbeCapacity) { ReverbBlockProbeOverflows.fetch_add(1, std::memory_order_relaxed); return; }
         ReverbBlockProbes[N] = Entry;
         ReverbBlockDone[N].store(N + 1, std::memory_order_release);
     }
-    void TraceRareTail(const IM_AcousticRareTailProbe& Entry) // triggered audio evidence ring
+    void TraceRareTail(const FIMAcousticRareTailProbe& Entry) // triggered audio evidence ring
     {
         const uint64 N = RareTailProbePushes.fetch_add(1, std::memory_order_relaxed);
         if (N >= RareTailProbeCapacity) RareTailProbeOverflows.fetch_add(1, std::memory_order_relaxed);
@@ -558,7 +558,7 @@ struct IM_AcousticDeviceBridge
         const double SourceUs = FPlatformTime::ToSeconds64(SourceCycles) * 1.e6;
         const uint32 TriggerMask = RareTailTriggerMask(SourceUs, 0.0, SourceUs);
         if (!TriggerMask) return;
-        IM_AcousticRareTailProbe Probe{};
+        FIMAcousticRareTailProbe Probe{};
         Probe.AudioBlock = Sequence;
         Probe.SourceBlock = Sequence;
         Probe.TriggerMask = TriggerMask;
@@ -587,7 +587,7 @@ struct IM_AcousticDeviceBridge
         const double CombinedUs = SourceUs + ReverbUs;
         const uint32 TriggerMask = RareTailTriggerMask(SourceUs, ReverbUs, CombinedUs);
         if (!TriggerMask) return;
-        IM_AcousticRareTailProbe Probe{};
+        FIMAcousticRareTailProbe Probe{};
         Probe.AudioBlock = ReverbBlock;
         Probe.SourceBlock = SourceBlock;
         Probe.TriggerMask = TriggerMask;
@@ -633,7 +633,7 @@ struct IM_AcousticDeviceBridge
                     }
                 }
             }
-            IM_AcousticSourceBlockProbe SourceBlock{};
+            FIMAcousticSourceBlockProbe SourceBlock{};
             SourceBlock.AudioBlock = Sequence;
             SourceBlock.CallbackCount = End >= CallbackBlockStartPush ? uint32(End - CallbackBlockStartPush) : 0;
             SourceBlock.ValidSourceCount = Valid;
@@ -659,20 +659,20 @@ struct IM_AcousticDeviceBridge
                 Complete = false;
                 continue;
             }
-            const IM_AcousticCallbackProbe& P = CallbackProbes[Slot];
+            const FIMAcousticCallbackProbe& P = CallbackProbes[Slot];
             OutCSV += FString::Printf(TEXT("%llu,%llu,%u,%u,%u,%u,%u,%.9f,%.9f,%u,%u,%u,%u,%u,%u\n"),
                 P.CallbackIndex, P.AudioBlock, P.Voice, P.ValidSourceCount, P.Valid, P.Outcome, P.RejectDetail,
                 P.StartSeconds, P.EndSeconds, P.ResultDrainUs, P.ValidityUs, P.DryPushUs, P.RenderUs, P.FallbackUs, P.TotalUs);
         }
         return Complete && CallbackProbeOverflows.load(std::memory_order_acquire) == 0;
     }
-    IM_AcousticTiming SourceTiming,SourceBlockTiming,ReverbTiming,WorkerTiming,GameThreadTiming;
+    FIMAcousticTiming SourceTiming,SourceBlockTiming,ReverbTiming,WorkerTiming,GameThreadTiming;
     // Sub-phase diagnostic histograms (zero behavior; RecordCycles only, no
     // verdict/branch input). Worker loop: snapshot drain+match, voice solve,
     // reverb eval, result publish. GT tick: world traversal vs worker submit.
-    IM_AcousticTiming WorkerSnapshotTiming,WorkerSolveTiming,WorkerReverbTiming,WorkerPublishTiming;
-    IM_AcousticTiming GTTraverseTiming,GTSubmitTiming;
-    IM_AcousticTiming ApertureTransitTiming;
+    FIMAcousticTiming WorkerSnapshotTiming,WorkerSolveTiming,WorkerReverbTiming,WorkerPublishTiming;
+    FIMAcousticTiming GTTraverseTiming,GTSubmitTiming;
+    FIMAcousticTiming ApertureTransitTiming;
     std::atomic<uint64> ApertureTransitChecks{0},ApertureTransitBlocked{0};
     std::atomic<uint64> PendingSourceCycles{0};
     std::atomic<uint64> MaxSnapshotGapUs{0},MaxWorkerGapUs{0},StaleResultBlocks{0},MissingResultBlocks{0};
@@ -686,6 +686,9 @@ struct IM_AcousticDeviceBridge
 };
 
 // GT-only registry lookup. Never call this from an audio callback.
-TSharedPtr<IM_AcousticDeviceBridge, ESPMode::ThreadSafe> IM_FindAcousticDevice(FAudioDevice* Device);
-bool IM_RegisterAcousticSpatialization();
-void IM_UnregisterAcousticSpatialization();
+namespace IMAcousticSpatialization
+{
+TSharedPtr<FIMAcousticDeviceBridge, ESPMode::ThreadSafe> FindAcousticDevice(FAudioDevice* Device);
+bool RegisterAcousticSpatialization();
+void UnregisterAcousticSpatialization();
+}

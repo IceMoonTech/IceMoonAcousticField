@@ -2,37 +2,37 @@
 #include <algorithm>
 #include <cmath>
 
-namespace
+namespace IMAcousticAudioRendererPrivate
 {
-bool IMFinite(float Value) { return std::isfinite(Value); }
-bool IMFinite(const IPLVector3& V) { return IMFinite(V.x) && IMFinite(V.y) && IMFinite(V.z); }
-bool IMValidFrame(const IM_AcousticAudioFrame& Frame)
+bool Finite(float Value) { return std::isfinite(Value); }
+bool Finite(const IPLVector3& V) { return Finite(V.x) && Finite(V.y) && Finite(V.z); }
+bool ValidFrame(const FIMAcousticAudioFrame& Frame)
 {
     if (Frame.Generation == 0) { return false; }
     if (Frame.DirectValid)
     {
         const auto& D = Frame.Direct;
-        if (!IMFinite(Frame.ListenerLocalDirection) || !IMFinite(D.distanceAttenuation)
-            || !IMFinite(D.occlusion) || !IMFinite(D.directivity)) { return false; }
+        if (!Finite(Frame.ListenerLocalDirection) || !Finite(D.distanceAttenuation)
+            || !Finite(D.occlusion) || !Finite(D.directivity)) { return false; }
         for (int B = 0; B < IPL_NUM_BANDS; ++B)
         {
-            if (!IMFinite(D.airAbsorption[B]) || !IMFinite(D.transmission[B])) { return false; }
+            if (!Finite(D.airAbsorption[B]) || !Finite(D.transmission[B])) { return false; }
         }
     }
     if (Frame.PathValid)
     {
-        if (!IMFinite(Frame.Listener.origin) || !IMFinite(Frame.Listener.right)
-            || !IMFinite(Frame.Listener.up) || !IMFinite(Frame.Listener.ahead)) { return false; }
-        for (float V : Frame.PathEQ) { if (!IMFinite(V) || V < 0.0f) { return false; } }
-        for (float V : Frame.PathSH) { if (!IMFinite(V)) { return false; } }
+        if (!Finite(Frame.Listener.origin) || !Finite(Frame.Listener.right)
+            || !Finite(Frame.Listener.up) || !Finite(Frame.Listener.ahead)) { return false; }
+        for (float V : Frame.PathEQ) { if (!Finite(V) || V < 0.0f) { return false; } }
+        for (float V : Frame.PathSH) { if (!Finite(V)) { return false; } }
     }
     return true;
 }
 }
 
-IM_AcousticAudioRenderer::~IM_AcousticAudioRenderer() { Shutdown(); }
+FIMAcousticAudioRenderer::~FIMAcousticAudioRenderer() { Shutdown(); }
 
-bool IM_AcousticAudioRenderer::Initialize(IPLContext InContext, IPLHRTF InHRTF,
+bool FIMAcousticAudioRenderer::Initialize(IPLContext InContext, IPLHRTF InHRTF,
     int SampleRate, int InBlockFrames)
 {
     Shutdown();
@@ -43,7 +43,7 @@ bool IM_AcousticAudioRenderer::Initialize(IPLContext InContext, IPLHRTF InHRTF,
     IPLDirectEffectSettings DirectSettings{1};
     IPLBinauralEffectSettings BinauralSettings{HRTF};
     IPLPathEffectSettings PathSettings{};
-    PathSettings.maxOrder = IM_AcousticAudioFrame::Order;
+    PathSettings.maxOrder = FIMAcousticAudioFrame::Order;
     PathSettings.spatialize = IPL_TRUE;
     PathSettings.speakerLayout.type = IPL_SPEAKERLAYOUTTYPE_STEREO;
     PathSettings.hrtf = HRTF;
@@ -65,7 +65,7 @@ bool IM_AcousticAudioRenderer::Initialize(IPLContext InContext, IPLHRTF InHRTF,
     return true;
 }
 
-void IM_AcousticAudioRenderer::Reset()
+void FIMAcousticAudioRenderer::Reset()
 {
     if (DirectEffect) { iplDirectEffectReset(DirectEffect); }
     if (BinauralEffect) { iplBinauralEffectReset(BinauralEffect); }
@@ -74,7 +74,7 @@ void IM_AcousticAudioRenderer::Reset()
     ActiveGeneration = 0;
 }
 
-void IM_AcousticAudioRenderer::Shutdown()
+void FIMAcousticAudioRenderer::Shutdown()
 {
     if (PathEffect) { iplPathEffectRelease(&PathEffect); }
     if (BinauralEffect) { iplBinauralEffectRelease(&BinauralEffect); }
@@ -86,9 +86,9 @@ void IM_AcousticAudioRenderer::Shutdown()
     WasDirectValid = WasPathValid = false;
 }
 
-bool IM_AcousticAudioRenderer::Render(const float* DryMono, int Frames,
-    const IM_AcousticAudioFrame& Frame, float* Stereo, float* DirectStereo, float* PathStereo,
-    IM_AcousticAudioMetrics* Metrics, std::uint32_t AudibleRoutes)
+bool FIMAcousticAudioRenderer::Render(const float* DryMono, int Frames,
+    const FIMAcousticAudioFrame& Frame, float* Stereo, float* DirectStereo, float* PathStereo,
+    FIMAcousticAudioMetrics* Metrics, std::uint32_t AudibleRoutes)
 {
     if (Metrics) { *Metrics = {}; }
     if (!Stereo || Frames <= 0) { return false; }
@@ -96,9 +96,9 @@ bool IM_AcousticAudioRenderer::Render(const float* DryMono, int Frames,
     if (DirectStereo) { std::fill_n(DirectStereo, Frames * 2, 0.0f); }
     if (PathStereo) { std::fill_n(PathStereo, Frames * 2, 0.0f); }
     if (!DryMono || Frames != BlockFrames || !DirectEffect || !BinauralEffect || !PathEffect
-        || !IMValidFrame(Frame))
+        || !IMAcousticAudioRendererPrivate::ValidFrame(Frame))
     {
-        if(Metrics)Metrics->Failure=IM_AcousticRenderFailure::InvalidFrame;
+        if(Metrics)Metrics->Failure=EIMAcousticRenderFailure::InvalidFrame;
         Reset();
         return false;
     }
@@ -110,7 +110,7 @@ bool IM_AcousticAudioRenderer::Render(const float* DryMono, int Frames,
     }
     for (int I = 0; I < Frames; ++I)
     {
-        if (!IMFinite(DryMono[I])) { if(Metrics)Metrics->Failure=IM_AcousticRenderFailure::NonfiniteInput;Reset(); return false; }
+        if (!IMAcousticAudioRendererPrivate::Finite(DryMono[I])) { if(Metrics)Metrics->Failure=EIMAcousticRenderFailure::NonfiniteInput;Reset(); return false; }
         Input[I] = DryMono[I];
     }
     for (int C = 0; C < 2; ++C)
@@ -150,7 +150,7 @@ bool IM_AcousticAudioRenderer::Render(const float* DryMono, int Frames,
         // pointer escapes a worker update. The local copy also honors its mutable ABI.
         auto Coefficients = Frame.PathSH;
         Path.shCoeffs = Coefficients.data();
-        Path.order = IM_AcousticAudioFrame::Order;
+        Path.order = FIMAcousticAudioFrame::Order;
         Path.binaural = IPL_TRUE;
         Path.hrtf = HRTF;
         Path.listener = Frame.Listener;
@@ -170,9 +170,9 @@ bool IM_AcousticAudioRenderer::Render(const float* DryMono, int Frames,
             const float D = (AudibleRoutes & 1) ? DirectOutput[C][I] : 0.f;
             const float P = (AudibleRoutes & 2) ? PathOutput[C][I] : 0.f;
             const float Sum = D + P;
-            if (!IMFinite(DirectOutput[C][I]) || !IMFinite(PathOutput[C][I]) || !IMFinite(Sum))
+            if (!IMAcousticAudioRendererPrivate::Finite(DirectOutput[C][I]) || !IMAcousticAudioRendererPrivate::Finite(PathOutput[C][I]) || !IMAcousticAudioRendererPrivate::Finite(Sum))
             {
-                if(Metrics)Metrics->Failure=!IMFinite(DirectOutput[C][I])?IM_AcousticRenderFailure::NonfiniteDirect:IM_AcousticRenderFailure::NonfinitePath;
+                if(Metrics)Metrics->Failure=!IMAcousticAudioRendererPrivate::Finite(DirectOutput[C][I])?EIMAcousticRenderFailure::NonfiniteDirect:EIMAcousticRenderFailure::NonfinitePath;
                 std::fill_n(Stereo, Frames * 2, 0.0f);
                 if (DirectStereo) { std::fill_n(DirectStereo, Frames * 2, 0.0f); }
                 if (PathStereo) { std::fill_n(PathStereo, Frames * 2, 0.0f); }

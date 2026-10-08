@@ -13,11 +13,11 @@
 #include "Misc/SecureHash.h"
 #include "Serialization/JsonWriter.h"
 
-namespace
+namespace IMAcousticAuditionRebakeTestPrivate
 {
-constexpr const TCHAR* IMAuditionRebakeMap = TEXT("/IceMoonAcousticField/Tests/IM_V2Audition");
+constexpr const TCHAR* AuditionRebakeMap = TEXT("/IceMoonAcousticField/Tests/IM_V2Audition");
 
-FString IMAuditionRebakeGeometryIdentity(UWorld* World)
+FString AuditionRebakeGeometryIdentity(UWorld* World)
 {
     TArray<FString> Items;
     for (TActorIterator<AActor> It(World); It; ++It)
@@ -42,10 +42,10 @@ FString IMAuditionRebakeGeometryIdentity(UWorld* World)
     return BytesToHex(Digest, 20);
 }
 
-class IM_AuditionRebakeCommand final : public IAutomationLatentCommand
+class FIMAuditionRebakeCommand final : public IAutomationLatentCommand
 {
 public:
-    explicit IM_AuditionRebakeCommand(FAutomationTestBase* InTest)
+    explicit FIMAuditionRebakeCommand(FAutomationTestBase* InTest)
         : Test(InTest), Started(FPlatformTime::Seconds()) {}
     bool Update() override
     {
@@ -59,7 +59,7 @@ public:
             {
                 return Finish(false, TEXT("AuditionRebake requires an idle owned Editor; PIE must be stopped by root first."));
             }
-            if (!FEditorFileUtils::LoadMap(IMAuditionRebakeMap, false, true))
+            if (!FEditorFileUtils::LoadMap(AuditionRebakeMap, false, true))
             {
                 return Finish(false, TEXT("Existing audition map missing; refusing to manufacture a replacement."));
             }
@@ -88,7 +88,7 @@ public:
             OldPackage = Volume->BakedField->GetOutermost()->GetName();
             OldFingerprint = Volume->BakedField->SceneFingerprint;
             OldAssetFile = FPackageName::LongPackageNameToFilename(OldPackage, FPackageName::GetAssetPackageExtension());
-            GeometryBefore = IMAuditionRebakeGeometryIdentity(World);
+            GeometryBefore = AuditionRebakeGeometryIdentity(World);
             Volume->GenerateProbes();
             if (Volume->GeneratedProbes <= 0)
             {
@@ -127,7 +127,7 @@ public:
         {
             return Finish(false, TEXT("Previous bake asset file missing after bake; recovery is not reversible."));
         }
-        if (Volume->BakedField->WorldPackage != IMAuditionRebakeMap)
+        if (Volume->BakedField->WorldPackage != AuditionRebakeMap)
         {
             return Finish(false, TEXT("New bake belongs to a different map; refusing binding."));
         }
@@ -138,16 +138,16 @@ public:
         }
         TArray<FVector4> Preview;
         FVector Origin = FVector::ZeroVector;
-        if (!Volume->BakedField->GetProbePreview(IMAuditionRebakeMap, Volume->BakedField->SceneFingerprint, Preview, Origin, Error) || Preview.Num() == 0)
+        if (!Volume->BakedField->GetProbePreview(AuditionRebakeMap, Volume->BakedField->SceneFingerprint, Preview, Origin, Error) || Preview.Num() == 0)
         {
             return Finish(false, FString::Printf(TEXT("Rebaked probe preview unavailable: %s"), *Error));
         }
         UWorld* World = Volume->GetWorld();
-        if (!World || IMAuditionRebakeGeometryIdentity(World) != GeometryBefore)
+        if (!World || AuditionRebakeGeometryIdentity(World) != GeometryBefore)
         {
             return Finish(false, TEXT("Bake changed audition mesh geometry; refusing map save."));
         }
-        const FString MapFile = FPackageName::LongPackageNameToFilename(IMAuditionRebakeMap, FPackageName::GetMapPackageExtension());
+        const FString MapFile = FPackageName::LongPackageNameToFilename(AuditionRebakeMap, FPackageName::GetMapPackageExtension());
         if (!FEditorFileUtils::SaveLevel(World->PersistentLevel, MapFile))
         {
             return Finish(false, TEXT("Cannot save audition map with the new bake binding; new asset retained, map unchanged on disk."));
@@ -158,7 +158,7 @@ public:
         auto Writer = TJsonWriterFactory<>::Create(&Json);
         Writer->WriteObjectStart();
         Writer->WriteValue(TEXT("scope"), TEXT("audition fixture rebake only; no threshold or product-semantic change"));
-        Writer->WriteValue(TEXT("map"), IMAuditionRebakeMap);
+        Writer->WriteValue(TEXT("map"), AuditionRebakeMap);
         Writer->WriteValue(TEXT("old_bake_path"), OldBakePath);
         Writer->WriteValue(TEXT("old_bake_package"), OldPackage);
         Writer->WriteValue(TEXT("old_scene_fingerprint"), OldFingerprint);
@@ -207,7 +207,7 @@ private:
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FIMAcousticAuditionRebakeTest, "IceMoon.AcousticField.W3.AuditionRebake", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FIMAcousticAuditionRebakeTest::RunTest(const FString&)
 {
-    ADD_LATENT_AUTOMATION_COMMAND(IM_AuditionRebakeCommand(this));
+    ADD_LATENT_AUTOMATION_COMMAND(IMAcousticAuditionRebakeTestPrivate::FIMAuditionRebakeCommand(this));
     return true;
 }
 #endif

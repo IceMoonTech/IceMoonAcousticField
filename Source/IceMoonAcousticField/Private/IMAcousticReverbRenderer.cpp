@@ -2,30 +2,30 @@
 #include <algorithm>
 #include <cmath>
 
-namespace
+namespace IMAcousticReverbRendererPrivate
 {
-bool IMReverbFinite(float Value) { return std::isfinite(Value) != 0; }
-bool IMReverbFinite(const IPLVector3& V)
+bool ReverbFinite(float Value) { return std::isfinite(Value) != 0; }
+bool ReverbFinite(const IPLVector3& V)
 {
-    return IMReverbFinite(V.x) && IMReverbFinite(V.y) && IMReverbFinite(V.z);
+    return ReverbFinite(V.x) && ReverbFinite(V.y) && ReverbFinite(V.z);
 }
-bool IMReverbFinite(const IPLCoordinateSpace3& Space)
+bool ReverbFinite(const IPLCoordinateSpace3& Space)
 {
-    return IMReverbFinite(Space.origin) && IMReverbFinite(Space.right)
-        && IMReverbFinite(Space.up) && IMReverbFinite(Space.ahead);
+    return ReverbFinite(Space.origin) && ReverbFinite(Space.right)
+        && ReverbFinite(Space.up) && ReverbFinite(Space.ahead);
 }
-void IMReverbClear(float* Stereo, int Frames)
+void ReverbClear(float* Stereo, int Frames)
 {
     if (Stereo && Frames > 0) { std::fill_n(Stereo, Frames * 2, 0.0f); }
 }
-constexpr int IMReverbOrder = 1;
-constexpr int IMReverbAmbiChannels = (IMReverbOrder + 1) * (IMReverbOrder + 1);
-constexpr int IMReverbStereoChannels = 2;
+constexpr int ReverbOrder = 1;
+constexpr int ReverbAmbiChannels = (ReverbOrder + 1) * (ReverbOrder + 1);
+constexpr int ReverbStereoChannels = 2;
 }
 
-IM_AcousticReverbRenderer::~IM_AcousticReverbRenderer() { Cleanup(); }
+FIMAcousticReverbRenderer::~FIMAcousticReverbRenderer() { Cleanup(); }
 
-bool IM_AcousticReverbRenderer::Initialize(IPLContext InContext, IPLHRTF InHRTF,
+bool FIMAcousticReverbRenderer::Initialize(IPLContext InContext, IPLHRTF InHRTF,
     int SampleRateHz, int InBlockFrames, int InIRSizeSamples)
 {
     Cleanup();
@@ -40,13 +40,13 @@ bool IM_AcousticReverbRenderer::Initialize(IPLContext InContext, IPLHRTF InHRTF,
     IPLReflectionEffectSettings ReflectionSettings{};
     ReflectionSettings.type = IPL_REFLECTIONEFFECTTYPE_CONVOLUTION;
     ReflectionSettings.irSize = InIRSizeSamples;
-    ReflectionSettings.numChannels = IMReverbAmbiChannels;
+    ReflectionSettings.numChannels = IMAcousticReverbRendererPrivate::ReverbAmbiChannels;
     IPLAmbisonicsDecodeEffectSettings DecodeSettings{};
     DecodeSettings.speakerLayout.type = IPL_SPEAKERLAYOUTTYPE_STEREO;
     DecodeSettings.speakerLayout.numSpeakers = 0;
     DecodeSettings.speakerLayout.speakers = nullptr;
     DecodeSettings.hrtf = HRTF;
-    DecodeSettings.maxOrder = IMReverbOrder;
+    DecodeSettings.maxOrder = IMAcousticReverbRendererPrivate::ReverbOrder;
     if (iplReflectionEffectCreate(Context, &Audio, &ReflectionSettings,
             &ReflectionEffect) != IPL_STATUS_SUCCESS
         || iplAmbisonicsDecodeEffectCreate(Context, &Audio, &DecodeSettings,
@@ -63,13 +63,13 @@ bool IM_AcousticReverbRenderer::Initialize(IPLContext InContext, IPLHRTF InHRTF,
     return true;
 }
 
-void IM_AcousticReverbRenderer::Reset()
+void FIMAcousticReverbRenderer::Reset()
 {
     if (ReflectionEffect) { iplReflectionEffectReset(ReflectionEffect); }
     if (DecodeEffect) { iplAmbisonicsDecodeEffectReset(DecodeEffect); }
 }
 
-void IM_AcousticReverbRenderer::Cleanup()
+void FIMAcousticReverbRenderer::Cleanup()
 {
     if (DecodeEffect) { iplAmbisonicsDecodeEffectRelease(&DecodeEffect); }
     if (ReflectionEffect) { iplReflectionEffectRelease(&ReflectionEffect); }
@@ -86,39 +86,39 @@ void IM_AcousticReverbRenderer::Cleanup()
     for (auto& Channel : Decoded) { Channel.clear(); }
 }
 
-bool IM_AcousticReverbRenderer::Render(const float* Mono, int Frames,
+bool FIMAcousticReverbRenderer::Render(const float* Mono, int Frames,
     const IPLReflectionEffectParams& EffectParams,
-    const IPLCoordinateSpace3& Listener, float* Stereo, IM_AcousticReverbMetrics* Metrics)
+    const IPLCoordinateSpace3& Listener, float* Stereo, FIMAcousticReverbMetrics* Metrics)
 {
     if(Metrics)*Metrics={};
     if (!Stereo || Frames <= 0) { Reset(); return false; }
     if (!ReflectionEffect || !DecodeEffect || BlockFrames <= 0 || IRSizeSamples <= 0
         || !Mono || Frames != BlockFrames)
     {
-        IMReverbClear(Stereo, Frames);
+        IMAcousticReverbRendererPrivate::ReverbClear(Stereo, Frames);
         Reset();
         return false;
     }
     if (EffectParams.type != IPL_REFLECTIONEFFECTTYPE_CONVOLUTION
         || EffectParams.ir == nullptr
-        || EffectParams.numChannels != IMReverbAmbiChannels
+        || EffectParams.numChannels != IMAcousticReverbRendererPrivate::ReverbAmbiChannels
         || EffectParams.irSize != IRSizeSamples)
     {
-        IMReverbClear(Stereo, Frames);
+        IMAcousticReverbRendererPrivate::ReverbClear(Stereo, Frames);
         Reset();
         return false;
     }
-    if (!IMReverbFinite(Listener))
+    if (!IMAcousticReverbRendererPrivate::ReverbFinite(Listener))
     {
-        IMReverbClear(Stereo, Frames);
+        IMAcousticReverbRendererPrivate::ReverbClear(Stereo, Frames);
         Reset();
         return false;
     }
     for (int I = 0; I < Frames; ++I)
     {
-        if (!IMReverbFinite(Mono[I]))
+        if (!IMAcousticReverbRendererPrivate::ReverbFinite(Mono[I]))
         {
-            IMReverbClear(Stereo, Frames);
+            IMAcousticReverbRendererPrivate::ReverbClear(Stereo, Frames);
             Reset();
             return false;
         }
@@ -128,13 +128,13 @@ bool IM_AcousticReverbRenderer::Render(const float* Mono, int Frames,
     for (auto& Channel : Ambi) { std::fill(Channel.begin(), Channel.end(), 0.0f); }
     for (auto& Channel : Decoded) { std::fill(Channel.begin(), Channel.end(), 0.0f); }
     float* InChannels[1] = { Input.data() };
-    float* AmbiChannels[IMReverbAmbiChannels] =
+    float* AmbiChannels[IMAcousticReverbRendererPrivate::ReverbAmbiChannels] =
         { Ambi[0].data(), Ambi[1].data(), Ambi[2].data(), Ambi[3].data() };
-    float* StereoChannels[IMReverbStereoChannels] =
+    float* StereoChannels[IMAcousticReverbRendererPrivate::ReverbStereoChannels] =
         { Decoded[0].data(), Decoded[1].data() };
     IPLAudioBuffer InBuffer{1, Frames, InChannels};
-    IPLAudioBuffer AmbiBuffer{IMReverbAmbiChannels, Frames, AmbiChannels};
-    IPLAudioBuffer StereoBuffer{IMReverbStereoChannels, Frames, StereoChannels};
+    IPLAudioBuffer AmbiBuffer{IMAcousticReverbRendererPrivate::ReverbAmbiChannels, Frames, AmbiChannels};
+    IPLAudioBuffer StereoBuffer{IMAcousticReverbRendererPrivate::ReverbStereoChannels, Frames, StereoChannels};
     // Borrowed IR: copied handle is read only inside this apply; this object
     // never retains or releases the source IR. Root owns the IR lifetime and
     // keeps it alive until Render returns. Effect history state stays inside
@@ -143,19 +143,19 @@ bool IM_AcousticReverbRenderer::Render(const float* Mono, int Frames,
     iplReflectionEffectApply(ReflectionEffect, &ActiveParams, &InBuffer, &AmbiBuffer, nullptr);
     if(Metrics)for(const auto& Channel:Ambi)for(float V:Channel)Metrics->AmbisonicsEnergy+=double(V)*V;
     IPLAmbisonicsDecodeEffectParams DecodeParams{};
-    DecodeParams.order = IMReverbOrder;
+    DecodeParams.order = IMAcousticReverbRendererPrivate::ReverbOrder;
     DecodeParams.hrtf = HRTF;
     DecodeParams.orientation = Listener;
     DecodeParams.binaural = IPL_TRUE;
     iplAmbisonicsDecodeEffectApply(DecodeEffect, &DecodeParams, &AmbiBuffer, &StereoBuffer);
     for (int I = 0; I < Frames; ++I)
     {
-        for (int C = 0; C < IMReverbStereoChannels; ++C)
+        for (int C = 0; C < IMAcousticReverbRendererPrivate::ReverbStereoChannels; ++C)
         {
             const float Sample = Decoded[static_cast<std::size_t>(C)][static_cast<std::size_t>(I)];
-            if (!IMReverbFinite(Sample))
+            if (!IMAcousticReverbRendererPrivate::ReverbFinite(Sample))
             {
-                IMReverbClear(Stereo, Frames);
+                IMAcousticReverbRendererPrivate::ReverbClear(Stereo, Frames);
                 Reset();
                 return false;
             }

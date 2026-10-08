@@ -454,7 +454,7 @@ def main():
     vcvars = Path(install) / 'VC/Auxiliary/Build/vcvars64.bat'
     if not vcvars.is_file():
         raise RuntimeError('MSVC vcvars64.bat not found')
-    inputs = [plugin / 'Tests/IM_SteamAudioSmoke.cpp', source/'IMAcousticAudioRenderer.cpp', source/'IMAcousticSDKContext.cpp']
+    inputs = [plugin / 'Tests/IMSteamAudioSmoke.cpp', source/'IMAcousticAudioRenderer.cpp', source/'IMAcousticSDKContext.cpp']
     for path in [output, vcvars, *inputs, sdk, source, Path(__file__)]:
         if any(c in str(path) for c in '\r\n"%&|<>^'):
             raise ValueError('Path contains unsupported shell/response characters')

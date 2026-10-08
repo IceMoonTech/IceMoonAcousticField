@@ -11,26 +11,26 @@
 // W1 fixed small-scale config. Units follow the SDK headers (meters, seconds,
 // fractions in [0,1]). Each constant states its quality direction; none of
 // them is a verified performance claim. Raise only with measured need.
-namespace
+namespace IMAcousticSimulationPrivate
 {
 // Although phonon.h calls this optional, the pinned Win64 4.8.1 path baker
 // calls a null callback (native W1 fault RIP=0 at iplPathBakerBake; upstream
 // issue #167 describes the same failure). Always supply a live callback.
-void IPLCALL IMBakeProgress(IPLfloat32, void*) {}
+void IPLCALL BakeProgress(IPLfloat32, void*) {}
 
-bool IMSimulationFinite(float V) { return std::isfinite(V) != 0; }
-bool IMSimulationFinite(const IPLVector3& V) { return IMSimulationFinite(V.x) && IMSimulationFinite(V.y) && IMSimulationFinite(V.z); }
-bool IMFiniteSpace(const IPLCoordinateSpace3& S)
+bool SimulationFinite(float V) { return std::isfinite(V) != 0; }
+bool SimulationFinite(const IPLVector3& V) { return SimulationFinite(V.x) && SimulationFinite(V.y) && SimulationFinite(V.z); }
+bool FiniteSpace(const IPLCoordinateSpace3& S)
 {
-    return IMSimulationFinite(S.right) && IMSimulationFinite(S.up) && IMSimulationFinite(S.ahead) && IMSimulationFinite(S.origin);
+    return SimulationFinite(S.right) && SimulationFinite(S.up) && SimulationFinite(S.ahead) && SimulationFinite(S.origin);
 }
-bool IMFiniteMatrix(const IPLMatrix4x4& M)
+bool FiniteMatrix(const IPLMatrix4x4& M)
 {
     for (int R = 0; R < 4; ++R)
     {
         for (int C = 0; C < 4; ++C)
         {
-            if (!IMSimulationFinite(M.elements[R][C])) { return false; }
+            if (!SimulationFinite(M.elements[R][C])) { return false; }
         }
     }
     // The SDK consumes affine local-to-world matrices. Reject projective or
@@ -38,24 +38,24 @@ bool IMFiniteMatrix(const IPLMatrix4x4& M)
     return std::abs(M.elements[3][0]) <= 1.e-4f && std::abs(M.elements[3][1]) <= 1.e-4f
         && std::abs(M.elements[3][2]) <= 1.e-4f && std::abs(M.elements[3][3] - 1.0f) <= 1.e-4f;
 }
-IPLVector3 IMTransformPoint(const IPLMatrix4x4& M, const IPLVector3& P)
+IPLVector3 TransformPoint(const IPLMatrix4x4& M, const IPLVector3& P)
 {
     return {M.elements[0][0] * P.x + M.elements[0][1] * P.y + M.elements[0][2] * P.z + M.elements[0][3],
         M.elements[1][0] * P.x + M.elements[1][1] * P.y + M.elements[1][2] * P.z + M.elements[1][3],
         M.elements[2][0] * P.x + M.elements[2][1] * P.y + M.elements[2][2] * P.z + M.elements[2][3]};
 }
-bool IMFiniteMaterial(const IPLMaterial& M)
+bool FiniteMaterial(const IPLMaterial& M)
 {
     for (int B = 0; B < IPL_NUM_BANDS; ++B)
     {
-        if (!IMSimulationFinite(M.absorption[B]) || M.absorption[B] < 0.0f || M.absorption[B] > 1.0f) { return false; }
-        if (!IMSimulationFinite(M.transmission[B]) || M.transmission[B] < 0.0f || M.transmission[B] > 1.0f) { return false; }
+        if (!SimulationFinite(M.absorption[B]) || M.absorption[B] < 0.0f || M.absorption[B] > 1.0f) { return false; }
+        if (!SimulationFinite(M.transmission[B]) || M.transmission[B] < 0.0f || M.transmission[B] > 1.0f) { return false; }
     }
-    return IMSimulationFinite(M.scattering) && M.scattering >= 0.0f && M.scattering <= 1.0f;
+    return SimulationFinite(M.scattering) && M.scattering >= 0.0f && M.scattering <= 1.0f;
 }
 // Geometry/material validation shared by Bake and GenerateProbes. Probes may
 // be empty only when RequireProbes is false; Bake always requires them.
-bool IMValidateBakeGeometry(const IM_AcousticSceneInput& In, bool RequireProbes,
+bool ValidateBakeGeometry(const FIMAcousticSceneInput& In, bool RequireProbes,
     const char* What, std::string& OutError)
 {
     static_assert(sizeof(int) == sizeof(IPLint32), "MaterialIndices must alias IPLint32");
@@ -70,7 +70,7 @@ bool IMValidateBakeGeometry(const IM_AcousticSceneInput& In, bool RequireProbes,
     if (RequireProbes && In.Probes.empty()) { OutError = Tag + "Probes empty."; return false; }
     for (const auto& V : In.Vertices)
     {
-        if (!IMSimulationFinite(V)) { OutError = Tag + "non-finite vertex."; return false; }
+        if (!SimulationFinite(V)) { OutError = Tag + "non-finite vertex."; return false; }
     }
     const IPLint32 NumVerts = static_cast<IPLint32>(In.Vertices.size());
     for (const auto& T : In.Triangles)
@@ -87,11 +87,11 @@ bool IMValidateBakeGeometry(const IM_AcousticSceneInput& In, bool RequireProbes,
     }
     for (const auto& M : In.Materials)
     {
-        if (!IMFiniteMaterial(M)) { OutError = Tag + "material out of [0,1] or non-finite."; return false; }
+        if (!FiniteMaterial(M)) { OutError = Tag + "material out of [0,1] or non-finite."; return false; }
     }
     for (const auto& P : In.Probes)
     {
-        if (!IMSimulationFinite(P.center) || !IMSimulationFinite(P.radius) || P.radius <= 0.0f)
+        if (!SimulationFinite(P.center) || !SimulationFinite(P.radius) || P.radius <= 0.0f)
         {
             OutError = Tag + "invalid probe sphere."; return false;
         }
@@ -101,23 +101,23 @@ bool IMValidateBakeGeometry(const IM_AcousticSceneInput& In, bool RequireProbes,
 
 // Rejects bad input before any SDK call; never fabricates success.
 // The empty-Probes rejection stays here: Bake never accepts probeless input.
-bool IMValidateSceneInput(const IM_AcousticSceneInput& In, std::string& OutError)
+bool ValidateSceneInput(const FIMAcousticSceneInput& In, std::string& OutError)
 {
-    return IMValidateBakeGeometry(In, true, "Bake", OutError);
+    return ValidateBakeGeometry(In, true, "Bake", OutError);
 }
 
 // Only UNIFORMFLOOR generation is supported. Spacing/height are meters.
-bool IMValidateProbeGenParams(const IPLProbeGenerationParams& P, std::string& OutError)
+bool ValidateProbeGenParams(const IPLProbeGenerationParams& P, std::string& OutError)
 {
     if (P.type != IPL_PROBEGENERATIONTYPE_UNIFORMFLOOR)
     {
         OutError = "GenerateProbes: only UNIFORMFLOOR generation is supported."; return false;
     }
-    if (!IMSimulationFinite(P.spacing) || P.spacing <= 0.0f)
+    if (!SimulationFinite(P.spacing) || P.spacing <= 0.0f)
     {
         OutError = "GenerateProbes: spacing must be finite and positive (m)."; return false;
     }
-    if (!IMSimulationFinite(P.height) || P.height <= 0.0f)
+    if (!SimulationFinite(P.height) || P.height <= 0.0f)
     {
         OutError = "GenerateProbes: height must be finite and positive (m)."; return false;
     }
@@ -125,7 +125,7 @@ bool IMValidateProbeGenParams(const IPLProbeGenerationParams& P, std::string& Ou
     {
         for (int C = 0; C < 4; ++C)
         {
-            if (!IMSimulationFinite(P.transform.elements[R][C]))
+            if (!SimulationFinite(P.transform.elements[R][C]))
             {
                 OutError = "GenerateProbes: non-finite transform element."; return false;
             }
@@ -134,7 +134,7 @@ bool IMValidateProbeGenParams(const IPLProbeGenerationParams& P, std::string& Ou
     return true;
 }
 
-bool IMCopySerialized(IPLSerializedObject Obj, std::vector<std::uint8_t>& Out,
+bool CopySerialized(IPLSerializedObject Obj, std::vector<std::uint8_t>& Out,
     std::string& OutError, const char* What)
 {
     const IPLsize Size = iplSerializedObjectGetSize(Obj);
@@ -152,19 +152,19 @@ bool IMCopySerialized(IPLSerializedObject Obj, std::vector<std::uint8_t>& Out,
 // Shared by Bake and GenerateProbes. Destruction releases mesh, then scene,
 // then the context lease, in that order. Borrowed input arrays must outlive
 // this scope; no SDK handle escapes it.
-struct IM_BakeSceneScope
+struct FIMBakeSceneScope
 {
     IPLContext Ctx = nullptr;
     IPLScene Scene = nullptr;
     IPLStaticMesh Mesh = nullptr;
-    IM_BakeSceneScope() = default;
-    IM_BakeSceneScope(const IM_BakeSceneScope&) = delete;
-    IM_BakeSceneScope& operator=(const IM_BakeSceneScope&) = delete;
-    ~IM_BakeSceneScope() { Reset(); }
-    bool Build(const IM_AcousticSceneInput& Geo, const char* What, std::string& OutError)
+    FIMBakeSceneScope() = default;
+    FIMBakeSceneScope(const FIMBakeSceneScope&) = delete;
+    FIMBakeSceneScope& operator=(const FIMBakeSceneScope&) = delete;
+    ~FIMBakeSceneScope() { Reset(); }
+    bool Build(const FIMAcousticSceneInput& Geo, const char* What, std::string& OutError)
     {
         Reset();
-        const IPLContext Shared = IM_GetAcousticSDKContext();
+        const IPLContext Shared = IMAcousticSDKContext::GetAcousticSDKContext();
         Ctx = Shared ? iplContextRetain(Shared) : nullptr;
         if (Ctx == nullptr) { OutError = std::string(What) + ": shared SDK context unavailable."; return false; }
         IPLSceneSettings SceneSettings{};
@@ -201,13 +201,13 @@ struct IM_BakeSceneScope
 };
 } // namespace
 
-IM_AcousticSimulation::~IM_AcousticSimulation() { Shutdown(); }
-bool IM_AcousticSimulation::SetPathingOptions(const IM_AcousticPathingOptions& Options, std::string& OutError)
+FIMAcousticSimulation::~FIMAcousticSimulation() { Shutdown(); }
+bool FIMAcousticSimulation::SetPathingOptions(const FIMAcousticPathingOptions& Options, std::string& OutError)
 {
     if (!Options.IsComplete())
     {
         OutError = std::string("SetPathingOptions: missing explicit field(s): ") + Options.MissingFields()
-            + "; pass every field or IM_AcousticPathingOptions::DefaultHybrid().";
+            + "; pass every field or FIMAcousticPathingOptions::DefaultHybrid().";
         return false;
     }
     PathingOptions = Options;
@@ -220,10 +220,10 @@ bool IM_AcousticSimulation::SetPathingOptions(const IM_AcousticPathingOptions& O
     PathingReadback.LastGeneration = 0;
     return true;
 }
-IM_AcousticPathingOptions IM_AcousticSimulation::GetPathingOptions() const { return PathingOptions; }
-IM_AcousticPathingReadback IM_AcousticSimulation::GetPathingReadback() const { return PathingReadback; }
-bool IM_AcousticSimulation::SetApertureTransitPolicy(
-    const IM_AcousticApertureTransitPolicy& Policy, std::string& OutError)
+FIMAcousticPathingOptions FIMAcousticSimulation::GetPathingOptions() const { return PathingOptions; }
+FIMAcousticPathingReadback FIMAcousticSimulation::GetPathingReadback() const { return PathingReadback; }
+bool FIMAcousticSimulation::SetApertureTransitPolicy(
+    const FIMAcousticApertureTransitPolicy& Policy, std::string& OutError)
 {
     OutError.clear();
     if (!Policy.Enabled)
@@ -231,7 +231,7 @@ bool IM_AcousticSimulation::SetApertureTransitPolicy(
         ApertureTransitPolicy = {};
         return true;
     }
-    if (!IMSimulationFinite(Policy.Center) || !IMSimulationFinite(Policy.HalfExtent)
+    if (!IMAcousticSimulationPrivate::SimulationFinite(Policy.Center) || !IMAcousticSimulationPrivate::SimulationFinite(Policy.HalfExtent)
         || Policy.HalfExtent.x <= 0.0f || Policy.HalfExtent.y <= 0.0f || Policy.HalfExtent.z <= 0.0f)
     {
         OutError = "SetApertureTransitPolicy: enabled policy needs finite positive half extents.";
@@ -240,18 +240,18 @@ bool IM_AcousticSimulation::SetApertureTransitPolicy(
     ApertureTransitPolicy = Policy;
     return true;
 }
-IM_AcousticApertureTransitPolicy IM_AcousticSimulation::GetApertureTransitPolicy() const
+FIMAcousticApertureTransitPolicy FIMAcousticSimulation::GetApertureTransitPolicy() const
 {
     return ApertureTransitPolicy;
 }
-bool IM_AcousticSimulation::RequirePathingOptions(const char* What, std::string& OutError) const
+bool FIMAcousticSimulation::RequirePathingOptions(const char* What, std::string& OutError) const
 {
     if (PathingOptions.IsComplete()) { return true; }
     OutError = std::string(What) + ": pathing options incomplete, missing explicit field(s): "
         + PathingOptions.MissingFields() + "; call SetPathingOptions first.";
     return false;
 }
-bool IM_AcousticSimulation::Bake(const IM_AcousticSceneInput& Input, IM_AcousticBakeData& OutBake,
+bool FIMAcousticSimulation::Bake(const FIMAcousticSceneInput& Input, FIMAcousticBakeData& OutBake,
     std::string& OutError, const std::atomic<bool>* CancelRequested)
 {
     // Cooperative cancellation only: a running SDK pass cannot be aborted
@@ -259,9 +259,9 @@ bool IM_AcousticSimulation::Bake(const IM_AcousticSceneInput& Input, IM_Acoustic
     // The checks below run between passes; a cancel never modifies OutBake.
     const auto Cancelled = [&] { return CancelRequested != nullptr && CancelRequested->load(); };
     if (Cancelled()) { OutError = "Bake: cancelled before start."; return false; }
-    if (!IMValidateSceneInput(Input, OutError)) { return false; }
+    if (!IMAcousticSimulationPrivate::ValidateSceneInput(Input, OutError)) { return false; }
 
-    IM_BakeSceneScope Scope;
+    IMAcousticSimulationPrivate::FIMBakeSceneScope Scope;
     IPLProbeBatch Batch = nullptr;
     IPLSerializedObject SceneObj = nullptr;
     IPLSerializedObject BatchObj = nullptr;
@@ -289,13 +289,13 @@ bool IM_AcousticSimulation::Bake(const IM_AcousticSceneInput& Input, IM_Acoustic
         PathParams.scene = Scope.Scene;
         PathParams.probeBatch = Batch;
         PathParams.identifier = PathId;
-        PathParams.numSamples = IM_AcousticRecipe::PathNumSamples;
-        PathParams.radius = IM_AcousticRecipe::PathRadiusM;
-        PathParams.threshold = IM_AcousticRecipe::PathThreshold;
-        PathParams.visRange = IM_AcousticRecipe::PathVisRangeM;
-        PathParams.pathRange = IM_AcousticRecipe::PathRangeM;
-        PathParams.numThreads = IM_AcousticRecipe::BakeThreads;
-        iplPathBakerBake(Scope.Ctx, &PathParams, IMBakeProgress, nullptr);
+        PathParams.numSamples = IMAcousticRecipe::PathNumSamples;
+        PathParams.radius = IMAcousticRecipe::PathRadiusM;
+        PathParams.threshold = IMAcousticRecipe::PathThreshold;
+        PathParams.visRange = IMAcousticRecipe::PathVisRangeM;
+        PathParams.pathRange = IMAcousticRecipe::PathRangeM;
+        PathParams.numThreads = IMAcousticRecipe::BakeThreads;
+        iplPathBakerBake(Scope.Ctx, &PathParams, IMAcousticSimulationPrivate::BakeProgress, nullptr);
         if (Cancelled()) { Error = "Bake: cancelled after pathing pass."; break; }
         if (iplProbeBatchGetDataSize(Batch, &PathId) == 0)
         {
@@ -311,19 +311,19 @@ bool IM_AcousticSimulation::Bake(const IM_AcousticSceneInput& Input, IM_Acoustic
         ReverbParams.sceneType = IPL_SCENETYPE_DEFAULT;
         ReverbParams.identifier = ReverbId;
         ReverbParams.bakeFlags = IPL_REFLECTIONSBAKEFLAGS_BAKECONVOLUTION; // convolution IR per probe; parametric would substitute the plan.
-        ReverbParams.numRays = IM_AcousticRecipe::ReverbNumRays;
-        ReverbParams.numDiffuseSamples = IM_AcousticRecipe::ReverbNumDiffuse;
-        ReverbParams.numBounces = IM_AcousticRecipe::ReverbNumBounces;
-        ReverbParams.simulatedDuration = IM_AcousticRecipe::ReverbSimDurationS;
-        ReverbParams.savedDuration = IM_AcousticRecipe::ReverbSavedDurationS; // saved convolution IR length (s); cost scales with probe count.
-        ReverbParams.order = IM_AcousticAudioFrame::Order;
-        ReverbParams.numThreads = IM_AcousticRecipe::BakeThreads;
+        ReverbParams.numRays = IMAcousticRecipe::ReverbNumRays;
+        ReverbParams.numDiffuseSamples = IMAcousticRecipe::ReverbNumDiffuse;
+        ReverbParams.numBounces = IMAcousticRecipe::ReverbNumBounces;
+        ReverbParams.simulatedDuration = IMAcousticRecipe::ReverbSimDurationS;
+        ReverbParams.savedDuration = IMAcousticRecipe::ReverbSavedDurationS; // saved convolution IR length (s); cost scales with probe count.
+        ReverbParams.order = FIMAcousticAudioFrame::Order;
+        ReverbParams.numThreads = IMAcousticRecipe::BakeThreads;
         ReverbParams.rayBatchSize = 1; // custom ray tracer unused.
-        ReverbParams.irradianceMinDistance = IM_AcousticRecipe::IrradianceMinM;
+        ReverbParams.irradianceMinDistance = IMAcousticRecipe::IrradianceMinM;
         ReverbParams.bakeBatchSize = 1; // only used by STATICLISTENER; kept as a well-formed placeholder.
         ReverbParams.openCLDevice = nullptr;
         ReverbParams.radeonRaysDevice = nullptr;
-        iplReflectionsBakerBake(Scope.Ctx, &ReverbParams, IMBakeProgress, nullptr);
+        iplReflectionsBakerBake(Scope.Ctx, &ReverbParams, IMAcousticSimulationPrivate::BakeProgress, nullptr);
         if (Cancelled()) { Error = "Bake: cancelled after reverb pass."; break; }
         if (iplProbeBatchGetDataSize(Batch, &ReverbId) == 0)
         {
@@ -336,13 +336,13 @@ bool IM_AcousticSimulation::Bake(const IM_AcousticSceneInput& Input, IM_Acoustic
             Error = "Bake: scene serialized-object create failed."; break;
         }
         iplSceneSave(Scope.Scene, SceneObj);
-        if (!IMCopySerialized(SceneObj, TmpScene, Error, "scene")) { break; }
+        if (!IMAcousticSimulationPrivate::CopySerialized(SceneObj, TmpScene, Error, "scene")) { break; }
         if (iplSerializedObjectCreate(Scope.Ctx, &SerSettings, &BatchObj) != IPL_STATUS_SUCCESS || BatchObj == nullptr)
         {
             Error = "Bake: batch serialized-object create failed."; break;
         }
         iplProbeBatchSave(Batch, BatchObj);
-        if (!IMCopySerialized(BatchObj, TmpBatch, Error, "probe batch")) { break; }
+        if (!IMAcousticSimulationPrivate::CopySerialized(BatchObj, TmpBatch, Error, "probe batch")) { break; }
         Ok = true;
     } while (false);
 
@@ -361,12 +361,12 @@ bool IM_AcousticSimulation::Bake(const IM_AcousticSceneInput& Input, IM_Acoustic
     return true;
 }
 
-bool IM_AcousticSimulation::GenerateProbes(const IM_AcousticSceneInput& Geometry,
+bool FIMAcousticSimulation::GenerateProbes(const FIMAcousticSceneInput& Geometry,
     const IPLProbeGenerationParams& Params, std::vector<IPLSphere>& OutProbes, std::string& OutError)
 {
-    if (!IMValidateBakeGeometry(Geometry, false, "GenerateProbes", OutError)) { return false; }
-    if (!IMValidateProbeGenParams(Params, OutError)) { return false; }
-    IM_BakeSceneScope Scope;
+    if (!IMAcousticSimulationPrivate::ValidateBakeGeometry(Geometry, false, "GenerateProbes", OutError)) { return false; }
+    if (!IMAcousticSimulationPrivate::ValidateProbeGenParams(Params, OutError)) { return false; }
+    IMAcousticSimulationPrivate::FIMBakeSceneScope Scope;
     if (!Scope.Build(Geometry, "GenerateProbes", OutError)) { return false; }
 
     IPLProbeArray Array = nullptr;
@@ -391,7 +391,7 @@ bool IM_AcousticSimulation::GenerateProbes(const IM_AcousticSceneInput& Geometry
         for (IPLint32 I = 0; I < Count; ++I)
         {
             const IPLSphere P = iplProbeArrayGetProbe(Array, I);
-            if (!IMSimulationFinite(P.center) || !IMSimulationFinite(P.radius) || P.radius < 0.0f)
+            if (!IMAcousticSimulationPrivate::SimulationFinite(P.center) || !IMAcousticSimulationPrivate::SimulationFinite(P.radius) || P.radius < 0.0f)
             {
                 Ok = false; Error = "GenerateProbes: SDK returned a non-finite probe."; break;
             }
@@ -410,7 +410,7 @@ bool IM_AcousticSimulation::GenerateProbes(const IM_AcousticSceneInput& Geometry
     return true;
 }
 
-bool IM_AcousticSimulation::Load(const IM_AcousticBakeData& Bake, int SampleRateHzIn, int BlockFramesIn,
+bool FIMAcousticSimulation::Load(const FIMAcousticBakeData& Bake, int SampleRateHzIn, int BlockFramesIn,
     std::string& OutError)
 {
     // H1 W1: creation binds an explicit options identity; unset fields fail here, not silently below.
@@ -428,7 +428,7 @@ bool IM_AcousticSimulation::Load(const IM_AcousticBakeData& Bake, int SampleRate
     std::string Error;
     do
     {
-        const IPLContext SharedContext = IM_GetAcousticSDKContext();
+        const IPLContext SharedContext = IMAcousticSDKContext::GetAcousticSDKContext();
         Context = SharedContext ? iplContextRetain(SharedContext) : nullptr;
         if (Context == nullptr)
         {
@@ -478,9 +478,9 @@ bool IM_AcousticSimulation::Load(const IM_AcousticBakeData& Bake, int SampleRate
         SimSettings.maxNumOcclusionSamples = 1; // RAYCAST ignores samples; nonzero bound.
         SimSettings.maxNumRays = 1;             // reflections never run; nonzero bound.
         SimSettings.numDiffuseSamples = 1;
-        SimSettings.maxDuration = IM_AcousticRecipe::ReverbSavedDurationS;
-        SimSettings.maxOrder = IM_AcousticAudioFrame::Order;
-        SimSettings.maxNumSources = IM_AcousticRecipe::MaxSources+1; // one attached listener reverb source at a time.
+        SimSettings.maxDuration = IMAcousticRecipe::ReverbSavedDurationS;
+        SimSettings.maxOrder = FIMAcousticAudioFrame::Order;
+        SimSettings.maxNumSources = IMAcousticRecipe::MaxSources+1; // one attached listener reverb source at a time.
         SimSettings.numThreads = 1;             // serial simulation; no worker pool here.
         SimSettings.rayBatchSize = 1;
         SimSettings.numVisSamples = 1;          // nonzero bound; Hybrid pathing validation itself is runtime-settable (W1).
@@ -528,7 +528,7 @@ bool IM_AcousticSimulation::Load(const IM_AcousticBakeData& Bake, int SampleRate
     return true;
 }
 
-bool IM_AcousticSimulation::SyncDynamicMeshes(const std::vector<IM_AcousticDynamicMeshInput>& Input,
+bool FIMAcousticSimulation::SyncDynamicMeshes(const std::vector<FIMAcousticDynamicMeshInput>& Input,
     std::string& OutError)
 {
     OutError.clear();
@@ -538,7 +538,7 @@ bool IM_AcousticSimulation::SyncDynamicMeshes(const std::vector<IM_AcousticDynam
         return false;
     }
 
-    std::map<std::uint64_t, const IM_AcousticDynamicMeshInput*> Desired;
+    std::map<std::uint64_t, const FIMAcousticDynamicMeshInput*> Desired;
     for (const auto& Item : Input)
     {
         if (Item.Key == 0)
@@ -551,15 +551,15 @@ bool IM_AcousticSimulation::SyncDynamicMeshes(const std::vector<IM_AcousticDynam
             OutError = "SyncDynamicMeshes: duplicate dynamic mesh key.";
             return false;
         }
-        if (!IMValidateBakeGeometry(Item.Geometry, false, "SyncDynamicMeshes", OutError)) { return false; }
-        if (!IMFiniteMatrix(Item.Transform))
+        if (!IMAcousticSimulationPrivate::ValidateBakeGeometry(Item.Geometry, false, "SyncDynamicMeshes", OutError)) { return false; }
+        if (!IMAcousticSimulationPrivate::FiniteMatrix(Item.Transform))
         {
             OutError = "SyncDynamicMeshes: transform must be a finite affine matrix.";
             return false;
         }
     }
 
-    auto ReleaseRecord = [this](IM_DynamicMeshRecord& Record, bool RemoveFromScene)
+    auto ReleaseRecord = [this](FIMDynamicMeshRecord& Record, bool RemoveFromScene)
     {
         if (Record.Instance != nullptr)
         {
@@ -571,8 +571,8 @@ bool IM_AcousticSimulation::SyncDynamicMeshes(const std::vector<IM_AcousticDynam
         Record = {};
     };
 
-    auto CreateRecord = [this](const IM_AcousticDynamicMeshInput& Item,
-        IM_DynamicMeshRecord& OutRecord, std::string& Error) -> bool
+    auto CreateRecord = [this](const FIMAcousticDynamicMeshInput& Item,
+        FIMDynamicMeshRecord& OutRecord, std::string& Error) -> bool
     {
         OutRecord = {};
         IPLSceneSettings SubSceneSettings{};
@@ -583,7 +583,7 @@ bool IM_AcousticSimulation::SyncDynamicMeshes(const std::vector<IM_AcousticDynam
             Error = "SyncDynamicMeshes: iplSceneCreate failed.";
             return false;
         }
-        const IM_AcousticSceneInput& Geometry = Item.Geometry;
+        const FIMAcousticSceneInput& Geometry = Item.Geometry;
         IPLStaticMeshSettings MeshSettings{};
         MeshSettings.numVertices = static_cast<IPLint32>(Geometry.Vertices.size());
         MeshSettings.numTriangles = static_cast<IPLint32>(Geometry.Triangles.size());
@@ -643,7 +643,7 @@ bool IM_AcousticSimulation::SyncDynamicMeshes(const std::vector<IM_AcousticDynam
     }
     for (const auto& DesiredEntry : Desired)
     {
-        const IM_AcousticDynamicMeshInput& Item = *DesiredEntry.second;
+        const FIMAcousticDynamicMeshInput& Item = *DesiredEntry.second;
         auto It = DynamicMeshes.find(Item.Key);
         if (It != DynamicMeshes.end() && It->second.GeometryHash == Item.GeometryHash)
         {
@@ -652,7 +652,7 @@ bool IM_AcousticSimulation::SyncDynamicMeshes(const std::vector<IM_AcousticDynam
             Changed = true;
             continue;
         }
-        IM_DynamicMeshRecord Replacement;
+        FIMDynamicMeshRecord Replacement;
         if (!CreateRecord(Item, Replacement, OutError))
         {
             ReleaseRecord(Replacement, false);
@@ -677,13 +677,13 @@ bool IM_AcousticSimulation::SyncDynamicMeshes(const std::vector<IM_AcousticDynam
     return true;
 }
 
-std::vector<IM_AcousticDynamicMeshReadback> IM_AcousticSimulation::GetDynamicMeshReadback() const
+std::vector<FIMAcousticDynamicMeshReadback> FIMAcousticSimulation::GetDynamicMeshReadback() const
 {
-    std::vector<IM_AcousticDynamicMeshReadback> Readback;
+    std::vector<FIMAcousticDynamicMeshReadback> Readback;
     Readback.reserve(DynamicMeshes.size());
     for (const auto& Entry : DynamicMeshes)
     {
-        IM_AcousticDynamicMeshReadback Item;
+        FIMAcousticDynamicMeshReadback Item;
         Item.Key = Entry.first;
         Item.GeometryHash = Entry.second.GeometryHash;
         Item.Transform = Entry.second.Transform;
@@ -692,23 +692,23 @@ std::vector<IM_AcousticDynamicMeshReadback> IM_AcousticSimulation::GetDynamicMes
     return Readback;
 }
 
-bool IM_AcousticSimulation::EvaluateBatch(const std::vector<IM_AcousticSourceInput>& Input,
-    const IPLCoordinateSpace3& Listener, std::vector<IM_AcousticAudioFrame>& Output, std::string& OutError)
+bool FIMAcousticSimulation::EvaluateBatch(const std::vector<FIMAcousticSourceInput>& Input,
+    const IPLCoordinateSpace3& Listener, std::vector<FIMAcousticAudioFrame>& Output, std::string& OutError)
 {
     // H1 W1: application requires explicit options; a missing field fails here, never silently below.
     if (!RequirePathingOptions("EvaluateBatch", OutError)) { return false; }
     // Fail closed: fixed-size invalid frames keep positional correspondence, never stale data.
-    Output.assign(Input.size(), IM_AcousticAudioFrame{});
+    Output.assign(Input.size(), FIMAcousticAudioFrame{});
     if (!Loaded || Context == nullptr || Scene == nullptr || ProbeBatch == nullptr || Simulator == nullptr)
     {
         OutError = "EvaluateBatch: no loaded runtime; Load first."; return false;
     }
     if (Input.empty()) { OutError = "EvaluateBatch: empty batch."; return false; }
-    if (!IMFiniteSpace(Listener)) { OutError = "EvaluateBatch: non-finite listener frame."; return false; }
+    if (!IMAcousticSimulationPrivate::FiniteSpace(Listener)) { OutError = "EvaluateBatch: non-finite listener frame."; return false; }
     for (std::size_t I = 0; I < Input.size(); ++I)
     {
         if (Input[I].Generation == 0) { OutError = "EvaluateBatch: generation 0 rejected."; return false; }
-        if (!IMFiniteSpace(Input[I].Source)) { OutError = "EvaluateBatch: non-finite source frame."; return false; }
+        if (!IMAcousticSimulationPrivate::FiniteSpace(Input[I].Source)) { OutError = "EvaluateBatch: non-finite source frame."; return false; }
         for (std::size_t J = I + 1; J < Input.size(); ++J)
         {
             if (Input[J].SourceKey == Input[I].SourceKey)
@@ -718,7 +718,7 @@ bool IM_AcousticSimulation::EvaluateBatch(const std::vector<IM_AcousticSourceInp
         }
     }
 
-    std::vector<IM_SourceRecord*> Recs;
+    std::vector<FIMSourceRecord*> Recs;
     Recs.reserve(Input.size());
     for (const auto& Item : Input)
     {
@@ -732,7 +732,7 @@ bool IM_AcousticSimulation::EvaluateBatch(const std::vector<IM_AcousticSourceInp
         }
         if (It == Sources.end())
         {
-            if (Sources.size() >= static_cast<std::size_t>(IM_AcousticRecipe::MaxSources))
+            if (Sources.size() >= static_cast<std::size_t>(IMAcousticRecipe::MaxSources))
             {
                 // Records created earlier in this batch stay valid runtime state;
                 // only the frames are withheld. Caller must Remove first.
@@ -747,7 +747,7 @@ bool IM_AcousticSimulation::EvaluateBatch(const std::vector<IM_AcousticSourceInp
                 OutError = "EvaluateBatch: iplSourceCreate failed."; return false;
             }
             iplSourceAdd(NewSource, Simulator);
-            IM_SourceRecord Rec;
+            FIMSourceRecord Rec;
             Rec.Source = NewSource;
             Rec.Generation = Item.Generation;
             Rec.Sequence = 0;
@@ -767,7 +767,7 @@ bool IM_AcousticSimulation::EvaluateBatch(const std::vector<IM_AcousticSourceInp
         const uint64 TransitStart = FPlatformTime::Cycles64();
         const IPLVector3& C = ApertureTransitPolicy.Center;
         const IPLVector3& E = ApertureTransitPolicy.HalfExtent;
-        const auto Contains = [&C, &E](const IM_DynamicMeshRecord& Record)
+        const auto Contains = [&C, &E](const FIMDynamicMeshRecord& Record)
         {
             const float Inf = (std::numeric_limits<float>::max)();
             IPLVector3 Min{Inf, Inf, Inf};
@@ -779,7 +779,7 @@ bool IM_AcousticSimulation::EvaluateBatch(const std::vector<IM_AcousticSourceInp
                         const IPLVector3 P{X ? Record.LocalMax.x : Record.LocalMin.x,
                             Y ? Record.LocalMax.y : Record.LocalMin.y,
                             Z ? Record.LocalMax.z : Record.LocalMin.z};
-                        const IPLVector3 W = IMTransformPoint(Record.Transform, P);
+                        const IPLVector3 W = IMAcousticSimulationPrivate::TransformPoint(Record.Transform, P);
                         Min.x = (std::min)(Min.x, W.x); Min.y = (std::min)(Min.y, W.y); Min.z = (std::min)(Min.z, W.z);
                         Max.x = (std::max)(Max.x, W.x); Max.y = (std::max)(Max.y, W.y); Max.z = (std::max)(Max.z, W.z);
                     }
@@ -799,8 +799,8 @@ bool IM_AcousticSimulation::EvaluateBatch(const std::vector<IM_AcousticSourceInp
     Shared.numRays = 1;          // This pass runs direct/path only; reverb has separate shared inputs.
     Shared.numBounces = 1;
     Shared.duration = 0.1f;      // seconds; reflections never run.
-    Shared.order = IM_AcousticAudioFrame::Order;
-    Shared.irradianceMinDistance = IM_AcousticRecipe::IrradianceMinM;
+    Shared.order = FIMAcousticAudioFrame::Order;
+    Shared.irradianceMinDistance = IMAcousticRecipe::IrradianceMinM;
     Shared.pathingVisCallback = PathCallback;
     Shared.pathingUserData = PathUserData;
     iplSimulatorSetSharedInputs(Simulator, static_cast<IPLSimulationFlags>(
@@ -830,10 +830,10 @@ bool IM_AcousticSimulation::EvaluateBatch(const std::vector<IM_AcousticSourceInp
         Inputs.hybridReverbOverlapPercent = 0.0f;
         Inputs.baked = IPL_FALSE; // Direct/path source; listener reverb uses a separate reflection-only source.
         Inputs.pathingProbes = ProbeBatch; // borrowed; consumed synchronously, never stored or shared.
-        Inputs.visRadius = IM_AcousticRecipe::VisRadiusM;
-        Inputs.visThreshold = IM_AcousticRecipe::VisThreshold;
-        Inputs.visRange = IM_AcousticRecipe::VisRangeM;
-        Inputs.pathingOrder = IM_AcousticAudioFrame::Order;
+        Inputs.visRadius = IMAcousticRecipe::VisRadiusM;
+        Inputs.visThreshold = IMAcousticRecipe::VisThreshold;
+        Inputs.visRange = IMAcousticRecipe::VisRangeM;
+        Inputs.pathingOrder = FIMAcousticAudioFrame::Order;
         // H1 W1: runtime-settable Hybrid pathing (Hybrid default: validation on, alternate paths on).
         Inputs.enableValidation = PathingOptions.EnableValidation ? IPL_TRUE : IPL_FALSE;
         Inputs.findAlternatePaths = PathingOptions.FindAlternatePaths ? IPL_TRUE : IPL_FALSE;
@@ -858,7 +858,7 @@ bool IM_AcousticSimulation::EvaluateBatch(const std::vector<IM_AcousticSourceInp
     iplSimulatorRunDirect(Simulator);
     iplSimulatorRunPathing(Simulator);
 
-    std::vector<IM_AcousticAudioFrame> Tmp;
+    std::vector<FIMAcousticAudioFrame> Tmp;
     Tmp.reserve(Input.size());
     for (std::size_t I = 0; I < Input.size(); ++I)
     {
@@ -877,10 +877,10 @@ bool IM_AcousticSimulation::EvaluateBatch(const std::vector<IM_AcousticSourceInp
             | IPL_DIRECTEFFECTFLAGS_APPLYDIRECTIVITY | IPL_DIRECTEFFECTFLAGS_APPLYOCCLUSION);
 
         const IPLDirectEffectParams& D = Outputs.direct;
-        bool DirectOk = IMSimulationFinite(D.distanceAttenuation) && IMSimulationFinite(D.directivity) && IMSimulationFinite(D.occlusion);
+        bool DirectOk = IMAcousticSimulationPrivate::SimulationFinite(D.distanceAttenuation) && IMAcousticSimulationPrivate::SimulationFinite(D.directivity) && IMAcousticSimulationPrivate::SimulationFinite(D.occlusion);
         for (int B = 0; DirectOk && B < IPL_NUM_BANDS; ++B)
         {
-            DirectOk = IMSimulationFinite(D.airAbsorption[B]) && IMSimulationFinite(D.transmission[B]);
+            DirectOk = IMAcousticSimulationPrivate::SimulationFinite(D.airAbsorption[B]) && IMAcousticSimulationPrivate::SimulationFinite(D.transmission[B]);
         }
 
         // CSource::getOutputs in 4.8.1 writes EQ and SH only, NOT pathing.order.
@@ -891,14 +891,14 @@ bool IM_AcousticSimulation::EvaluateBatch(const std::vector<IM_AcousticSourceInp
         for (int B = 0; PathOk && B < IPL_NUM_BANDS; ++B)
         {
             const float EQ = Outputs.pathing.eqCoeffs[B];
-            if (!IMSimulationFinite(EQ) || EQ < 0.0f) { PathOk = false; break; }
+            if (!IMAcousticSimulationPrivate::SimulationFinite(EQ) || EQ < 0.0f) { PathOk = false; break; }
             MaxEQ = (std::max)(MaxEQ, EQ);
         }
         float SHEnergy = 0.0f;
-        for (int C = 0; PathOk && C < IM_AcousticAudioFrame::Coefficients; ++C)
+        for (int C = 0; PathOk && C < FIMAcousticAudioFrame::Coefficients; ++C)
         {
             const float SH = Outputs.pathing.shCoeffs[C];
-            if (!IMSimulationFinite(SH)) { PathOk = false; break; }
+            if (!IMAcousticSimulationPrivate::SimulationFinite(SH)) { PathOk = false; break; }
             SHEnergy += SH * SH;
         }
         // Real detection: audible EQ energy AND nonzero SH energy. A zero-SH
@@ -909,7 +909,7 @@ bool IM_AcousticSimulation::EvaluateBatch(const std::vector<IM_AcousticSourceInp
         // difference between validated aperture transit and raw pathing.
         if (PathOk && PathingOptions.EnableValidation && LastApertureTransitBlocked) { PathOk = false; }
 
-        IM_AcousticAudioFrame Frame;
+        FIMAcousticAudioFrame Frame;
         Frame.Generation = Input[I].Generation;
         Frame.Sequence = Recs[I]->Sequence + 1;
         Frame.DirectValid = DirectOk;
@@ -918,14 +918,14 @@ bool IM_AcousticSimulation::EvaluateBatch(const std::vector<IM_AcousticSourceInp
         if (PathOk)
         {
             for (int B = 0; B < IPL_NUM_BANDS; ++B) { Frame.PathEQ[B] = Outputs.pathing.eqCoeffs[B]; }
-            for (int C = 0; C < IM_AcousticAudioFrame::Coefficients; ++C)
+            for (int C = 0; C < FIMAcousticAudioFrame::Coefficients; ++C)
             {
                 Frame.PathSH[C] = Outputs.pathing.shCoeffs[C];
             }
         }
         IPLVector3 Rel = iplCalculateRelativeDirection(Context, Input[I].Source.origin,
             Listener.origin, Listener.ahead, Listener.up);
-        if (!IMSimulationFinite(Rel)) { Rel = IPLVector3{0.0f, 0.0f, -1.0f}; } // degenerate input; render hint only.
+        if (!IMAcousticSimulationPrivate::SimulationFinite(Rel)) { Rel = IPLVector3{0.0f, 0.0f, -1.0f}; } // degenerate input; render hint only.
         Frame.ListenerLocalDirection = Rel;
         Frame.Listener = Listener;
 
@@ -936,27 +936,27 @@ bool IM_AcousticSimulation::EvaluateBatch(const std::vector<IM_AcousticSourceInp
     return true;
 }
 
-bool IM_AcousticSimulation::Evaluate(std::uint64_t SourceKey, std::uint64_t Generation,
+bool FIMAcousticSimulation::Evaluate(std::uint64_t SourceKey, std::uint64_t Generation,
     const IPLCoordinateSpace3& Source, const IPLCoordinateSpace3& Listener,
-    IM_AcousticAudioFrame& OutFrame, std::string& OutError)
+    FIMAcousticAudioFrame& OutFrame, std::string& OutError)
 {
     // Single-source test convenience over the batch path; the batch never calls back here.
-    OutFrame = IM_AcousticAudioFrame{};
-    IM_AcousticSourceInput Item{SourceKey, Generation, Source};
-    const std::vector<IM_AcousticSourceInput> BatchInput(1, Item);
-    std::vector<IM_AcousticAudioFrame> BatchOutput;
+    OutFrame = FIMAcousticAudioFrame{};
+    FIMAcousticSourceInput Item{SourceKey, Generation, Source};
+    const std::vector<FIMAcousticSourceInput> BatchInput(1, Item);
+    std::vector<FIMAcousticAudioFrame> BatchOutput;
     if (!EvaluateBatch(BatchInput, Listener, BatchOutput, OutError)) { return false; }
     OutFrame = BatchOutput[0];
     return true;
 }
 
-bool IM_AcousticSimulation::EvaluateReverb(IM_AcousticReverbSlot& Slot,
+bool FIMAcousticSimulation::EvaluateReverb(FIMAcousticReverbSlot& Slot,
     const IPLCoordinateSpace3& Listener,std::string& OutError)
 {
     OutError.clear();
-    if(!Loaded||!Simulator||Slot.State.load(std::memory_order_acquire)!=IM_AcousticIRState::Writing
-        ||!IMSimulationFinite(Listener.origin)||!IMSimulationFinite(Listener.ahead)
-        ||!IMSimulationFinite(Listener.up)||!IMSimulationFinite(Listener.right))
+    if(!Loaded||!Simulator||Slot.State.load(std::memory_order_acquire)!=EIMAcousticIRState::Writing
+        ||!IMAcousticSimulationPrivate::SimulationFinite(Listener.origin)||!IMAcousticSimulationPrivate::SimulationFinite(Listener.ahead)
+        ||!IMAcousticSimulationPrivate::SimulationFinite(Listener.up)||!IMAcousticSimulationPrivate::SimulationFinite(Listener.right))
     {OutError="Reverb: invalid simulator, listener or slot ownership.";return false;}
     IPLBakedDataIdentifier Id{};Id.type=IPL_BAKEDDATATYPE_REFLECTIONS;Id.variation=IPL_BAKEDDATAVARIATION_REVERB;
     if(iplProbeBatchGetDataSize(ProbeBatch,&Id)==0)
@@ -968,7 +968,7 @@ bool IM_AcousticSimulation::EvaluateReverb(IM_AcousticReverbSlot& Slot,
     // 12*M*M, with 64 providing headroom for rounding. Finite alone is weaker.
     const double MaxCoverageCoordinate=std::sqrt(double(std::numeric_limits<float>::max())/64);
     const auto SafeCoveragePoint=[MaxCoverageCoordinate](const IPLVector3& P)
-    {return IMSimulationFinite(P)&&std::abs(double(P.x))<=MaxCoverageCoordinate&&std::abs(double(P.y))<=MaxCoverageCoordinate&&std::abs(double(P.z))<=MaxCoverageCoordinate;};
+    {return IMAcousticSimulationPrivate::SimulationFinite(P)&&std::abs(double(P.x))<=MaxCoverageCoordinate&&std::abs(double(P.y))<=MaxCoverageCoordinate&&std::abs(double(P.z))<=MaxCoverageCoordinate;};
     if(!SafeCoveragePoint(Listener.origin))
     {OutError="Reverb: listener exceeds safe SDK coverage arithmetic range.";return false;}
     // A Ready slot may have been discarded during bypass/newer-result selection
@@ -996,7 +996,7 @@ bool IM_AcousticSimulation::EvaluateReverb(IM_AcousticReverbSlot& Slot,
     iplSourceAdd(Slot.Source,Simulator);iplSimulatorCommit(Simulator);
     for(const auto& Probe:CoverageProbes)
     {
-        if(!SafeCoveragePoint(Probe.center)||!IMSimulationFinite(Probe.radius)||Probe.radius<=0||Probe.radius>MaxCoverageCoordinate)
+        if(!SafeCoveragePoint(Probe.center)||!IMAcousticSimulationPrivate::SimulationFinite(Probe.radius)||Probe.radius<=0||Probe.radius>MaxCoverageCoordinate)
         {Blocked=MaxSelectedProbes;break;}
         const double X=double(Listener.origin.x)-Probe.center.x,Y=double(Listener.origin.y)-Probe.center.y,Z=double(Listener.origin.z)-Probe.center.z;
         const double Distance2=X*X+Y*Y+Z*Z,Radius2=double(Probe.radius)*Probe.radius;
@@ -1039,8 +1039,8 @@ bool IM_AcousticSimulation::EvaluateReverb(IM_AcousticReverbSlot& Slot,
     Inputs.airAbsorptionModel.type=IPL_AIRABSORPTIONTYPE_DEFAULT;
     Inputs.directivity.dipolePower=1;
     IPLSimulationSharedInputs Shared{};Shared.listener=Listener;
-    Shared.numRays=1;Shared.numBounces=1;Shared.duration=IM_AcousticRecipe::ReverbSavedDurationS;
-    Shared.order=IM_AcousticAudioFrame::Order;Shared.irradianceMinDistance=IM_AcousticRecipe::IrradianceMinM;
+    Shared.numRays=1;Shared.numBounces=1;Shared.duration=IMAcousticRecipe::ReverbSavedDurationS;
+    Shared.order=FIMAcousticAudioFrame::Order;Shared.irradianceMinDistance=IMAcousticRecipe::IrradianceMinM;
     iplSourceSetInputs(Slot.Source,IPL_SIMULATIONFLAGS_REFLECTIONS,&Inputs);
     iplSimulatorSetSharedInputs(Simulator,IPL_SIMULATIONFLAGS_REFLECTIONS,&Shared);
     iplSourceAdd(Slot.Source,Simulator);iplSimulatorCommit(Simulator);
@@ -1052,14 +1052,14 @@ bool IM_AcousticSimulation::EvaluateReverb(IM_AcousticReverbSlot& Slot,
     // its read buffer, hence a slot has exactly one consumer until returned Free.
     iplSourceRemove(Slot.Source,Simulator);iplSimulatorCommit(Simulator);
     Outputs.reflections.type=IPL_REFLECTIONEFFECTTYPE_CONVOLUTION;
-    if(!Outputs.reflections.ir||Outputs.reflections.numChannels!=IM_AcousticAudioFrame::Coefficients
-        ||Outputs.reflections.irSize!=int(SampleRateHz*IM_AcousticRecipe::ReverbSavedDurationS))
+    if(!Outputs.reflections.ir||Outputs.reflections.numChannels!=FIMAcousticAudioFrame::Coefficients
+        ||Outputs.reflections.irSize!=int(SampleRateHz*IMAcousticRecipe::ReverbSavedDurationS))
     {OutError="Reverb: invalid convolution output dimensions.";return false;}
     Slot.Params=Outputs.reflections;Slot.Listener=Listener;
     return true;
 }
 
-void IM_AcousticSimulation::Remove(std::uint64_t SourceKey)
+void FIMAcousticSimulation::Remove(std::uint64_t SourceKey)
 {
     const auto It = Sources.find(SourceKey);
     if (It == Sources.end()) { return; }
@@ -1071,7 +1071,7 @@ void IM_AcousticSimulation::Remove(std::uint64_t SourceKey)
     Sources.erase(It);
 }
 
-void IM_AcousticSimulation::Shutdown()
+void FIMAcousticSimulation::Shutdown()
 {
     for (auto& Entry : Sources)
     {

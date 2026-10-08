@@ -1,8 +1,8 @@
 // Native SDK decay-counterexample fixture (W2 falsification probe).
 //
-// Reuses production IM_AcousticSimulation / IM_AcousticReverbRenderer / shared
+// Reuses production FIMAcousticSimulation / FIMAcousticReverbRenderer / shared
 // SDK context / IM_AcousticReverbData (header-only) with the same native-cl
-// compile method as Tests/IM_SteamAudioSmoke.cpp. No UE, no UBT, no Editor.
+// compile method as Tests/IMSteamAudioSmoke.cpp. No UE, no UBT, no Editor.
 // No SDK API is invented here; every Steam Audio call mirrors the production
 // .cpp or the smoke fixture. No UE types are used, so no native fake headers
 // are needed.
@@ -52,7 +52,7 @@
 
 // Same unattended-crash evidence helper as the smoke fixture: preserve the
 // fault site without opening a debugger or converting a crash into a pass.
-LONG WINAPI IMCrashEvidence(EXCEPTION_POINTERS* Exception)
+LONG WINAPI CrashEvidence(EXCEPTION_POINTERS* Exception)
 {
     HANDLE Process=GetCurrentProcess();
     SymInitialize(Process,nullptr,TRUE);
@@ -80,18 +80,19 @@ LONG WINAPI IMCrashEvidence(EXCEPTION_POINTERS* Exception)
     return EXCEPTION_EXECUTE_HANDLER;
 }
 
-namespace {
+namespace IMSteamAudioDecayPrivate
+{
 constexpr int Rate = 48000;
 constexpr int Block = 512;
 // Render length derives from the live recipe: full saved IR plus 0.5 s of
 // settled tail, rounded up to whole blocks. No baked tail is cut.
-constexpr int IRSizeSamples = static_cast<int>(Rate * IM_AcousticRecipe::ReverbSavedDurationS + 0.5f);
+constexpr int IRSizeSamples = static_cast<int>(Rate * IMAcousticRecipe::ReverbSavedDurationS + 0.5f);
 constexpr int TailSilenceSamples = Rate / 2;
 constexpr int RenderBlocks = (IRSizeSamples + TailSilenceSamples + Block - 1) / Block;
 constexpr float ImpulseAmp = 0.5f; // same gain as the smoke reverb check.
 constexpr int WindowFrames = 480; // 10 ms at 48 kHz.
 void Require(bool Value, const std::string& Error) { if (!Value) throw std::runtime_error(Error); }
-void Box(IM_AcousticSceneInput& S, IPLVector3 Lo, IPLVector3 Hi)
+void Box(FIMAcousticSceneInput& S, IPLVector3 Lo, IPLVector3 Hi)
 {
     const int Base = static_cast<int>(S.Vertices.size());
     for (int I = 0; I < 8; ++I)
@@ -100,7 +101,7 @@ void Box(IM_AcousticSceneInput& S, IPLVector3 Lo, IPLVector3 Hi)
         {0,1,5},{0,5,4},{2,6,7},{2,7,3},{0,4,6},{0,6,2},{1,3,7},{1,7,5}};
     for (const auto& F : Faces) { S.Triangles.push_back({{Base+F[0],Base+F[1],Base+F[2]}}); S.MaterialIndices.push_back(0); }
 }
-void OneMaterial(IM_AcousticSceneInput& S, float Absorption)
+void OneMaterial(FIMAcousticSceneInput& S, float Absorption)
 {
     IPLMaterial M{};
     for (int B = 0; B < IPL_NUM_BANDS; ++B) { M.absorption[B] = Absorption; M.transmission[B] = 0.0f; }
@@ -108,9 +109,9 @@ void OneMaterial(IM_AcousticSceneInput& S, float Absorption)
     S.Materials.push_back(M);
 }
 // Sealed 8x3x6 m room interior X[-4,4] Y[0,3] Z[-3,3], wall thickness 0.1.
-IM_AcousticSceneInput ClosedScene(float Absorption)
+FIMAcousticSceneInput ClosedScene(float Absorption)
 {
-    IM_AcousticSceneInput S; OneMaterial(S, Absorption);
+    FIMAcousticSceneInput S; OneMaterial(S, Absorption);
     Box(S,{-4.1f,-.1f,-3.1f},{4.1f,0,3.1f});
     Box(S,{-4.1f,3,-3.1f},{4.1f,3.1f,3.1f});
     Box(S,{-4.1f,0,-3.1f},{-4,3,3.1f});
@@ -120,9 +121,9 @@ IM_AcousticSceneInput ClosedScene(float Absorption)
     return S;
 }
 // Sealed 20x3x2 m duct interior X[-10,10] Y[0,3] Z[-1,1], thickness 0.1.
-IM_AcousticSceneInput CorridorScene(float Absorption)
+FIMAcousticSceneInput CorridorScene(float Absorption)
 {
-    IM_AcousticSceneInput S; OneMaterial(S, Absorption);
+    FIMAcousticSceneInput S; OneMaterial(S, Absorption);
     Box(S,{-10.1f,-.1f,-1.1f},{10.1f,0,1.1f});
     Box(S,{-10.1f,3,-1.1f},{10.1f,3.1f,1.1f});
     Box(S,{-10.1f,0,-1.1f},{-10,3,1.1f});
@@ -132,9 +133,9 @@ IM_AcousticSceneInput CorridorScene(float Absorption)
     return S;
 }
 // Walled 20x3x20 m floor without ceiling: interior X[-10,10] Z[-10,10].
-IM_AcousticSceneInput OutdoorScene(float Absorption)
+FIMAcousticSceneInput OutdoorScene(float Absorption)
 {
-    IM_AcousticSceneInput S; OneMaterial(S, Absorption);
+    FIMAcousticSceneInput S; OneMaterial(S, Absorption);
     Box(S,{-10.1f,-.1f,-10.1f},{10.1f,0,10.1f});
     Box(S,{-10.1f,0,-10.1f},{-10,3,10.1f});
     Box(S,{10,0,-10.1f},{10.1f,3,10.1f});
@@ -247,83 +248,83 @@ struct CaseDef
 }
 int main(int Argc, char** Argv)
 {
-    SetUnhandledExceptionFilter(IMCrashEvidence);
+    SetUnhandledExceptionFilter(CrashEvidence);
     IPLContext Context = nullptr; IPLHRTF HRTF = nullptr;
     try {
-        Require(Argc == 2, "usage: decay evidence-directory");
+        IMSteamAudioDecayPrivate::Require(Argc == 2, "usage: decay evidence-directory");
         const std::filesystem::path Dir = Argv[1]; std::filesystem::create_directories(Dir);
-        Require(IM_GetAcousticSDKContext() != nullptr, "shared SDK context unavailable");
-        Context = iplContextRetain(IM_GetAcousticSDKContext());
-        IPLAudioSettings A{Rate,Block}; IPLHRTFSettings H{}; H.type=IPL_HRTFTYPE_DEFAULT; H.volume=1;
-        Require(iplHRTFCreate(Context,&A,&H,&HRTF)==IPL_STATUS_SUCCESS,"hrtf create");
-        IM_AcousticReverbRenderer Reverb;
-        Require(Reverb.Initialize(Context,HRTF,Rate,Block,IRSizeSamples),"reverb renderer init");
-        const CaseDef Cases[4] = {
+        IMSteamAudioDecayPrivate::Require(IMAcousticSDKContext::GetAcousticSDKContext() != nullptr, "shared SDK context unavailable");
+        Context = iplContextRetain(IMAcousticSDKContext::GetAcousticSDKContext());
+        IPLAudioSettings A{IMSteamAudioDecayPrivate::Rate,IMSteamAudioDecayPrivate::Block}; IPLHRTFSettings H{}; H.type=IPL_HRTFTYPE_DEFAULT; H.volume=1;
+        IMSteamAudioDecayPrivate::Require(iplHRTFCreate(Context,&A,&H,&HRTF)==IPL_STATUS_SUCCESS,"hrtf create");
+        FIMAcousticReverbRenderer Reverb;
+        IMSteamAudioDecayPrivate::Require(Reverb.Initialize(Context,HRTF,IMSteamAudioDecayPrivate::Rate,IMSteamAudioDecayPrivate::Block,IMSteamAudioDecayPrivate::IRSizeSamples),"reverb renderer init");
+        const IMSteamAudioDecayPrivate::CaseDef Cases[4] = {
             {"closed-low","sealed-room-8x3x6",0,0.1f,2,0,8,6},
             {"closed-high","sealed-room-8x3x6",0,0.8f,2,0,8,6},
             {"corridor","sealed-duct-20x3x2",1,0.1f,6,0,20,2},
             {"outdoor-notop","walled-floor-20x20-notop",2,0.1f,2,0,20,20},
         };
-        struct Done { std::string Name; DecayMetrics M; int Probes; };
+        struct Done { std::string Name; IMSteamAudioDecayPrivate::DecayMetrics M; int Probes; };
         std::vector<Done> Finished;
-        for (const CaseDef& C : Cases) {
+        for (const IMSteamAudioDecayPrivate::CaseDef& C : Cases) {
             std::cout<<"case "<<C.Name<<std::endl;
-            IM_AcousticSceneInput Geo;
-            if (C.Kind == 0) Geo = ClosedScene(C.Absorption);
-            else if (C.Kind == 1) Geo = CorridorScene(C.Absorption);
-            else Geo = OutdoorScene(C.Absorption);
+            FIMAcousticSceneInput Geo;
+            if (C.Kind == 0) Geo = IMSteamAudioDecayPrivate::ClosedScene(C.Absorption);
+            else if (C.Kind == 1) Geo = IMSteamAudioDecayPrivate::CorridorScene(C.Absorption);
+            else Geo = IMSteamAudioDecayPrivate::OutdoorScene(C.Absorption);
             IPLProbeGenerationParams Params{}; Params.type=IPL_PROBEGENERATIONTYPE_UNIFORMFLOOR;
             Params.spacing=1; Params.height=1.5f;
             Params.transform.elements[0][0]=C.ExtentX;
             Params.transform.elements[1][1]=3; Params.transform.elements[1][3]=1.5f;
             Params.transform.elements[2][2]=C.ExtentZ;
             Params.transform.elements[3][3]=1;
-            IM_AcousticSimulation Sim; std::string Error;
+            FIMAcousticSimulation Sim; std::string Error;
             std::vector<IPLSphere> Probes;
-            Require(Sim.GenerateProbes(Geo,Params,Probes,Error),Error);
-            Require(!Probes.empty(),"SDK generated no probes");
+            IMSteamAudioDecayPrivate::Require(Sim.GenerateProbes(Geo,Params,Probes,Error),Error);
+            IMSteamAudioDecayPrivate::Require(!Probes.empty(),"SDK generated no probes");
             {
                 std::ofstream P(Dir/(std::string(C.Name)+"-probes.csv"));
                 P<<"x_m,y_m,z_m,radius_m\n";
                 for (const auto& Pr : Probes) P<<Pr.center.x<<','<<Pr.center.y<<','<<Pr.center.z<<','<<Pr.radius<<'\n';
-                Require(P.good(),"probes csv write failed");
+                IMSteamAudioDecayPrivate::Require(P.good(),"probes csv write failed");
             }
             Geo.Probes = Probes;
-            IM_AcousticBakeData Bake;
-            Require(Sim.Bake(Geo,Bake,Error),Error);
+            FIMAcousticBakeData Bake;
+            IMSteamAudioDecayPrivate::Require(Sim.Bake(Geo,Bake,Error),Error);
             {
                 std::ofstream S(Dir/(std::string(C.Name)+".scene"),std::ios::binary);
                 S.write(reinterpret_cast<const char*>(Bake.Scene.data()),Bake.Scene.size());
                 std::ofstream B(Dir/(std::string(C.Name)+".probes"),std::ios::binary);
                 B.write(reinterpret_cast<const char*>(Bake.ProbeBatch.data()),Bake.ProbeBatch.size());
-                Require(S.good() && B.good(),"bake bytes write failed");
+                IMSteamAudioDecayPrivate::Require(S.good() && B.good(),"bake bytes write failed");
             }
-            Require(Sim.Load(Bake,Rate,Block,Error),Error);
-            const IPLCoordinateSpace3 Listener = ListenerAt(C.ListenerX, C.ListenerZ);
-            IM_AcousticReverbSlot Slot;
-            Slot.State.store(IM_AcousticIRState::Writing);
-            Require(Sim.EvaluateReverb(Slot,Listener,Error),Error);
-            Require(Slot.Params.ir != nullptr,"baked convolution IR is null");
-            Require(Slot.Params.type == IPL_REFLECTIONEFFECTTYPE_CONVOLUTION,"baked IR is not convolution");
-            Require(Slot.Params.numChannels == IM_AcousticAudioFrame::Coefficients,"baked IR channel mismatch");
-            Require(Slot.Params.irSize == IRSizeSamples,"baked IR length mismatch vs current recipe");
+            IMSteamAudioDecayPrivate::Require(Sim.Load(Bake,IMSteamAudioDecayPrivate::Rate,IMSteamAudioDecayPrivate::Block,Error),Error);
+            const IPLCoordinateSpace3 Listener = IMSteamAudioDecayPrivate::ListenerAt(C.ListenerX, C.ListenerZ);
+            FIMAcousticReverbSlot Slot;
+            Slot.State.store(EIMAcousticIRState::Writing);
+            IMSteamAudioDecayPrivate::Require(Sim.EvaluateReverb(Slot,Listener,Error),Error);
+            IMSteamAudioDecayPrivate::Require(Slot.Params.ir != nullptr,"baked convolution IR is null");
+            IMSteamAudioDecayPrivate::Require(Slot.Params.type == IPL_REFLECTIONEFFECTTYPE_CONVOLUTION,"baked IR is not convolution");
+            IMSteamAudioDecayPrivate::Require(Slot.Params.numChannels == FIMAcousticAudioFrame::Coefficients,"baked IR channel mismatch");
+            IMSteamAudioDecayPrivate::Require(Slot.Params.irSize == IMSteamAudioDecayPrivate::IRSizeSamples,"baked IR length mismatch vs current recipe");
             Reverb.Reset();
-            std::vector<float> Mono(Block,0), Stereo(Block*2,0), All;
-            All.reserve(static_cast<size_t>(RenderBlocks)*Block*2);
-            for (int B = 0; B < RenderBlocks; ++B) {
-                std::fill(Mono.begin(),Mono.end(),0.0f); if (B == 0) Mono[0] = ImpulseAmp;
-                Require(Reverb.Render(Mono.data(),Block,Slot.Params,Slot.Listener,Stereo.data()),"production reverb render rejected");
+            std::vector<float> Mono(IMSteamAudioDecayPrivate::Block,0), Stereo(IMSteamAudioDecayPrivate::Block*2,0), All;
+            All.reserve(static_cast<size_t>(IMSteamAudioDecayPrivate::RenderBlocks)*IMSteamAudioDecayPrivate::Block*2);
+            for (int B = 0; B < IMSteamAudioDecayPrivate::RenderBlocks; ++B) {
+                std::fill(Mono.begin(),Mono.end(),0.0f); if (B == 0) Mono[0] = IMSteamAudioDecayPrivate::ImpulseAmp;
+                IMSteamAudioDecayPrivate::Require(Reverb.Render(Mono.data(),IMSteamAudioDecayPrivate::Block,Slot.Params,Slot.Listener,Stereo.data()),"production reverb render rejected");
                 All.insert(All.end(),Stereo.begin(),Stereo.end());
             }
-            Wave(Dir/(std::string(C.Name)+"-impulse.wav"),All);
-            const DecayMetrics M = Analyze(All);
+            IMSteamAudioDecayPrivate::Wave(Dir/(std::string(C.Name)+"-impulse.wav"),All);
+            const IMSteamAudioDecayPrivate::DecayMetrics M = IMSteamAudioDecayPrivate::Analyze(All);
             {
                 std::ofstream E(Dir/(std::string(C.Name)+"-energy-10ms.csv"));
                 E<<"time_s,energy,edc_db\n";
                 E<<std::setprecision(10);
                 for (size_t W = 0; W < M.WindowEnergy.size(); ++W)
                     E<<(W*0.01)<<','<<M.WindowEnergy[W]<<','<<M.WindowEdcDb[W]<<'\n';
-                Require(E.good(),"energy csv write failed");
+                IMSteamAudioDecayPrivate::Require(E.good(),"energy csv write failed");
             }
             {
                 std::ofstream J(Dir/(std::string(C.Name)+"-decay.json"));
@@ -331,12 +332,12 @@ int main(int Argc, char** Argv)
                 J<<"{\"name\":\""<<C.Name<<"\",\"geometry\":\""<<C.Geometry<<"\",";
                 J<<"\"absorption_3band\":["<<C.Absorption<<','<<C.Absorption<<','<<C.Absorption<<"],";
                 J<<"\"scattering\":0.5,\"transmission_3band\":[0,0,0],";
-                J<<"\"recipe_version\":"<<IM_AcousticRecipe::Version<<",";
-                J<<"\"recipe\":{\"num_rays\":"<<IM_AcousticRecipe::ReverbNumRays<<",\"num_bounces\":"<<IM_AcousticRecipe::ReverbNumBounces<<",\"sim_duration_s\":"<<IM_AcousticRecipe::ReverbSimDurationS<<",\"saved_ir_s\":"<<IM_AcousticRecipe::ReverbSavedDurationS<<"},";
+                J<<"\"recipe_version\":"<<IMAcousticRecipe::Version<<",";
+                J<<"\"recipe\":{\"num_rays\":"<<IMAcousticRecipe::ReverbNumRays<<",\"num_bounces\":"<<IMAcousticRecipe::ReverbNumBounces<<",\"sim_duration_s\":"<<IMAcousticRecipe::ReverbSimDurationS<<",\"saved_ir_s\":"<<IMAcousticRecipe::ReverbSavedDurationS<<"},";
                 J<<"\"probe_generation\":{\"type\":\"UNIFORMFLOOR\",\"spacing_m\":1,\"height_m\":1.5},";
                 J<<"\"probes_generated\":"<<Probes.size()<<",";
                 J<<"\"wav\":\""<<C.Name<<"-impulse.wav\",";
-                J<<"\"sample_rate_hz\":"<<Rate<<",\"block_frames\":"<<Block<<",\"render_blocks\":"<<RenderBlocks<<",\"impulse_amplitude\":"<<ImpulseAmp<<",";
+                J<<"\"sample_rate_hz\":"<<IMSteamAudioDecayPrivate::Rate<<",\"block_frames\":"<<IMSteamAudioDecayPrivate::Block<<",\"render_blocks\":"<<IMSteamAudioDecayPrivate::RenderBlocks<<",\"impulse_amplitude\":"<<IMSteamAudioDecayPrivate::ImpulseAmp<<",";
                 J<<"\"total_energy\":"<<M.TotalEnergy<<",\"window_s\":0.01,";
                 J<<"\"last_above_minus60_s\":"<<(M.HasLast60?std::to_string(M.LastAboveMinus60S):std::string("null"))<<",";
                 J<<"\"edc_minus5_idx\":"<<(M.StartIdx>=0?std::to_string(M.StartIdx):std::string("null"))<<",";
@@ -346,7 +347,7 @@ int main(int Argc, char** Argv)
                 J<<"\"t20_s\":"<<(M.HasFit?std::to_string(M.T20S):std::string("null"))<<",";
                 J<<"\"decay_fit_usable\":"<<(M.HasFit?"true":"false")<<",";
                 J<<"\"scope\":\"native-sdk-baked-convolution-impulse\"}\n";
-                Require(J.good(),"decay json write failed");
+                IMSteamAudioDecayPrivate::Require(J.good(),"decay json write failed");
             }
             std::cout<<C.Name<<" probes="<<Probes.size()<<" total_energy="<<M.TotalEnergy
                 <<" fit="<<(M.HasFit?"yes":"no")<<" t20_s="<<(M.HasFit?std::to_string(M.T20S):std::string("null"))<<std::endl;
@@ -354,8 +355,8 @@ int main(int Argc, char** Argv)
             Reverb.Reset();
             Sim.Shutdown();
         }
-        const DecayMetrics& Low = Finished[0].M;
-        const DecayMetrics& High = Finished[1].M;
+        const IMSteamAudioDecayPrivate::DecayMetrics& Low = Finished[0].M;
+        const IMSteamAudioDecayPrivate::DecayMetrics& High = Finished[1].M;
         const bool AllUsable = Finished[0].M.HasFit && Finished[1].M.HasFit && Finished[2].M.HasFit && Finished[3].M.HasFit;
         const bool PairUsable = Low.HasFit && High.HasFit;
         const bool LowSlower = PairUsable && (Low.T20S > High.T20S);
@@ -367,9 +368,9 @@ int main(int Argc, char** Argv)
         {
             std::ofstream S(Dir/"summary.json"); S<<std::setprecision(17);
             S<<"{\"scope\":\"native-sdk-decay-counterexample\",";
-            S<<"\"recipe_version\":"<<IM_AcousticRecipe::Version<<",";
-            S<<"\"recipe\":{\"num_rays\":"<<IM_AcousticRecipe::ReverbNumRays<<",\"num_bounces\":"<<IM_AcousticRecipe::ReverbNumBounces<<",\"sim_duration_s\":"<<IM_AcousticRecipe::ReverbSimDurationS<<",\"saved_ir_s\":"<<IM_AcousticRecipe::ReverbSavedDurationS<<"},";
-            S<<"\"fixed_config\":{\"scattering\":0.5,\"transmission\":0,\"probe_spacing_m\":1,\"probe_height_m\":1.5,\"impulse\":0.5,\"render_s\":"<<(double(RenderBlocks*Block)/Rate)<<",";
+            S<<"\"recipe_version\":"<<IMAcousticRecipe::Version<<",";
+            S<<"\"recipe\":{\"num_rays\":"<<IMAcousticRecipe::ReverbNumRays<<",\"num_bounces\":"<<IMAcousticRecipe::ReverbNumBounces<<",\"sim_duration_s\":"<<IMAcousticRecipe::ReverbSimDurationS<<",\"saved_ir_s\":"<<IMAcousticRecipe::ReverbSavedDurationS<<"},";
+            S<<"\"fixed_config\":{\"scattering\":0.5,\"transmission\":0,\"probe_spacing_m\":1,\"probe_height_m\":1.5,\"impulse\":0.5,\"render_s\":"<<(double(IMSteamAudioDecayPrivate::RenderBlocks*IMSteamAudioDecayPrivate::Block)/IMSteamAudioDecayPrivate::Rate)<<",";
             S<<"\"cases\":[";
             for (size_t I = 0; I < Finished.size(); ++I) {
                 if (I) S<<',';
@@ -381,7 +382,7 @@ int main(int Argc, char** Argv)
             S<<"\"low_slower_than_high\":"<<(LowSlower?"true":"false")<<",\"low_high_distinguishable\":"<<(Distinguishable?"true":"false")<<"},";
             S<<"\"counterexample_observed\":"<<(Counterexample?"true":"false")<<",\"ue_audio_gate\":\"NOT_RUN\",";
             S<<"\"unvalidated\":[\"UE routing\",\"editor audition\",\"listener motion\",\"recipe change\",\"absorption outside 0.1/0.8\"]}\n";
-            Require(S.good(),"summary write failed");
+            IMSteamAudioDecayPrivate::Require(S.good(),"summary write failed");
         }
         iplHRTFRelease(&HRTF); iplContextRelease(&Context);
         std::cout<<"counterexample_observed="<<(Counterexample?"yes":"no")<<std::endl;

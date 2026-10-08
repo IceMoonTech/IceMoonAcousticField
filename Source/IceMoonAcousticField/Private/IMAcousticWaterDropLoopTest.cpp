@@ -21,22 +21,22 @@
 #include "UnrealEdGlobals.h"
 #include "Editor/UnrealEdEngine.h"
 
-namespace
+namespace IMAcousticWaterDropLoopTestPrivate
 {
-constexpr const TCHAR* IMWaterDropMap = TEXT("/IceMoonAcousticField/Tests/IM_V2Audition");
-constexpr const TCHAR* IMWaterDropSourceTag = TEXT("IMAcousticAuditionReferenceV1");
-constexpr const TCHAR* IMWaterDropMetaSound = TEXT("/IceMoonAcousticField/Tests/Audio/MS_WaterDropEryliaa_FullLoopOnPlay");
-constexpr double IMWaterDropLoopSeconds = 28.176;
-constexpr double IMWaterDropCaptureSeconds = 62.5;
-constexpr double IMWaterDropWarmupSeconds = 2.0;
-constexpr double IMWaterDropTimeoutSeconds = 210.0;
-constexpr int64 IMWaterDropMinimumWavBytes = 11 * 1000 * 1000;
-constexpr double IMWaterDropFileStableSeconds = 1.0;
+constexpr const TCHAR* WaterDropMap = TEXT("/IceMoonAcousticField/Tests/IM_V2Audition");
+constexpr const TCHAR* WaterDropSourceTag = TEXT("IMAcousticAuditionReferenceV1");
+constexpr const TCHAR* WaterDropMetaSound = TEXT("/IceMoonAcousticField/Tests/Audio/MS_WaterDropEryliaa_FullLoopOnPlay");
+constexpr double WaterDropLoopSeconds = 28.176;
+constexpr double WaterDropCaptureSeconds = 62.5;
+constexpr double WaterDropWarmupSeconds = 2.0;
+constexpr double WaterDropTimeoutSeconds = 210.0;
+constexpr int64 WaterDropMinimumWavBytes = 11 * 1000 * 1000;
+constexpr double WaterDropFileStableSeconds = 1.0;
 
-class IM_AcousticWaterDropLoopCommand final : public IAutomationLatentCommand
+class FIMAcousticWaterDropLoopCommand final : public IAutomationLatentCommand
 {
 public:
-    explicit IM_AcousticWaterDropLoopCommand(FAutomationTestBase* InTest)
+    explicit FIMAcousticWaterDropLoopCommand(FAutomationTestBase* InTest)
         : Test(InTest), Created(FPlatformTime::Seconds())
     {
     }
@@ -44,7 +44,7 @@ public:
     bool Update() override
     {
         const double Now = FPlatformTime::Seconds();
-        if (Now - Created > IMWaterDropTimeoutSeconds)
+        if (Now - Created > WaterDropTimeoutSeconds)
         {
             return Finish(false, TEXT("Water-drop Dry/Wet recording exceeded its bounded runtime."));
         }
@@ -80,7 +80,7 @@ public:
 
             for (TActorIterator<AActor> It(PIE); It; ++It)
             {
-                if (!It->ActorHasTag(IMWaterDropSourceTag))
+                if (!It->ActorHasTag(WaterDropSourceTag))
                 {
                     continue;
                 }
@@ -104,7 +104,7 @@ public:
             Audio = AudioComponents[0];
             SourceMarker = SourceActor->FindComponentByClass<UIMAcousticSourceComponent>();
             MetaSound = Cast<UMetaSoundSource>(Audio->Sound);
-            if (!SourceMarker.IsValid() || !MetaSound.IsValid() || !MetaSound->GetPathName().StartsWith(IMWaterDropMetaSound)
+            if (!SourceMarker.IsValid() || !MetaSound.IsValid() || !MetaSound->GetPathName().StartsWith(WaterDropMetaSound)
                 || MetaSound->OutputFormat != EMetaSoundOutputAudioFormat::Mono || MetaSound->NumChannels != 1)
             {
                 return Finish(false, TEXT("PIE source is not the authored mono water-drop MetaSound."));
@@ -120,7 +120,7 @@ public:
                 return Finish(false, TEXT("PIE source gain/pitch differs from the shared Dry/Wet contract."));
             }
 
-            Bridge = IM_FindAcousticDevice(PIE->GetAudioDeviceRaw());
+            Bridge = IMAcousticSpatialization::FindAcousticDevice(PIE->GetAudioDeviceRaw());
             if (!Bridge || !Bridge->Alive.load(std::memory_order_acquire))
             {
                 return false;
@@ -158,7 +158,7 @@ public:
 
         if (Stage == 1)
         {
-            if (Now - StageStarted < IMWaterDropWarmupSeconds)
+            if (Now - StageStarted < WaterDropWarmupSeconds)
             {
                 return false;
             }
@@ -170,7 +170,7 @@ public:
 
         if (Stage == 2)
         {
-            if (Now - StageStarted < IMWaterDropCaptureSeconds)
+            if (Now - StageStarted < WaterDropCaptureSeconds)
             {
                 return false;
             }
@@ -194,7 +194,7 @@ public:
 
         if (Stage == 4)
         {
-            if (Now - StageStarted < IMWaterDropCaptureSeconds)
+            if (Now - StageStarted < WaterDropCaptureSeconds)
             {
                 return false;
             }
@@ -242,11 +242,11 @@ private:
         }
         Audio->Stop();
         Audio->SetVolumeMultiplier(0.7f);
-        UAudioMixerBlueprintLibrary::StartRecordingOutput(PIE, static_cast<float>(IMWaterDropCaptureSeconds + 2.0), nullptr);
+        UAudioMixerBlueprintLibrary::StartRecordingOutput(PIE, static_cast<float>(WaterDropCaptureSeconds + 2.0), nullptr);
         Audio->Play();
         Recording = true;
         CaptureStarted = Now;
-        UE_LOG(LogTemp, Display, TEXT("IMLogs AcousticWaterDropCapture start routes=%u file=%s expected_s=%.3f source=%s"), Routes, *CurrentFile, IMWaterDropCaptureSeconds, *MetaSound->GetPathName());
+        UE_LOG(LogTemp, Display, TEXT("IMLogs AcousticWaterDropCapture start routes=%u file=%s expected_s=%.3f source=%s"), Routes, *CurrentFile, WaterDropCaptureSeconds, *MetaSound->GetPathName());
     }
 
     void EndCapture(UWorld* PIE)
@@ -270,7 +270,7 @@ private:
     {
         // StopRecordingOutput finalizes asynchronously; reject the early partial file before writing the receipt.
         const int64 Size = File.IsEmpty() ? -1 : IFileManager::Get().FileSize(*File);
-        if (Size < IMWaterDropMinimumWavBytes)
+        if (Size < WaterDropMinimumWavBytes)
         {
             ReadyProbeFile.Reset();
             ReadyProbeBytes = -1;
@@ -284,7 +284,7 @@ private:
             ReadyProbeSince = FPlatformTime::Seconds();
             return false;
         }
-        return FPlatformTime::Seconds() - ReadyProbeSince >= IMWaterDropFileStableSeconds;
+        return FPlatformTime::Seconds() - ReadyProbeSince >= WaterDropFileStableSeconds;
     }
 
     bool WriteReceipt() const
@@ -294,9 +294,9 @@ private:
         Writer->WriteObjectStart();
         Writer->WriteValue(TEXT("schema"), TEXT("IMAcousticWaterDropFullLoopRecording.v1"));
         Writer->WriteValue(TEXT("status"), TEXT("PASS_RECORDING_COMPLETE_ANALYSIS_PENDING"));
-        Writer->WriteValue(TEXT("map"), IMWaterDropMap);
-        Writer->WriteValue(TEXT("source_metasound"), IMWaterDropMetaSound);
-        Writer->WriteValue(TEXT("source_duration_seconds"), IMWaterDropLoopSeconds);
+        Writer->WriteValue(TEXT("map"), WaterDropMap);
+        Writer->WriteValue(TEXT("source_metasound"), WaterDropMetaSound);
+        Writer->WriteValue(TEXT("source_duration_seconds"), WaterDropLoopSeconds);
         Writer->WriteValue(TEXT("recording_contract"), TEXT("record at least 62.5 seconds so both 28.176s and 56.352s full-asset boundaries are audible"));
         Writer->WriteValue(TEXT("same_source_and_start"), true);
         Writer->WriteValue(TEXT("audio_component_gain"), 0.7);
@@ -308,8 +308,8 @@ private:
         Writer->WriteValue(TEXT("dry_file_bytes"), static_cast<double>(IFileManager::Get().FileSize(*DryFile)));
         Writer->WriteValue(TEXT("wet_file_bytes"), static_cast<double>(IFileManager::Get().FileSize(*WetFile)));
         Writer->WriteValue(TEXT("raw_source_sha256"), TEXT("8284c59901421d002db751a1e082d2551a74cb7789ddf97e782baf95221e3159"));
-        Writer->WriteValue(TEXT("loop_boundary_seconds_1"), IMWaterDropLoopSeconds);
-        Writer->WriteValue(TEXT("loop_boundary_seconds_2"), IMWaterDropLoopSeconds * 2.0);
+        Writer->WriteValue(TEXT("loop_boundary_seconds_1"), WaterDropLoopSeconds);
+        Writer->WriteValue(TEXT("loop_boundary_seconds_2"), WaterDropLoopSeconds * 2.0);
         Writer->WriteObjectEnd();
         Writer->Close();
         const FString Receipt = FPaths::Combine(EvidenceDirectory, TEXT("runtime-recording-receipt.json"));
@@ -373,7 +373,7 @@ private:
     TWeakObjectPtr<UIMAcousticSourceComponent> SourceMarker;
     TWeakObjectPtr<UAudioComponent> Audio;
     TWeakObjectPtr<UMetaSoundSource> MetaSound;
-    TSharedPtr<IM_AcousticDeviceBridge, ESPMode::ThreadSafe> Bridge;
+    TSharedPtr<FIMAcousticDeviceBridge, ESPMode::ThreadSafe> Bridge;
     FString EvidenceDirectory;
     FString CurrentFile;
     FString DryFile;
@@ -388,13 +388,13 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FIMAcousticWaterDropLoop, "IceMoon.AcousticFiel
 bool FIMAcousticWaterDropLoop::RunTest(const FString&)
 {
     FString Error;
-    GUnrealEd->AutomationLoadMap(IMWaterDropMap, false, &Error);
+    GUnrealEd->AutomationLoadMap(IMAcousticWaterDropLoopTestPrivate::WaterDropMap, false, &Error);
     if (!Error.IsEmpty())
     {
         AddError(FString::Printf(TEXT("Cannot load audition map: %s"), *Error));
         return false;
     }
-    ADD_LATENT_AUTOMATION_COMMAND(IM_AcousticWaterDropLoopCommand(this));
+    ADD_LATENT_AUTOMATION_COMMAND(IMAcousticWaterDropLoopTestPrivate::FIMAcousticWaterDropLoopCommand(this));
     return true;
 }
 #endif

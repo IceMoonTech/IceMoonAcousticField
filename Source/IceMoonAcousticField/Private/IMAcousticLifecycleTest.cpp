@@ -20,18 +20,18 @@
 #include "Misc/Paths.h"
 #include "Sound/SoundWaveProcedural.h"
 
-namespace
+namespace IMAcousticLifecycleTestPrivate
 {
-struct IM_LifecycleState
+struct FIMLifecycleState
 {
     FAutomationTestBase* Test=nullptr;double Started=0;float BackgroundVolume=1;bool bAllowBackgroundAudioOrig=false;int32 Cycle=0;
     FString Directory;uint64 PreviousEpoch=0;
-    TSharedPtr<IM_AcousticDeviceBridge,ESPMode::ThreadSafe> PreviousBridge;
+    TSharedPtr<FIMAcousticDeviceBridge,ESPMode::ThreadSafe> PreviousBridge;
 };
-class IM_AcousticLifecycleCommand final:public IAutomationLatentCommand
+class FIMAcousticLifecycleCommand final:public IAutomationLatentCommand
 {
 public:
-    explicit IM_AcousticLifecycleCommand(TSharedRef<IM_LifecycleState> In):State(In){}
+    explicit FIMAcousticLifecycleCommand(TSharedRef<FIMLifecycleState> In):State(In){}
     bool Update() override
     {
         const double Now=FPlatformTime::Seconds();if(Now-State->Started>120)return Finish(false,FString::Printf(TEXT("Lifecycle test timed out at stage %d."),Stage));
@@ -57,32 +57,32 @@ public:
             FString Error;GUnrealEd->AutomationLoadMap(TEXT("/IceMoonAcousticField/Tests/IM_W1Door"),false,&Error);
             if(!Error.IsEmpty())return Finish(false,Error);
             // Yield the current command, allowing the queued PIE startup to run.
-            ADD_LATENT_AUTOMATION_COMMAND(IM_AcousticLifecycleCommand(State));return true;
+            ADD_LATENT_AUTOMATION_COMMAND(FIMAcousticLifecycleCommand(State));return true;
         }
         if(!World)return Stage==0?false:Finish(false,TEXT("PIE ended before lifecycle evidence."));
         if(Stage==0)
         {
             for(TActorIterator<AIMAcousticBakeVolume> It(World);It;++It)Volume=*It;
-            Listener=World->GetFirstPlayerController();Bridge=IM_AcousticTestSupport::FindBridge(World);
+            Listener=World->GetFirstPlayerController();Bridge=IMAcousticTestSupport::FindBridge(World);
             if(!Volume.IsValid()||!Listener.IsValid()||!Bridge||!Bridge->WorldGeneration.load())return false;
             if(State->PreviousEpoch==Bridge->WorldGeneration.load())return Finish(false,TEXT("PIE reused a world generation."));
             if(State->PreviousBridge&&State->PreviousBridge->WorldGeneration.load()==State->PreviousEpoch)return Finish(false,TEXT("Old device still publishes the previous world."));
             Volume->bEnableV2=true;Volume->bDirectRoute=false;Volume->bPathRoute=true;Volume->bReverbRoute=true;
-            RestoreListener();SpawnSource(World,233);Bridge=IM_AcousticTestSupport::FindBridge(World);
+            RestoreListener();SpawnSource(World,233);Bridge=IMAcousticTestSupport::FindBridge(World);
             if(FAudioDevice* AudioDevice=World->GetAudioDeviceRaw())
-                MetaContext=IM_FindAcousticMetaSoundContext(AudioDevice->DeviceID);
+                MetaContext=IMAcousticMetaSound::FindAcousticMetaSoundContext(AudioDevice->DeviceID);
             GraphWindowSourceStart=GraphSourceBlocks();
             GraphWindowEnvironmentStart=GraphEnvironmentBlocks();
             PathStart=Bridge?Bridge->PathNonzeroBlocks.load():0;ReverbStart=Bridge?Bridge->ReverbNonzeroBlocks.load():0;InputStart=Bridge?Bridge->PushDryInputNonzero.load():0;Stage=1;Stamp=Now;
         }
-        Bridge=IM_AcousticTestSupport::FindBridge(World);
+        Bridge=IMAcousticTestSupport::FindBridge(World);
         if(!Volume.IsValid()||!Listener.IsValid()||!Bridge)return Finish(false,TEXT("Lifecycle owner lost."));
         if(MetaContext.IsValid()&&MetaContext->Stopped.load(std::memory_order_acquire))
             MetaContext.Reset();
         if(!MetaContext.IsValid())
         {
             if(FAudioDevice* AudioDevice=World->GetAudioDeviceRaw())
-                MetaContext=IM_FindAcousticMetaSoundContext(AudioDevice->DeviceID);
+                MetaContext=IMAcousticMetaSound::FindAcousticMetaSoundContext(AudioDevice->DeviceID);
         }
         if(MetaContext.IsValid()&&GraphWindowSourceStart==0)
         {
@@ -271,10 +271,10 @@ private:
         const uint32 First=FMath::Min<uint32>(Begin,Limit);
         for(uint32 I=First;I<Limit;++I)
         {
-            const IM_AcousticBlockProbe& E=MetaContext->CapturedSourceBlocks[int32(I)];
+            const FIMAcousticBlockProbe& E=MetaContext->CapturedSourceBlocks[int32(I)];
             if(E.InputEnergy>1e-9)++Input;
             if(E.OutputEnergy>1e-9)++Output;
-            if(E.Reject!=IM_AcousticProbeReject::Accepted){++Rejected;continue;}
+            if(E.Reject!=EIMAcousticProbeReject::Accepted){++Rejected;continue;}
             if((E.Routes&2u)!=0&&E.OutputEnergy>1e-9)++Path;
         }
     }
@@ -287,9 +287,9 @@ private:
         uint64 Nonzero=0;
         for(uint32 I=First;I<Limit;++I)
         {
-            const IM_AcousticMetaSoundBlock& E=MetaContext->CapturedBlocks[int32(I)];
+            const FIMAcousticMetaSoundBlock& E=MetaContext->CapturedBlocks[int32(I)];
             const uint32 Start=uint32(E.Frame);
-            const uint32 Finish=FMath::Min<uint32>(Start+IM_AcousticMetaSoundContext::Frames,Frames);
+            const uint32 Finish=FMath::Min<uint32>(Start+FIMAcousticMetaSoundContext::Frames,Frames);
             bool bWet=false;
             for(uint32 F=Start;F<Finish;++F)
             {
@@ -309,7 +309,7 @@ private:
         Audio->bAutoActivate=false;Audio->RegisterComponent();Audio->SetWorldLocation(FVector(0,-200,150));
         auto* Marker=NewObject<UIMAcousticSourceComponent>(Source.Get());Source->AddInstanceComponent(Marker);Marker->AudioComponent=Audio;Marker->RegisterComponent();
         FString Error;
-        if(!IM_AcousticTestSupport::ConfigureGraphSource(Audio,Error))
+        if(!IMAcousticTestSupport::ConfigureGraphSource(Audio,Error))
         {
             UE_LOG(LogTemp,Error,TEXT("IMLogs AcousticLifecycleSource FAIL %s"),*Error);
             return;
@@ -328,32 +328,32 @@ private:
     bool Finish(bool Success,const FString& Message)
     {
         if(!Success)State->Test->AddError(Message);FApp::SetUnfocusedVolumeMultiplier(State->BackgroundVolume);GetMutableDefault<ULevelEditorMiscSettings>()->bAllowBackgroundAudio=State->bAllowBackgroundAudioOrig;
-        IM_EnableAcousticMetaSoundCaptureForTest(false);
+        IMAcousticMetaSound::EnableAcousticMetaSoundCaptureForTest(false);
         UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticLifecycle %s evidence=%s"),*Message,*State->Directory);
         UE_LOG(LogTemp,Display,TEXT("[IM][PIE_TEST] AcousticLifecycle %s"),Success?TEXT("PASS"):TEXT("FAIL"));
         UE_LOG(LogTemp,Display,TEXT("IMExitEditor %s"),Success?TEXT("PASS"):TEXT("FAIL"));GEditor->RequestEndPlayMap();return true;
     }
-    TSharedRef<IM_LifecycleState> State;int32 Stage=0;double Stamp=0,LastDiagnostic=0;
+    TSharedRef<FIMLifecycleState> State;int32 Stage=0;double Stamp=0,LastDiagnostic=0;
     TWeakObjectPtr<AIMAcousticBakeVolume> Volume;TWeakObjectPtr<APlayerController> Listener;TWeakObjectPtr<AActor> Source;
     TWeakObjectPtr<AIMAcousticBakeVolume> Competitor;uint64 OwnerEpoch=0;
-    TSharedPtr<IM_AcousticDeviceBridge,ESPMode::ThreadSafe> Bridge;TArray<uint64> Generations;
-    IM_AcousticMetaSoundContextPtr MetaContext;
-    IM_AcousticMetaSoundContextPtr PreviousMetaContext;
+    TSharedPtr<FIMAcousticDeviceBridge,ESPMode::ThreadSafe> Bridge;TArray<uint64> Generations;
+    FIMAcousticMetaSoundContextPtr MetaContext;
+    FIMAcousticMetaSoundContextPtr PreviousMetaContext;
     uint32 GraphWindowSourceStart=0,GraphWindowEnvironmentStart=0;
     uint64 PathStart=0,ReverbStart=0,BypassStart=0,RejectedStart=0,InputStart=0;
 };
 }
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(IM_AcousticLifecycle,"IceMoon.AcousticField.W3.Lifecycle",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
-bool IM_AcousticLifecycle::RunTest(const FString&)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FIMAcousticLifecycle,"IceMoon.AcousticField.W3.Lifecycle",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
+bool FIMAcousticLifecycle::RunTest(const FString&)
 {
-    auto State=MakeShared<IM_LifecycleState>();State->Test=this;State->Started=FPlatformTime::Seconds();
+    auto State=MakeShared<IMAcousticLifecycleTestPrivate::FIMLifecycleState>();State->Test=this;State->Started=FPlatformTime::Seconds();
     State->BackgroundVolume=FApp::GetUnfocusedVolumeMultiplier();FApp::SetUnfocusedVolumeMultiplier(1);
     State->bAllowBackgroundAudioOrig=GetMutableDefault<ULevelEditorMiscSettings>()->bAllowBackgroundAudio;GetMutableDefault<ULevelEditorMiscSettings>()->bAllowBackgroundAudio=true;
     State->Directory=FPaths::ConvertRelativePathToFull(FPaths::Combine(FPaths::ProjectSavedDir(),TEXT("AcousticV2/W3-Lifecycle"),FGuid::NewGuid().ToString(EGuidFormats::Digits)));
     IFileManager::Get().MakeDirectory(*State->Directory,true);
     FString Error;GUnrealEd->AutomationLoadMap(TEXT("/IceMoonAcousticField/Tests/IM_W1Door"),false,&Error);
     if(!Error.IsEmpty()){FApp::SetUnfocusedVolumeMultiplier(State->BackgroundVolume);AddError(Error);return false;}
-    IM_EnableAcousticMetaSoundCaptureForTest(true);
-    ADD_LATENT_AUTOMATION_COMMAND(IM_AcousticLifecycleCommand(State));return true;
+    IMAcousticMetaSound::EnableAcousticMetaSoundCaptureForTest(true);
+    ADD_LATENT_AUTOMATION_COMMAND(IMAcousticLifecycleTestPrivate::FIMAcousticLifecycleCommand(State));return true;
 }
 #endif

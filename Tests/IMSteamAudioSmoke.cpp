@@ -8,7 +8,7 @@
 // Protocol (frozen):
 // - 48kHz, 1024 frames/block. W1 multi-tone PCM (233/997/3109Hz, 2600/32768
 //   float, identical 1024-sample buffer looped every block: artificial).
-// - Two independent IM_AcousticAudioRenderer instances (A and B), each with an
+// - Two independent FIMAcousticAudioRenderer instances (A and B), each with an
 //   exclusive HRTF, sharing one process IPLContext. Single-threaded: A runs
 //   fully, then B. Direct product renderer compilation, no test double.
 // - Frame identity identical across branches: Generation constant (no Reset,
@@ -35,21 +35,22 @@
 #include <string>
 #include <vector>
 
-namespace {
-constexpr int kRate = 48000;
-constexpr int kBlock = 1024;
-constexpr int kHistBlocks = 10;
-constexpr int kPostBlocks = 94;
-constexpr int kTotalBlocks = kHistBlocks + kPostBlocks;
-constexpr std::uint64_t kGeneration = 7;
-constexpr double kToneAmp = 2600.0 / 32768.0;
-constexpr double kFreqs[3] = {233.0, 997.0, 3109.0};
-constexpr std::uint32_t kRoutesPre = 7;
-constexpr std::uint32_t kRoutesPost = 1;
-constexpr std::uint64_t kW03Samples = 14400; // exact 0.3s at 48kHz
+namespace IMSteamAudioSmokePrivate
+{
+constexpr int KRate = 48000;
+constexpr int KBlock = 1024;
+constexpr int KHistBlocks = 10;
+constexpr int KPostBlocks = 94;
+constexpr int KTotalBlocks = KHistBlocks + KPostBlocks;
+constexpr std::uint64_t KGeneration = 7;
+constexpr double KToneAmp = 2600.0 / 32768.0;
+constexpr double KFreqs[3] = {233.0, 997.0, 3109.0};
+constexpr std::uint32_t KRoutesPre = 7;
+constexpr std::uint32_t KRoutesPost = 1;
+constexpr std::uint64_t KW03Samples = 14400; // exact 0.3s at 48kHz
 // IPLDirectEffectFlags: APPLYOCCLUSION = 1<<3 = 8 (phonon.h). Occlusion only;
 // deliberately NOT the production full set (distance|air|directivity|occlusion).
-constexpr std::uint32_t kDirectFlags = 8;
+constexpr std::uint32_t KDirectFlags = 8;
 
 void Require(bool Value, const std::string& Error) { if (!Value) throw std::runtime_error(Error); }
 
@@ -67,10 +68,10 @@ struct BlockRec {
     double InputE = 0.0, DirectE = 0.0, PathE = 0.0;
 };
 
-IM_AcousticAudioFrame MakeFrame(float Occ, std::uint64_t Seq)
+FIMAcousticAudioFrame MakeFrame(float Occ, std::uint64_t Seq)
 {
-    IM_AcousticAudioFrame F;
-    F.Generation = kGeneration;
+    FIMAcousticAudioFrame F;
+    F.Generation = KGeneration;
     F.Sequence = Seq;
     F.DirectValid = true;
     F.PathValid = true;
@@ -78,7 +79,7 @@ IM_AcousticAudioFrame MakeFrame(float Occ, std::uint64_t Seq)
     for (int B = 0; B < IPL_NUM_BANDS; ++B) { F.Direct.airAbsorption[B] = 0.0f; F.Direct.transmission[B] = 0.0f; }
     F.Direct.directivity = 1.0f;
     F.Direct.occlusion = Occ;
-    F.Direct.flags = static_cast<IPLDirectEffectFlags>(kDirectFlags);
+    F.Direct.flags = static_cast<IPLDirectEffectFlags>(KDirectFlags);
     F.ListenerLocalDirection = {0.0f, 0.0f, -1.0f};
     F.Listener.origin = {2.0f, 0.0f, 0.0f};
     F.Listener.right = {1.0f, 0.0f, 0.0f};
@@ -96,26 +97,26 @@ struct BranchOut {
     std::vector<float> PostStereo, PostDirect, PostPath; // observation blocks, interleaved
 };
 
-BranchOut RunBranch(IM_AcousticAudioRenderer& R, float HistOcc, const std::vector<float>& Input)
+BranchOut RunBranch(FIMAcousticAudioRenderer& R, float HistOcc, const std::vector<float>& Input)
 {
     BranchOut O;
-    O.PreStereo.reserve(std::size_t(kHistBlocks) * kBlock * 2);
-    O.PreDirect.reserve(std::size_t(kHistBlocks) * kBlock * 2);
-    O.PrePath.reserve(std::size_t(kHistBlocks) * kBlock * 2);
-    O.PostStereo.reserve(std::size_t(kPostBlocks) * kBlock * 2);
-    O.PostDirect.reserve(std::size_t(kPostBlocks) * kBlock * 2);
-    O.PostPath.reserve(std::size_t(kPostBlocks) * kBlock * 2);
-    std::vector<float> Stereo(kBlock * 2), DS(kBlock * 2), PS(kBlock * 2);
-    for (int B = 0; B < kTotalBlocks; ++B)
+    O.PreStereo.reserve(std::size_t(KHistBlocks) * KBlock * 2);
+    O.PreDirect.reserve(std::size_t(KHistBlocks) * KBlock * 2);
+    O.PrePath.reserve(std::size_t(KHistBlocks) * KBlock * 2);
+    O.PostStereo.reserve(std::size_t(KPostBlocks) * KBlock * 2);
+    O.PostDirect.reserve(std::size_t(KPostBlocks) * KBlock * 2);
+    O.PostPath.reserve(std::size_t(KPostBlocks) * KBlock * 2);
+    std::vector<float> Stereo(KBlock * 2), DS(KBlock * 2), PS(KBlock * 2);
+    for (int B = 0; B < KTotalBlocks; ++B)
     {
-        const bool Pre = B < kHistBlocks;
+        const bool Pre = B < KHistBlocks;
         const float Occ = Pre ? HistOcc : 0.0f;
-        const std::uint32_t Routes = Pre ? kRoutesPre : kRoutesPost;
-        IM_AcousticAudioFrame F = MakeFrame(Occ, std::uint64_t(B + 1));
-        IM_AcousticAudioMetrics M;
-        const bool Ok = R.Render(Input.data(), kBlock, F, Stereo.data(), DS.data(), PS.data(), &M, Routes);
+        const std::uint32_t Routes = Pre ? KRoutesPre : KRoutesPost;
+        FIMAcousticAudioFrame F = MakeFrame(Occ, std::uint64_t(B + 1));
+        FIMAcousticAudioMetrics M;
+        const bool Ok = R.Render(Input.data(), KBlock, F, Stereo.data(), DS.data(), PS.data(), &M, Routes);
         double InE = 0.0;
-        for (int I = 0; I < kBlock; ++I) InE += double(Input[I]) * Input[I];
+        for (int I = 0; I < KBlock; ++I) InE += double(Input[I]) * Input[I];
         BlockRec Rec;
         Rec.Block = B; Rec.Seq = std::uint64_t(B + 1); Rec.Occ = Occ; Rec.Flags = static_cast<std::uint32_t>(F.Direct.flags); Rec.Routes = Routes;
         Rec.Ok = Ok ? 1 : 0; Rec.Fail = int(M.Failure);
@@ -151,65 +152,65 @@ std::int16_t Quantize(float X)
 int main(int argc, char** argv)
 {
     try {
-        Require(argc >= 2, "usage: IM_SteamAudioSmoke <output-dir>");
+        IMSteamAudioSmokePrivate::Require(argc >= 2, "usage: IM_SteamAudioSmoke <output-dir>");
         const std::string Out = argv[1];
         // Block-periodic W1 multi-tone (identical buffer each block), both branches.
-        std::vector<float> Input(kBlock);
-        for (int I = 0; I < kBlock; ++I)
+        std::vector<float> Input(IMSteamAudioSmokePrivate::KBlock);
+        for (int I = 0; I < IMSteamAudioSmokePrivate::KBlock; ++I)
         {
-            const double T = double(I) / kRate;
+            const double T = double(I) / IMSteamAudioSmokePrivate::KRate;
             double S = 0.0;
-            for (double Fq : kFreqs) S += std::sin(2.0 * 3.141592653589793 * Fq * T);
-            Input[I] = float(S * kToneAmp);
+            for (double Fq : IMSteamAudioSmokePrivate::KFreqs) S += std::sin(2.0 * 3.141592653589793 * Fq * T);
+            Input[I] = float(S * IMSteamAudioSmokePrivate::KToneAmp);
         }
-        IPLContext Ctx = IM_GetAcousticSDKContext();
-        Require(Ctx != nullptr, "null SDK context");
-        IPLAudioSettings Audio{ kRate, kBlock };
+        IPLContext Ctx = IMAcousticSDKContext::GetAcousticSDKContext();
+        IMSteamAudioSmokePrivate::Require(Ctx != nullptr, "null SDK context");
+        IPLAudioSettings Audio{ IMSteamAudioSmokePrivate::KRate, IMSteamAudioSmokePrivate::KBlock };
         IPLHRTFSettings HS{};
         HS.type = IPL_HRTFTYPE_DEFAULT;
         HS.volume = 1.0f;
         // Branch A: clean history (occ=0 throughout pre-switch).
         IPLHRTF HrtfA = nullptr;
-        Require(iplHRTFCreate(Ctx, &Audio, &HS, &HrtfA) == IPL_STATUS_SUCCESS && HrtfA, "HRTF A create failed");
-        IM_AcousticAudioRenderer RA;
-        Require(RA.Initialize(Ctx, HrtfA, kRate, kBlock), "renderer A init failed");
+        IMSteamAudioSmokePrivate::Require(iplHRTFCreate(Ctx, &Audio, &HS, &HrtfA) == IPL_STATUS_SUCCESS && HrtfA, "HRTF A create failed");
+        FIMAcousticAudioRenderer RA;
+        IMSteamAudioSmokePrivate::Require(RA.Initialize(Ctx, HrtfA, IMSteamAudioSmokePrivate::KRate, IMSteamAudioSmokePrivate::KBlock), "renderer A init failed");
         iplHRTFRelease(&HrtfA);
-        BranchOut A = RunBranch(RA, 0.0f, Input);
+        IMSteamAudioSmokePrivate::BranchOut A = IMSteamAudioSmokePrivate::RunBranch(RA, 0.0f, Input);
         // Branch B: polluted history (occ=1 pre-switch), then identical occ=0.
         IPLHRTF HrtfB = nullptr;
-        Require(iplHRTFCreate(Ctx, &Audio, &HS, &HrtfB) == IPL_STATUS_SUCCESS && HrtfB, "HRTF B create failed");
-        IM_AcousticAudioRenderer RB;
-        Require(RB.Initialize(Ctx, HrtfB, kRate, kBlock), "renderer B init failed");
+        IMSteamAudioSmokePrivate::Require(iplHRTFCreate(Ctx, &Audio, &HS, &HrtfB) == IPL_STATUS_SUCCESS && HrtfB, "HRTF B create failed");
+        FIMAcousticAudioRenderer RB;
+        IMSteamAudioSmokePrivate::Require(RB.Initialize(Ctx, HrtfB, IMSteamAudioSmokePrivate::KRate, IMSteamAudioSmokePrivate::KBlock), "renderer B init failed");
         iplHRTFRelease(&HrtfB);
-        BranchOut B = RunBranch(RB, 1.0f, Input);
+        IMSteamAudioSmokePrivate::BranchOut B = IMSteamAudioSmokePrivate::RunBranch(RB, 1.0f, Input);
         // Params (full precision, no truncation).
         {
             std::ofstream P(Out + "/params.json");
-            Require(bool(P), "cannot open params.json");
-            P << "{\"rate\":" << kRate << ",\"block\":" << kBlock
-              << ",\"hist_blocks\":" << kHistBlocks << ",\"post_blocks\":" << kPostBlocks
-              << ",\"generation\":" << kGeneration
-              << ",\"tone_amp\":" << Fmt17(kToneAmp)
-              << ",\"freqs\":[" << Fmt17(kFreqs[0]) << "," << Fmt17(kFreqs[1]) << "," << Fmt17(kFreqs[2]) << "]"
+            IMSteamAudioSmokePrivate::Require(bool(P), "cannot open params.json");
+            P << "{\"rate\":" << IMSteamAudioSmokePrivate::KRate << ",\"block\":" << IMSteamAudioSmokePrivate::KBlock
+              << ",\"hist_blocks\":" << IMSteamAudioSmokePrivate::KHistBlocks << ",\"post_blocks\":" << IMSteamAudioSmokePrivate::KPostBlocks
+              << ",\"generation\":" << IMSteamAudioSmokePrivate::KGeneration
+              << ",\"tone_amp\":" << IMSteamAudioSmokePrivate::Fmt17(IMSteamAudioSmokePrivate::KToneAmp)
+              << ",\"freqs\":[" << IMSteamAudioSmokePrivate::Fmt17(IMSteamAudioSmokePrivate::KFreqs[0]) << "," << IMSteamAudioSmokePrivate::Fmt17(IMSteamAudioSmokePrivate::KFreqs[1]) << "," << IMSteamAudioSmokePrivate::Fmt17(IMSteamAudioSmokePrivate::KFreqs[2]) << "]"
               << ",\"tone_phase\":\"block-periodic-loop-1024\",\"input_note\":\"artificial-W1-multitone-not-fitted-to-655B\""
-              << ",\"routes_pre\":" << kRoutesPre << ",\"routes_post\":" << kRoutesPost
+              << ",\"routes_pre\":" << IMSteamAudioSmokePrivate::KRoutesPre << ",\"routes_post\":" << IMSteamAudioSmokePrivate::KRoutesPost
               << ",\"hist_occ_a\":0.0,\"hist_occ_b\":1.0,\"post_occ\":0.0"
-              << ",\"direct_flags\":" << kDirectFlags
+              << ",\"direct_flags\":" << IMSteamAudioSmokePrivate::KDirectFlags
               << ",\"direct_flags_note\":\"APPLYOCCLUSION-only-bit3-not-production-fullset\""
-              << ",\"direct\":{\"flags\":" << kDirectFlags << ",\"distanceAttenuation\":1.0,\"airAbsorption\":[0.0,0.0,0.0],\"directivity\":1.0,\"transmission\":[0.0,0.0,0.0]}"
+              << ",\"direct\":{\"flags\":" << IMSteamAudioSmokePrivate::KDirectFlags << ",\"distanceAttenuation\":1.0,\"airAbsorption\":[0.0,0.0,0.0],\"directivity\":1.0,\"transmission\":[0.0,0.0,0.0]}"
               << ",\"listener_origin\":[2.0,0.0,0.0],\"listener_dir\":[0.0,0.0,-1.0]"
               << ",\"path_eq\":[1.0,1.0,1.0],\"path_sh\":[1.0,0.0,0.0,0.0]"
-              << ",\"w03_samples\":" << kW03Samples << ",\"post_samples\":" << (std::uint64_t(kPostBlocks) * kBlock)
+              << ",\"w03_samples\":" << IMSteamAudioSmokePrivate::KW03Samples << ",\"post_samples\":" << (std::uint64_t(IMSteamAudioSmokePrivate::KPostBlocks) * IMSteamAudioSmokePrivate::KBlock)
               << ",\"quant\":\"lround-half-away *32767 clamp-int16\",\"layout\":\"f32-interleaved-stereo-post-and-pre-per-branch\"}";
             P.close();
-            Require(bool(P), "cannot write params.json");
+            IMSteamAudioSmokePrivate::Require(bool(P), "cannot write params.json");
         }
         // Per-block records (full precision energies).
         for (int Br = 0; Br < 2; ++Br)
         {
-            const BranchOut& O = Br ? B : A;
+            const IMSteamAudioSmokePrivate::BranchOut& O = Br ? B : A;
             std::ofstream C(Out + (Br ? "/B_blocks.csv" : "/A_blocks.csv"));
-            Require(bool(C), "cannot open blocks.csv");
+            IMSteamAudioSmokePrivate::Require(bool(C), "cannot open blocks.csv");
             C << "block,seq,occ,flags,routes,ok,fail,input_e,direct_e,path_e\n";
             char Line[320];
             for (const auto& R : O.Recs)
@@ -219,31 +220,31 @@ int main(int argc, char** argv)
                 C << Line;
             }
             C.close();
-            Require(bool(C), "cannot write blocks.csv");
+            IMSteamAudioSmokePrivate::Require(bool(C), "cannot write blocks.csv");
         }
-        WriteF32(Out + "/A_pre_stereo.f32", A.PreStereo);
-        WriteF32(Out + "/A_pre_direct.f32", A.PreDirect);
-        WriteF32(Out + "/A_pre_path.f32", A.PrePath);
-        WriteF32(Out + "/A_post_stereo.f32", A.PostStereo);
-        WriteF32(Out + "/A_post_direct.f32", A.PostDirect);
-        WriteF32(Out + "/A_post_path.f32", A.PostPath);
-        WriteF32(Out + "/B_pre_stereo.f32", B.PreStereo);
-        WriteF32(Out + "/B_pre_direct.f32", B.PreDirect);
-        WriteF32(Out + "/B_pre_path.f32", B.PrePath);
-        WriteF32(Out + "/B_post_stereo.f32", B.PostStereo);
-        WriteF32(Out + "/B_post_direct.f32", B.PostDirect);
-        WriteF32(Out + "/B_post_path.f32", B.PostPath);
+        IMSteamAudioSmokePrivate::WriteF32(Out + "/A_pre_stereo.f32", A.PreStereo);
+        IMSteamAudioSmokePrivate::WriteF32(Out + "/A_pre_direct.f32", A.PreDirect);
+        IMSteamAudioSmokePrivate::WriteF32(Out + "/A_pre_path.f32", A.PrePath);
+        IMSteamAudioSmokePrivate::WriteF32(Out + "/A_post_stereo.f32", A.PostStereo);
+        IMSteamAudioSmokePrivate::WriteF32(Out + "/A_post_direct.f32", A.PostDirect);
+        IMSteamAudioSmokePrivate::WriteF32(Out + "/A_post_path.f32", A.PostPath);
+        IMSteamAudioSmokePrivate::WriteF32(Out + "/B_pre_stereo.f32", B.PreStereo);
+        IMSteamAudioSmokePrivate::WriteF32(Out + "/B_pre_direct.f32", B.PreDirect);
+        IMSteamAudioSmokePrivate::WriteF32(Out + "/B_pre_path.f32", B.PrePath);
+        IMSteamAudioSmokePrivate::WriteF32(Out + "/B_post_stereo.f32", B.PostStereo);
+        IMSteamAudioSmokePrivate::WriteF32(Out + "/B_post_direct.f32", B.PostDirect);
+        IMSteamAudioSmokePrivate::WriteF32(Out + "/B_post_path.f32", B.PostPath);
         // PCM16 post-switch outputs + last-nonzero positions (exact integers).
         for (int Br = 0; Br < 2; ++Br)
         {
             const std::vector<float>& S = Br ? B.PostStereo : A.PostStereo;
             std::vector<std::int16_t> Q(S.size());
-            for (std::size_t I = 0; I < S.size(); ++I) Q[I] = Quantize(S[I]);
+            for (std::size_t I = 0; I < S.size(); ++I) Q[I] = IMSteamAudioSmokePrivate::Quantize(S[I]);
             std::ofstream F(Out + (Br ? "/B_post.pcm16" : "/A_post.pcm16"), std::ios::binary);
-            Require(bool(F), "cannot open pcm16");
+            IMSteamAudioSmokePrivate::Require(bool(F), "cannot open pcm16");
             F.write(reinterpret_cast<const char*>(Q.data()), std::streamsize(Q.size() * sizeof(std::int16_t)));
             F.close();
-            Require(bool(F), "cannot write pcm16");
+            IMSteamAudioSmokePrivate::Require(bool(F), "cannot write pcm16");
             long long LastL = -1, LastR = -1, Nnz = 0;
             double E = 0.0;
             for (std::size_t I = 0; I < Q.size(); I += 2)
@@ -252,11 +253,11 @@ int main(int argc, char** argv)
                 if (Q[I + 1] != 0) { LastR = long long(I / 2); ++Nnz; E += double(Q[I + 1]) * Q[I + 1]; }
             }
             std::ofstream J(Out + (Br ? "/B_pcm16.json" : "/A_pcm16.json"));
-            Require(bool(J), "cannot open pcm16.json");
-            J << "{\"samples\":" << (Q.size() / 2) << ",\"pcm16_energy\":" << Fmt17(E)
+            IMSteamAudioSmokePrivate::Require(bool(J), "cannot open pcm16.json");
+            J << "{\"samples\":" << (Q.size() / 2) << ",\"pcm16_energy\":" << IMSteamAudioSmokePrivate::Fmt17(E)
               << ",\"nonzero_count\":" << Nnz << ",\"last_nonzero_l\":" << LastL << ",\"last_nonzero_r\":" << LastR << "}";
             J.close();
-            Require(bool(J), "cannot write pcm16.json");
+            IMSteamAudioSmokePrivate::Require(bool(J), "cannot write pcm16.json");
         }
         // Float last-nonzero positions over post-switch output (exact).
         for (int Br = 0; Br < 2; ++Br)
@@ -269,13 +270,13 @@ int main(int argc, char** argv)
                 if (S[I + 1] != 0.0f) { LastR = long long(I / 2); ++Nnz; }
             }
             std::ofstream J(Out + (Br ? "/B_float_tail.json" : "/A_float_tail.json"));
-            Require(bool(J), "cannot open float_tail.json");
+            IMSteamAudioSmokePrivate::Require(bool(J), "cannot open float_tail.json");
             J << "{\"post_samples\":" << (S.size() / 2) << ",\"nonzero_count\":" << Nnz
               << ",\"last_nonzero_l\":" << LastL << ",\"last_nonzero_r\":" << LastR << "}";
             J.close();
-            Require(bool(J), "cannot write float_tail.json");
+            IMSteamAudioSmokePrivate::Require(bool(J), "cannot write float_tail.json");
         }
-        std::cout << "D-AB done blocks=" << kTotalBlocks << " post_samples=" << (kPostBlocks * kBlock) << std::endl;
+        std::cout << "D-AB done blocks=" << IMSteamAudioSmokePrivate::KTotalBlocks << " post_samples=" << (IMSteamAudioSmokePrivate::KPostBlocks * IMSteamAudioSmokePrivate::KBlock) << std::endl;
         return 0;
     } catch (const std::exception& E) {
         std::cerr << "D-AB fatal: " << E.what() << std::endl;
@@ -288,7 +289,7 @@ int main(int argc, char** argv)
 #if 0
 // Preserve the actual SDK crash site in unattended test evidence, without opening
 // a debugger window or converting an access violation into a successful test.
-LONG WINAPI IMCrashEvidence(EXCEPTION_POINTERS* Exception)
+LONG WINAPI CrashEvidence(EXCEPTION_POINTERS* Exception)
 {
     HANDLE Process=GetCurrentProcess();
     SymInitialize(Process,nullptr,TRUE);
@@ -318,12 +319,13 @@ LONG WINAPI IMCrashEvidence(EXCEPTION_POINTERS* Exception)
     return EXCEPTION_EXECUTE_HANDLER;
 }
 
-namespace {
+namespace IMSteamAudioSmokePrivate
+{
 constexpr int Rate = 48000;
 constexpr int Block = 512;
 constexpr int Blocks = 188; // 2.005s, exact SDK blocks.
 void Require(bool Value, const std::string& Error) { if (!Value) throw std::runtime_error(Error); }
-void Box(IM_AcousticSceneInput& S, IPLVector3 Lo, IPLVector3 Hi)
+void Box(FIMAcousticSceneInput& S, IPLVector3 Lo, IPLVector3 Hi)
 {
     const int Base = static_cast<int>(S.Vertices.size());
     for (int I = 0; I < 8; ++I)
@@ -332,9 +334,9 @@ void Box(IM_AcousticSceneInput& S, IPLVector3 Lo, IPLVector3 Hi)
         {0,1,5},{0,5,4},{2,6,7},{2,7,3},{0,4,6},{0,6,2},{1,3,7},{1,7,5}};
     for (const auto& F : Faces) { S.Triangles.push_back({{Base+F[0],Base+F[1],Base+F[2]}}); S.MaterialIndices.push_back(0); }
 }
-IM_AcousticSceneInput Scene(bool Open)
+FIMAcousticSceneInput Scene(bool Open)
 {
-    IM_AcousticSceneInput S;
+    FIMAcousticSceneInput S;
     IPLMaterial M{};
     for (int B=0; B<3; ++B) { M.absorption[B]=0.25f; M.transmission[B]=0.0f; }
     M.scattering=0.5f;
@@ -374,7 +376,7 @@ void Wave(const std::filesystem::path& P,const std::vector<float>& V)
     Require(F.good(),"wave write failed");
 }
 struct Result { double Direct=0,Path=0; float Occlusion=0; bool PathValid=false; double EarBalance=0; };
-Result Render(IM_AcousticAudioRenderer& Renderer,const IM_AcousticAudioFrame& Frame,
+Result Render(FIMAcousticAudioRenderer& Renderer,const FIMAcousticAudioFrame& Frame,
     const std::filesystem::path& Dir,const std::string& Name)
 {
     Renderer.Reset();
@@ -397,66 +399,66 @@ Result Render(IM_AcousticAudioRenderer& Renderer,const IM_AcousticAudioFrame& Fr
 }
 int main(int Argc,char** Argv)
 {
-    SetUnhandledExceptionFilter(IMCrashEvidence);
+    SetUnhandledExceptionFilter(CrashEvidence);
     IPLContext Context=nullptr;IPLHRTF HRTF=nullptr;
     try {
-        Require(Argc==2||Argc==3,"usage: smoke evidence-directory [UE-bake-directory]");
+        IMSteamAudioSmokePrivate::Require(Argc==2||Argc==3,"usage: smoke evidence-directory [UE-bake-directory]");
         const std::filesystem::path Dir=Argv[1];std::filesystem::create_directories(Dir);
-        Require(IM_GetAcousticSDKContext()!=nullptr,"context create");
-        Context=iplContextRetain(IM_GetAcousticSDKContext());
-        IPLAudioSettings A{Rate,Block};IPLHRTFSettings H{};H.type=IPL_HRTFTYPE_DEFAULT;H.volume=1;
-        Require(iplHRTFCreate(Context,&A,&H,&HRTF)==IPL_STATUS_SUCCESS,"hrtf create");
-        IM_AcousticAudioRenderer Renderer;
-        Require(Renderer.Initialize(Context,HRTF,Rate,Block),"renderer initialize");
+        IMSteamAudioSmokePrivate::Require(IMAcousticSDKContext::GetAcousticSDKContext()!=nullptr,"context create");
+        Context=iplContextRetain(IMAcousticSDKContext::GetAcousticSDKContext());
+        IPLAudioSettings A{IMSteamAudioSmokePrivate::Rate,IMSteamAudioSmokePrivate::Block};IPLHRTFSettings H{};H.type=IPL_HRTFTYPE_DEFAULT;H.volume=1;
+        IMSteamAudioSmokePrivate::Require(iplHRTFCreate(Context,&A,&H,&HRTF)==IPL_STATUS_SUCCESS,"hrtf create");
+        FIMAcousticAudioRenderer Renderer;
+        IMSteamAudioSmokePrivate::Require(Renderer.Initialize(Context,HRTF,IMSteamAudioSmokePrivate::Rate,IMSteamAudioSmokePrivate::Block),"renderer initialize");
         if(Argc==3)
         {
-            IM_AcousticBakeData Bake;
+            FIMAcousticBakeData Bake;
             auto Read=[&](const char* Name,std::vector<uint8_t>& Bytes)
             {
                 std::ifstream F(std::filesystem::path(Argv[2])/Name,std::ios::binary);
-                Require(F.good(),"UE bake file unavailable");
+                IMSteamAudioSmokePrivate::Require(F.good(),"UE bake file unavailable");
                 Bytes.assign(std::istreambuf_iterator<char>(F),std::istreambuf_iterator<char>());
             };
             Read("scene.bin",Bake.Scene);Read("probes.bin",Bake.ProbeBatch);
-            IM_AcousticSimulation Sim;std::string Error;
-            Require(Sim.Load(Bake,Rate,Block,Error),Error);
-            auto Source=Space(-2,0),Listener=Space(2,0);
+            FIMAcousticSimulation Sim;std::string Error;
+            IMSteamAudioSmokePrivate::Require(Sim.Load(Bake,IMSteamAudioSmokePrivate::Rate,IMSteamAudioSmokePrivate::Block,Error),Error);
+            auto Source=IMSteamAudioSmokePrivate::Space(-2,0),Listener=IMSteamAudioSmokePrivate::Space(2,0);
             Source.origin.y=Listener.origin.y=0; // UE bake origin is floor+1.5m.
             Listener.ahead={-1,0,0};Listener.right={0,0,-1};
-            IM_AcousticAudioFrame Frame;
-            Require(Sim.Evaluate(1,1,Source,Listener,Frame,Error),Error);
-            const Result R=Render(Renderer,Frame,Dir,"ue-bake");
+            FIMAcousticAudioFrame Frame;
+            IMSteamAudioSmokePrivate::Require(Sim.Evaluate(1,1,Source,Listener,Frame,Error),Error);
+            const IMSteamAudioSmokePrivate::Result R=IMSteamAudioSmokePrivate::Render(Renderer,Frame,Dir,"ue-bake");
             std::ofstream(Dir/"ue-bake-result.json")<<"{\"direct_energy\":"<<R.Direct<<",\"path_energy\":"<<R.Path<<",\"occlusion\":"<<R.Occlusion<<",\"path_valid\":"<<(R.PathValid?"true":"false")<<"}";
             Renderer.Reset();
-            std::vector<float> Dry(Block),Mixed(Block*2),Direct(Block*2),Path(Block*2),Motion;
+            std::vector<float> Dry(IMSteamAudioSmokePrivate::Block),Mixed(IMSteamAudioSmokePrivate::Block*2),Direct(IMSteamAudioSmokePrivate::Block*2),Path(IMSteamAudioSmokePrivate::Block*2),Motion;
             std::ofstream Trace(Dir/"moving-pair.csv");Trace<<"time_s,source_x,source_z,listener_x,listener_z,occlusion,path_valid,sequence\n";
             bool MotionPass=true;double DirectEnergy=0,PathEnergy=0,MaxAdjacentJump=0;float Previous=0;
             constexpr int MotionBlocks=480; // 5.12 seconds at 48kHz/512 samples.
             for(int B=0;B<MotionBlocks;++B)
             {
-                const double T=double(B*Block)/Rate;
+                const double T=double(B*IMSteamAudioSmokePrivate::Block)/IMSteamAudioSmokePrivate::Rate;
                 if(B%5==0) // 18.75Hz, approximately the runtime's 20Hz cadence.
                 {
                     Source.origin.x=float(-2+.25*std::sin(T));Source.origin.z=float(.25*std::sin(T*.7));
                     Listener.origin.x=float(2+.25*std::cos(T));Listener.origin.z=float(.25*std::cos(T*.9));
-                    Require(Sim.Evaluate(1,1,Source,Listener,Frame,Error),Error);
+                    IMSteamAudioSmokePrivate::Require(Sim.Evaluate(1,1,Source,Listener,Frame,Error),Error);
                     MotionPass=MotionPass&&Frame.PathValid&&Frame.Direct.occlusion<.01f;
                     Trace<<T<<','<<Source.origin.x<<','<<Source.origin.z<<','<<Listener.origin.x<<','<<Listener.origin.z<<','<<Frame.Direct.occlusion<<','<<Frame.PathValid<<','<<Frame.Sequence<<'\n';
                 }
-                for(int I=0;I<Block;++I)Dry[I]=float(.08*std::sin(2*3.141592653589793*233*(T+double(I)/Rate)));
-                Require(Renderer.Render(Dry.data(),Block,Frame,Mixed.data(),Direct.data(),Path.data()),"moving pair renderer failed");
-                DirectEnergy+=Energy(Direct);PathEnergy+=Energy(Path);
-                for(int I=0;I<Block;++I){MaxAdjacentJump=(std::max)(MaxAdjacentJump,std::abs(double(Mixed[2*I]-Previous)));Previous=Mixed[2*I];}
+                for(int I=0;I<IMSteamAudioSmokePrivate::Block;++I)Dry[I]=float(.08*std::sin(2*3.141592653589793*233*(T+double(I)/IMSteamAudioSmokePrivate::Rate)));
+                IMSteamAudioSmokePrivate::Require(Renderer.Render(Dry.data(),IMSteamAudioSmokePrivate::Block,Frame,Mixed.data(),Direct.data(),Path.data()),"moving pair renderer failed");
+                DirectEnergy+=IMSteamAudioSmokePrivate::Energy(Direct);PathEnergy+=IMSteamAudioSmokePrivate::Energy(Path);
+                for(int I=0;I<IMSteamAudioSmokePrivate::Block;++I){MaxAdjacentJump=(std::max)(MaxAdjacentJump,std::abs(double(Mixed[2*I]-Previous)));Previous=Mixed[2*I];}
                 Motion.insert(Motion.end(),Mixed.begin(),Mixed.end());
             }
-            Wave(Dir/"moving-pair.wav",Motion);
+            IMSteamAudioSmokePrivate::Wave(Dir/"moving-pair.wav",Motion);
             MotionPass=MotionPass&&DirectEnergy<1e-6&&PathEnergy>1e-6;
             std::ofstream(Dir/"moving-pair-result.json")<<"{\"scope\":\"actual-UE-bake-native-moving-pair\",\"direct_energy\":"<<DirectEnergy<<",\"path_energy\":"<<PathEnergy<<",\"max_adjacent_sample_jump\":"<<MaxAdjacentJump<<",\"pass\":"<<(MotionPass?"true":"false")<<"}";
             Renderer.Shutdown();iplHRTFRelease(&HRTF);iplContextRelease(&Context);
             return R.Direct<1e-6&&R.Path>1e-6&&MotionPass?0:2;
         }
         {
-            IM_AcousticSimulation Sim;auto Geometry=Scene(true);Geometry.Probes.clear();
+            FIMAcousticSimulation Sim;auto Geometry=IMSteamAudioSmokePrivate::Scene(true);Geometry.Probes.clear();
             IPLProbeGenerationParams Params{};Params.type=IPL_PROBEGENERATIONTYPE_UNIFORMFLOOR;
             Params.spacing=1;Params.height=1.5f;
             Params.transform.elements[0][0]=8;
@@ -464,63 +466,63 @@ int main(int Argc,char** Argv)
             Params.transform.elements[2][2]=6;
             Params.transform.elements[3][3]=1;
             std::vector<IPLSphere> Probes;std::string Error;
-            Require(Sim.GenerateProbes(Geometry,Params,Probes,Error),Error);
-            Require(!Probes.empty(),"SDK generated no probes");
+            IMSteamAudioSmokePrivate::Require(Sim.GenerateProbes(Geometry,Params,Probes,Error),Error);
+            IMSteamAudioSmokePrivate::Require(!Probes.empty(),"SDK generated no probes");
             std::ofstream Positions(Dir/"generated-probes.csv");Positions<<"x_m,y_m,z_m,radius_m\n";
             for(const auto& P:Probes)Positions<<P.center.x<<','<<P.center.y<<','<<P.center.z<<','<<P.radius<<'\n';
             std::cout<<"generated_probes="<<Probes.size()<<std::endl;
             // A nonempty set is insufficient: the prior [0,1] matrix interpretation
             // generated half a room. Require actual connectivity after SDK generation.
-            Geometry.Probes=Probes;IM_AcousticBakeData GeneratedBake;
-            Require(Sim.Bake(Geometry,GeneratedBake,Error),Error);
-            Require(Sim.Load(GeneratedBake,Rate,Block,Error),Error);
-            IM_AcousticAudioFrame GeneratedFrame;
-            Require(Sim.Evaluate(1,1,Space(-2,0),Space(2,0),GeneratedFrame,Error),Error);
-            Require(GeneratedFrame.PathValid&&GeneratedFrame.Direct.occlusion<.01f,"generated probes failed open-door path coverage");
-            IM_AcousticReverbSlot ReverbA,ReverbB;
-            ReverbA.State.store(IM_AcousticIRState::Writing);ReverbB.State.store(IM_AcousticIRState::Writing);
-            Require(Sim.EvaluateReverb(ReverbA,Space(2,0),Error),Error);
-            IM_AcousticReverbRenderer Reverb;
-            Require(Reverb.Initialize(Context,HRTF,Rate,Block,int(Rate*IM_AcousticRecipe::ReverbSavedDurationS)),"reverb renderer init");
-            std::vector<float> Impulse(Block,0),Wet(Block*2),WetAll;
+            Geometry.Probes=Probes;FIMAcousticBakeData GeneratedBake;
+            IMSteamAudioSmokePrivate::Require(Sim.Bake(Geometry,GeneratedBake,Error),Error);
+            IMSteamAudioSmokePrivate::Require(Sim.Load(GeneratedBake,IMSteamAudioSmokePrivate::Rate,IMSteamAudioSmokePrivate::Block,Error),Error);
+            FIMAcousticAudioFrame GeneratedFrame;
+            IMSteamAudioSmokePrivate::Require(Sim.Evaluate(1,1,IMSteamAudioSmokePrivate::Space(-2,0),IMSteamAudioSmokePrivate::Space(2,0),GeneratedFrame,Error),Error);
+            IMSteamAudioSmokePrivate::Require(GeneratedFrame.PathValid&&GeneratedFrame.Direct.occlusion<.01f,"generated probes failed open-door path coverage");
+            FIMAcousticReverbSlot ReverbA,ReverbB;
+            ReverbA.State.store(EIMAcousticIRState::Writing);ReverbB.State.store(EIMAcousticIRState::Writing);
+            IMSteamAudioSmokePrivate::Require(Sim.EvaluateReverb(ReverbA,IMSteamAudioSmokePrivate::Space(2,0),Error),Error);
+            FIMAcousticReverbRenderer Reverb;
+            IMSteamAudioSmokePrivate::Require(Reverb.Initialize(Context,HRTF,IMSteamAudioSmokePrivate::Rate,IMSteamAudioSmokePrivate::Block,int(IMSteamAudioSmokePrivate::Rate*IMAcousticRecipe::ReverbSavedDurationS)),"reverb renderer init");
+            std::vector<float> Impulse(IMSteamAudioSmokePrivate::Block,0),Wet(IMSteamAudioSmokePrivate::Block*2),WetAll;
             for(int B=0;B<64;++B)
             {
                 std::fill(Impulse.begin(),Impulse.end(),0);if(B==0)Impulse[0]=.5f;
                 // Other simulation writes must not invalidate detached A's source/IR.
-                if(B<32&&B%8==0)Require(Sim.EvaluateReverb(ReverbB,Space(-2,0),Error),Error);
+                if(B<32&&B%8==0)IMSteamAudioSmokePrivate::Require(Sim.EvaluateReverb(ReverbB,IMSteamAudioSmokePrivate::Space(-2,0),Error),Error);
                 if(B==32)Sim.Shutdown(); // Detached leases and audio may outlive worker simulator shutdown.
-                Require(Reverb.Render(Impulse.data(),Block,ReverbA.Params,ReverbA.Listener,Wet.data()),"frozen reverb render rejected");
+                IMSteamAudioSmokePrivate::Require(Reverb.Render(Impulse.data(),IMSteamAudioSmokePrivate::Block,ReverbA.Params,ReverbA.Listener,Wet.data()),"frozen reverb render rejected");
                 WetAll.insert(WetAll.end(),Wet.begin(),Wet.end());
             }
-            Wave(Dir/"generated-probes-reverb.wav",WetAll);
-            const double WetEnergy=Energy(WetAll);
-            Require(WetEnergy>1e-12,"baked convolution emitted no reverb");
+            IMSteamAudioSmokePrivate::Wave(Dir/"generated-probes-reverb.wav",WetAll);
+            const double WetEnergy=IMSteamAudioSmokePrivate::Energy(WetAll);
+            IMSteamAudioSmokePrivate::Require(WetEnergy>1e-12,"baked convolution emitted no reverb");
             std::ofstream(Dir/"reverb-result.json")<<"{\"scope\":\"native-baked-convolution-detached-source\",\"wet_energy\":"<<WetEnergy<<",\"pass\":true}";
-            IM_AcousticBakeData Existing;Existing.Scene={1,2};Existing.ProbeBatch={3,4};
+            FIMAcousticBakeData Existing;Existing.Scene={1,2};Existing.ProbeBatch={3,4};
             std::atomic<bool> Cancelled{true};
-            Require(!Sim.Bake(Scene(true),Existing,Error,&Cancelled),"cancelled bake returned success");
-            Require(Existing.Scene==std::vector<uint8_t>({1,2})&&Existing.ProbeBatch==std::vector<uint8_t>({3,4}),"cancelled bake overwrote previous bytes");
-            auto Closed=Scene(false);Closed.Probes.clear();
-            Require(Sim.GenerateProbes(Closed,Params,Closed.Probes,Error),Error);
-            IM_AcousticBakeData ClosedBake;
-            Require(Sim.Bake(Closed,ClosedBake,Error),Error);Require(Sim.Load(ClosedBake,Rate,Block,Error),Error);
-            IM_AcousticAudioFrame ClosedFrame;
-            Require(Sim.Evaluate(1,1,Space(-2,0),Space(2,0),ClosedFrame,Error),Error);
-            Require(!ClosedFrame.PathValid&&ClosedFrame.Direct.occlusion<.01f,"SDK-generated probes created a through-wall path in sealed room");
+            IMSteamAudioSmokePrivate::Require(!Sim.Bake(IMSteamAudioSmokePrivate::Scene(true),Existing,Error,&Cancelled),"cancelled bake returned success");
+            IMSteamAudioSmokePrivate::Require(Existing.Scene==std::vector<uint8_t>({1,2})&&Existing.ProbeBatch==std::vector<uint8_t>({3,4}),"cancelled bake overwrote previous bytes");
+            auto Closed=IMSteamAudioSmokePrivate::Scene(false);Closed.Probes.clear();
+            IMSteamAudioSmokePrivate::Require(Sim.GenerateProbes(Closed,Params,Closed.Probes,Error),Error);
+            FIMAcousticBakeData ClosedBake;
+            IMSteamAudioSmokePrivate::Require(Sim.Bake(Closed,ClosedBake,Error),Error);IMSteamAudioSmokePrivate::Require(Sim.Load(ClosedBake,IMSteamAudioSmokePrivate::Rate,IMSteamAudioSmokePrivate::Block,Error),Error);
+            FIMAcousticAudioFrame ClosedFrame;
+            IMSteamAudioSmokePrivate::Require(Sim.Evaluate(1,1,IMSteamAudioSmokePrivate::Space(-2,0),IMSteamAudioSmokePrivate::Space(2,0),ClosedFrame,Error),Error);
+            IMSteamAudioSmokePrivate::Require(!ClosedFrame.PathValid&&ClosedFrame.Direct.occlusion<.01f,"SDK-generated probes created a through-wall path in sealed room");
         }
         std::ofstream Report(Dir/"results.json");Report<<"{\"scope\":\"native-production-kernel-and-sdk-only\",\"cases\":[";
         bool Passed=true;
         for(int Open=0;Open<2;++Open) {
             const std::string Name=Open?"open-door":"closed-wall";
             std::cout<<"bake "<<Name<<std::endl;
-            IM_AcousticSimulation Sim;IM_AcousticBakeData Bake;std::string Error;
-            Require(Sim.Bake(Scene(Open!=0),Bake,Error),Error);
+            FIMAcousticSimulation Sim;FIMAcousticBakeData Bake;std::string Error;
+            IMSteamAudioSmokePrivate::Require(Sim.Bake(IMSteamAudioSmokePrivate::Scene(Open!=0),Bake,Error),Error);
             std::ofstream(Dir/(Name+".scene"),std::ios::binary).write(reinterpret_cast<const char*>(Bake.Scene.data()),Bake.Scene.size());
             std::ofstream(Dir/(Name+".probes"),std::ios::binary).write(reinterpret_cast<const char*>(Bake.ProbeBatch.data()),Bake.ProbeBatch.size());
-            Require(Sim.Load(Bake,Rate,Block,Error),Error);
-            IM_AcousticAudioFrame Frame;
-            Require(Sim.Evaluate(1,1,Space(-2,-1.5f),Space(2,-1.5f),Frame,Error),Error);
-            const Result R=Render(Renderer,Frame,Dir,Name);
+            IMSteamAudioSmokePrivate::Require(Sim.Load(Bake,IMSteamAudioSmokePrivate::Rate,IMSteamAudioSmokePrivate::Block,Error),Error);
+            FIMAcousticAudioFrame Frame;
+            IMSteamAudioSmokePrivate::Require(Sim.Evaluate(1,1,IMSteamAudioSmokePrivate::Space(-2,-1.5f),IMSteamAudioSmokePrivate::Space(2,-1.5f),Frame,Error),Error);
+            const IMSteamAudioSmokePrivate::Result R=IMSteamAudioSmokePrivate::Render(Renderer,Frame,Dir,Name);
             const bool CasePass=R.Occlusion<.01f && R.Direct<1e-6 && (Open?(R.PathValid && R.Path>1e-6):(!R.PathValid && R.Path<1e-6));
             Passed=Passed&&CasePass;
             if(Open)Report<<',';
@@ -529,18 +531,18 @@ int main(int Argc,char** Argv)
         }
         for(int Mirror=0;Mirror<2;++Mirror) {
             const std::string Name=Mirror?"door-right":"door-left";
-            auto Input=Scene(true);
+            auto Input=IMSteamAudioSmokePrivate::Scene(true);
             if(Mirror) {
                 for(auto& V:Input.Vertices)V.z=-V.z;
                 for(auto& P:Input.Probes)P.center.z=-P.center.z;
                 for(auto& T:Input.Triangles)std::swap(T.indices[1],T.indices[2]);
             }
-            IM_AcousticSimulation Sim;IM_AcousticBakeData Bake;std::string Error;
-            Require(Sim.Bake(Input,Bake,Error),Error);Require(Sim.Load(Bake,Rate,Block,Error),Error);
-            auto Listener=Space(2,0);Listener.ahead={-1,0,0};Listener.right={0,0,-1};
-            IM_AcousticAudioFrame Frame;
-            Require(Sim.Evaluate(1,1,Space(-2,0),Listener,Frame,Error),Error);
-            const Result R=Render(Renderer,Frame,Dir,Name);
+            FIMAcousticSimulation Sim;FIMAcousticBakeData Bake;std::string Error;
+            IMSteamAudioSmokePrivate::Require(Sim.Bake(Input,Bake,Error),Error);IMSteamAudioSmokePrivate::Require(Sim.Load(Bake,IMSteamAudioSmokePrivate::Rate,IMSteamAudioSmokePrivate::Block,Error),Error);
+            auto Listener=IMSteamAudioSmokePrivate::Space(2,0);Listener.ahead={-1,0,0};Listener.right={0,0,-1};
+            FIMAcousticAudioFrame Frame;
+            IMSteamAudioSmokePrivate::Require(Sim.Evaluate(1,1,IMSteamAudioSmokePrivate::Space(-2,0),Listener,Frame,Error),Error);
+            const IMSteamAudioSmokePrivate::Result R=IMSteamAudioSmokePrivate::Render(Renderer,Frame,Dir,Name);
             // Mirror only the doorway. Source stays directly ahead and occluded;
             // the audible lateral cue must follow the aperture, not that source.
             const bool CasePass=R.Occlusion<.01f && R.Direct<1e-6 && R.PathValid && R.Path>1e-6

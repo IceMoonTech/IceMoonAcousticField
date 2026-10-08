@@ -8,12 +8,12 @@
 #include "Engine/World.h"
 #include "Sound/SoundBase.h"
 
-namespace IM_AcousticTestSupport
+namespace IMAcousticTestSupport
 {
 inline constexpr const TCHAR* GraphSourceAssetPath =
     TEXT("/IceMoonAcousticField/Tests/Audio/MS_WaterDropEryliaa_FullLoopOnPlay");
 
-inline TSharedPtr<IM_AcousticDeviceBridge, ESPMode::ThreadSafe> FindBridge(UWorld* World)
+inline TSharedPtr<FIMAcousticDeviceBridge, ESPMode::ThreadSafe> FindBridge(UWorld* World)
 {
     if (!World)
     {
@@ -24,11 +24,11 @@ inline TSharedPtr<IM_AcousticDeviceBridge, ESPMode::ThreadSafe> FindBridge(UWorl
     {
         return nullptr;
     }
-    if (const IM_AcousticMetaSoundContextPtr Context = IM_FindAcousticMetaSoundContext(Device->DeviceID))
+    if (const FIMAcousticMetaSoundContextPtr Context = IMAcousticMetaSound::FindAcousticMetaSoundContext(Device->DeviceID))
     {
         return Context->Device;
     }
-    return IM_FindAcousticDevice(Device);
+    return IMAcousticSpatialization::FindAcousticDevice(Device);
 }
 
 inline bool ConfigureGraphSource(UAudioComponent* Audio, FString& Failure)
@@ -39,7 +39,7 @@ inline bool ConfigureGraphSource(UAudioComponent* Audio, FString& Failure)
         return false;
     }
     USoundBase* Sound = LoadObject<USoundBase>(nullptr, GraphSourceAssetPath);
-    if (!Sound || !IM_IsAcousticMetaSound(Sound))
+    if (!Sound || !IMAcousticMetaSound::IsAcousticMetaSound(Sound))
     {
         Failure = FString::Printf(TEXT("Missing or invalid graph source asset: %s"), GraphSourceAssetPath);
         return false;

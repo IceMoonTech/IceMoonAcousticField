@@ -9,7 +9,7 @@
 
 // Material zone per whitebox; maps to physical-material slots assigned by the user.
 UENUM(BlueprintType)
-enum class EIM_WhiteboxZone : uint8
+enum class EIMWhiteboxZone : uint8
 {
 	Concrete UMETA(DisplayName = "Concrete"),
 	Wood UMETA(DisplayName = "Wood"),
@@ -24,12 +24,12 @@ enum class EIM_WhiteboxZone : uint8
  * Assumption (to verify in manual test): BasicShapes Cube is a 1m box centered at origin.
  */
 UCLASS(Blueprintable, BlueprintType)
-class ICEMOONACOUSTICFIELD_API AIM_AcousticTestSceneBuilder : public AActor
+class ICEMOONACOUSTICFIELD_API AIMAcousticTestSceneBuilder : public AActor
 {
 	GENERATED_BODY()
 
 public:
-	AIM_AcousticTestSceneBuilder();
+	AIMAcousticTestSceneBuilder();
 
 	// Whitebox cube mesh (defaults to engine BasicShapes Cube).
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Scene")
@@ -53,9 +53,9 @@ public:
 
 private:
 #if WITH_EDITOR
-	void AddBox(const FVector& CenterM, const FVector& SizeM, EIM_WhiteboxZone Zone);
-	void AddWallX(float X, float Y0, float Y1, float Z0, float Z1, const TArray<FVector2D>& Gaps, EIM_WhiteboxZone Zone);
-	void AddWallY(float Y, float X0, float X1, float Z0, float Z1, const TArray<FVector2D>& Gaps, EIM_WhiteboxZone Zone);
-	UPhysicalMaterial* ResolvePM(EIM_WhiteboxZone Zone) const;
+	void AddBox(const FVector& CenterM, const FVector& SizeM, EIMWhiteboxZone Zone);
+	void AddWallX(float X, float Y0, float Y1, float Z0, float Z1, const TArray<FVector2D>& Gaps, EIMWhiteboxZone Zone);
+	void AddWallY(float Y, float X0, float X1, float Z0, float Z1, const TArray<FVector2D>& Gaps, EIMWhiteboxZone Zone);
+	UPhysicalMaterial* ResolvePM(EIMWhiteboxZone Zone) const;
 #endif
 };

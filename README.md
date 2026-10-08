@@ -67,7 +67,7 @@ IMAF prioritizes **practical runtime performance** and **workflow simplicity** o
 
 ### 2. Add the Acoustic Field Actor
 
-Drag the **`AIceMoonAcousticField`** Actor into the level and configure its spatial properties:
+Drag the **`AIMAcousticFieldActor`** Actor into the level and configure its spatial properties:
 
 -   **`ConfigAsset`:** Reference your created Field Config Asset.
 -   **`GridCellSize`:** Base size for LOD 0 (e.g., 200.0 cm).
@@ -91,7 +91,7 @@ GetAcousticFieldActor → AcousticFieldGetSocketLocation "foot_l" → FootLocati
 
 ```cpp
 // --- Firing Probes ---
-AIceMoonAcousticField* Field = AIceMoonAcousticField::GetAcousticFieldActor(this);
+AIMAcousticFieldActor* Field = AIMAcousticFieldActor::GetAcousticFieldActor(this);
 if (Field) 
 {
     FVector FootLocation = GetMesh()->GetSocketLocation(Foot);
@@ -105,7 +105,7 @@ Field->QueryAcousticFieldSmooth(this, Foot, FootLocation, Reverb, 3.0f);
 // Application logic follows...
 ApplyReverbToFootstep(Reverb); 
 📐 Core Concepts: Parameter CalculationThe system calculates various parameters based on probe hits, distance, and time:ParameterCalculation MethodPhysical MeaningWetEnclosure × Hit Rate × Uniformity × Wall EnhancementOverall Reverb StrengthDelay(Camera ↔ Reflection + Source ↔ Reflection) / Speed of SoundEarly Reflection Arrival Time (seconds)Decay$0.161 \times \text{Volume} / \text{Average Absorption}$RT60 Decay Time (seconds)DiffusionMaterial Scattering × 0.7 + Direction Variance × 0.3Surface Irregularity and Scattering🏎️ Performance ConsiderationsMemory UsagePer Cell: $\sim 140$ bytes (Sparse allocation).Medium Level (100m x 100m): $\sim 0.7-2.1$ MB.CPU Performance (Adaptive Tick + Query)Active State (Low Latency): Per-frame tick ($\sim 0.01$ms).Dormant State (Low Overhead): $1.0$ second interval update.Probe Firing: Asynchronous (non-blocking) on worker threads.Scalability SuggestionsScenarioGridCellSize (cm)LodMultiplierNumTracesTight Interior100216-24Open World40048-12📖 API ReferenceC++// Get the world singleton actor
-AIceMoonAcousticField* GetAcousticFieldActor(UObject* WorldContextObject);
+AIMAcousticFieldActor* GetAcousticFieldActor(UObject* WorldContextObject);
 
 // Fire probes (Asynchronous, non-blocking)
 void AsyncFireProbes(FVector Origin, int32 NumTraces = 16, float Radius = 2000.0f, ...);
@@ -212,7 +212,7 @@ Fallback: { 0.5, 0.5, 0.5, 0.5 }
 
 ### 2. 添加声场 Actor
 
-拖拽 `AIceMoonAcousticField` 到关卡，配置：
+拖拽 `AIMAcousticFieldActor` 到关卡，配置：
 ```
 ConfigAsset: [你的配置资产]
 GridCellSize: 200.0 cm
@@ -244,7 +244,7 @@ bDebug: true (启用可视化)
 ```cpp
 void AMyCharacter::PlayFootstepSound(FName Foot)
 {
-    AIceMoonAcousticField* Field = AIceMoonAcousticField::GetAcousticFieldActor(this);
+    AIMAcousticFieldActor* Field = AIMAcousticFieldActor::GetAcousticFieldActor(this);
     if (!Field) return;
 
     FVector FootLocation = GetMesh()->GetSocketLocation(Foot);
@@ -290,7 +290,7 @@ void AMyCharacter::PlayFootstepSound(FName Foot)
 
 ```cpp
 // 获取世界单例
-AIceMoonAcousticField* GetAcousticFieldActor(UObject* WorldContextObject);
+AIMAcousticFieldActor* GetAcousticFieldActor(UObject* WorldContextObject);
 
 // 发射探针（异步，非阻塞）
 void AsyncFireProbes(FVector Origin, int32 NumTraces = 16, float Radius = 2000.0f, ...);

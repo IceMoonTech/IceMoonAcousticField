@@ -17,18 +17,18 @@
 #include "UnrealEdGlobals.h"
 #include "Editor/UnrealEdEngine.h"
 
-namespace
+namespace IMAcousticListenerWallTestPrivate
 {
-constexpr const TCHAR* IMWallMap = TEXT("/IceMoonAcousticField/Tests/IM_V2Audition");
-const FVector IMValidListener(750.0f, 300.0f, 150.0f);
+constexpr const TCHAR* WallMap = TEXT("/IceMoonAcousticField/Tests/IM_V2Audition");
+const FVector ValidListener(750.0f, 300.0f, 150.0f);
 // The front wall of the first whitebox room is centered at Y=0 and is 20 cm
 // thick. This point is 5 cm inside the slab, not merely on its surface.
-const FVector IMWallInteriorListener(550.0f, 5.0f, 150.0f);
+const FVector WallInteriorListener(550.0f, 5.0f, 150.0f);
 
-class IM_AcousticListenerWallCommand final : public IAutomationLatentCommand
+class FIMAcousticListenerWallCommand final : public IAutomationLatentCommand
 {
 public:
-    explicit IM_AcousticListenerWallCommand(FAutomationTestBase* InTest)
+    explicit FIMAcousticListenerWallCommand(FAutomationTestBase* InTest)
         : Test(InTest), Started(FPlatformTime::Seconds()) {}
 
     bool Update() override
@@ -62,9 +62,9 @@ public:
                 break;
             }
             if (!Volume.IsValid()) return Finish(false, TEXT("listener wall coverage map has no bake volume"));
-            Context = IM_FindAcousticMetaSoundContext(AudioDevice->DeviceID);
+            Context = IMAcousticMetaSound::FindAcousticMetaSoundContext(AudioDevice->DeviceID);
             if (!Context) return false;
-            SetListener(World, IMValidListener);
+            SetListener(World, ValidListener);
             BaselineIR = Context->LastIRSequence.load(std::memory_order_acquire);
             BaselineWet = Context->Device->ReverbNonzeroBlocks.load(std::memory_order_acquire);
             BaselineReject = Context->Device->ReverbRejectedBlocks.load(std::memory_order_acquire);
@@ -91,11 +91,11 @@ public:
             }
             ValidIR = IR;
             ValidWet = Wet;
-            SetListener(World, IMWallInteriorListener);
+            SetListener(World, WallInteriorListener);
             Stage = 1;
             StageStarted = Now;
             UE_LOG(LogTemp, Display, TEXT("IMLogs AcousticListenerWall valid_ready ir=%llu wet=%llu wall_ue=(%g,%g,%g)"),
-                ValidIR, ValidWet, IMWallInteriorListener.X, IMWallInteriorListener.Y, IMWallInteriorListener.Z);
+                ValidIR, ValidWet, WallInteriorListener.X, WallInteriorListener.Y, WallInteriorListener.Z);
             return false;
         }
 
@@ -109,7 +109,7 @@ public:
             WallReject = Context->Device->ReverbRejectedBlocks.load(std::memory_order_acquire);
             WallNoIR = Context->NoIRBlocks.load(std::memory_order_acquire);
             WallStatus = Volume.IsValid() ? Volume->Status : TEXT("volume released");
-            SetListener(World, IMValidListener);
+            SetListener(World, ValidListener);
             Stage = 2;
             StageStarted = Now;
             return false;
@@ -153,7 +153,7 @@ private:
         auto Writer = TJsonWriterFactory<>::Create(&Json);
         Writer->WriteObjectStart();
         Writer->WriteValue(TEXT("status"), bSafe ? TEXT("PASS_LISTENER_WALL_FAIL_CLOSED") : TEXT("FAIL_LISTENER_WALL_WET_CHANGED"));
-        Writer->WriteValue(TEXT("map"), IMWallMap);
+        Writer->WriteValue(TEXT("map"), WallMap);
         Writer->WriteValue(TEXT("message"), Message);
         Writer->WriteValue(TEXT("valid_listener_ue_cm"), TEXT("(750,300,150)"));
         Writer->WriteValue(TEXT("wall_listener_ue_cm"), TEXT("(550,5,150)"));
@@ -185,7 +185,7 @@ private:
     TWeakObjectPtr<APlayerController> Listener;
     TWeakObjectPtr<AIMAcousticBakeVolume> Volume;
     FAudioDevice* AudioDevice = nullptr;
-    IM_AcousticMetaSoundContextPtr Context;
+    FIMAcousticMetaSoundContextPtr Context;
     uint64 BaselineIR = 0, BaselineWet = 0, BaselineReject = 0, BaselineNoIR = 0;
     uint64 ValidIR = 0, ValidWet = 0, WallIR = 0, WallWet = 0, WallReject = 0, WallNoIR = 0;
     FString WallStatus;
@@ -201,13 +201,13 @@ bool FIMAcousticListenerWallTest::RunTest(const FString&)
     GetMutableDefault<ULevelEditorMiscSettings>()->bAllowBackgroundAudio = true;
     GetMutableDefault<UEditorPerformanceSettings>()->bThrottleCPUWhenNotForeground = false;
     FString Error;
-    GUnrealEd->AutomationLoadMap(IMWallMap, false, &Error);
+    GUnrealEd->AutomationLoadMap(IMAcousticListenerWallTestPrivate::WallMap, false, &Error);
     if (!Error.IsEmpty())
     {
         AddError(Error);
         return false;
     }
-    ADD_LATENT_AUTOMATION_COMMAND(IM_AcousticListenerWallCommand(this));
+    ADD_LATENT_AUTOMATION_COMMAND(IMAcousticListenerWallTestPrivate::FIMAcousticListenerWallCommand(this));
     return true;
 }
 

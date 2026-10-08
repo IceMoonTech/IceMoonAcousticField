@@ -3,7 +3,7 @@
 // Standard-C++ Steam Audio SDK 4.8.1 bake/simulate adapter.
 // No UE, no UObject, no worker threads, no file I/O. Every SDK object is
 // owned by one serial caller. Detached reverb sources are retained in IR slots.
-// Coordinate contract: all positions in IM_AcousticSceneInput and Evaluate
+// Coordinate contract: all positions in FIMAcousticSceneInput and Evaluate
 // are already SDK meters (GT converted); this adapter never rescales.
 //
 // Serial discipline: the owner calls every method serially. No locks are
@@ -24,7 +24,7 @@
 
 // Frozen scene description. Vertices/Triangles/MaterialIndices follow the
 // IPLStaticMeshSettings layout; each MaterialIndices entry addresses Materials.
-struct IM_AcousticSceneInput
+struct FIMAcousticSceneInput
 {
     std::vector<IPLVector3> Vertices;
     std::vector<IPLTriangle> Triangles;
@@ -37,7 +37,7 @@ struct IM_AcousticSceneInput
 // included); ProbeBatch holds the probes plus baked pathing (DYNAMIC) and
 // listener-position baked convolution reverb (REVERB) layers. Opaque bytes;
 // persistence is the owner's job, not this adapter's.
-struct IM_AcousticBakeData
+struct FIMAcousticBakeData
 {
     std::vector<std::uint8_t> Scene;
     std::vector<std::uint8_t> ProbeBatch;
@@ -47,7 +47,7 @@ struct IM_AcousticBakeData
     std::vector<IPLSphere> CoverageProbes;
 };
 
-struct IM_AcousticSourceInput
+struct FIMAcousticSourceInput
 {
     std::uint64_t SourceKey;
     std::uint64_t Generation;
@@ -58,15 +58,15 @@ struct IM_AcousticSourceInput
 // in the instance sub-scene's local SDK meters; Transform places it in the
 // loaded parent scene. The worker owns every SDK handle created from this
 // payload, so no UObject or borrowed engine memory crosses the thread edge.
-struct IM_AcousticDynamicMeshInput
+struct FIMAcousticDynamicMeshInput
 {
     std::uint64_t Key = 0;
     std::uint64_t GeometryHash = 0;
-    IM_AcousticSceneInput Geometry;
+    FIMAcousticSceneInput Geometry;
     IPLMatrix4x4 Transform{};
 };
 
-struct IM_AcousticDynamicMeshReadback
+struct FIMAcousticDynamicMeshReadback
 {
     std::uint64_t Key = 0;
     std::uint64_t GeometryHash = 0;
@@ -78,15 +78,15 @@ struct IM_AcousticDynamicMeshReadback
 // DefaultHybrid is the prescribed Hybrid payload (validation on, alternates
 // on); the adapter itself never invents it. SDK note: findAlternatePaths is
 // honored only when enableValidation is on.
-struct IM_AcousticPathingOptions
+struct FIMAcousticPathingOptions
 {
     bool EnableValidation = true;
     bool FindAlternatePaths = true;
     bool HasEnableValidation = false;
     bool HasFindAlternatePaths = false;
-    static IM_AcousticPathingOptions DefaultHybrid()
+    static FIMAcousticPathingOptions DefaultHybrid()
     {
-        IM_AcousticPathingOptions O;
+        FIMAcousticPathingOptions O;
         O.EnableValidation = true;
         O.FindAlternatePaths = true;
         O.HasEnableValidation = true;
@@ -107,7 +107,7 @@ struct IM_AcousticPathingOptions
 // point. The C API has no source-input getter, so the write-time record of
 // the IPLSimulationInputs fields handed to iplSourceSetInputs (plus the
 // creation-time resolution at Load) IS the readback.
-struct IM_AcousticPathingReadback
+struct FIMAcousticPathingReadback
 {
     bool EnableValidationApplied = false;
     bool FindAlternatePathsApplied = false;
@@ -122,20 +122,20 @@ struct IM_AcousticPathingReadback
 // Optional runtime aperture contract. Disabled by default so ordinary SDK
 // pathing and no-door/open scenes keep their existing behavior. Coordinates
 // are SDK meters; the half extent is a conservative axis-aligned bound.
-struct IM_AcousticApertureTransitPolicy
+struct FIMAcousticApertureTransitPolicy
 {
     bool Enabled = false;
     IPLVector3 Center{0.0f, 0.0f, 0.0f};
     IPLVector3 HalfExtent{0.0f, 0.0f, 0.0f};
 };
 
-class IM_AcousticSimulation final
+class FIMAcousticSimulation final
 {
 public:
-    IM_AcousticSimulation() = default;
-    ~IM_AcousticSimulation();
-    IM_AcousticSimulation(const IM_AcousticSimulation&) = delete;
-    IM_AcousticSimulation& operator=(const IM_AcousticSimulation&) = delete;
+    FIMAcousticSimulation() = default;
+    ~FIMAcousticSimulation();
+    FIMAcousticSimulation(const FIMAcousticSimulation&) = delete;
+    FIMAcousticSimulation& operator=(const FIMAcousticSimulation&) = delete;
 
     // Builds a transient SDK scene, bakes pathing + REVERB convolution reverb
     // with real SDK bakers, and swaps the serialized bytes into OutBake.
@@ -144,28 +144,28 @@ public:
     // pass, and before the final swap (which it then skips). A cancel never
     // modifies OutBake. No SDK cancel API is used; the running pass completes
     // first, so the editor waits for it.
-    bool Bake(const IM_AcousticSceneInput& Input, IM_AcousticBakeData& OutBake,
+    bool Bake(const FIMAcousticSceneInput& Input, FIMAcousticBakeData& OutBake,
         std::string& OutError, const std::atomic<bool>* CancelRequested = nullptr);
 
     // Generates UNIFORMFLOOR probes with the real SDK generator on a transient
     // scene built from Geometry (whose Probes may be empty; geometry/material
     // validation matches Bake). Empty or invalid generation fails; a complete
     // temporary swaps into OutProbes only on success.
-    bool GenerateProbes(const IM_AcousticSceneInput& Geometry,
+    bool GenerateProbes(const FIMAcousticSceneInput& Geometry,
         const IPLProbeGenerationParams& Params, std::vector<IPLSphere>& OutProbes,
         std::string& OutError);
 
     // Replaces any loaded runtime: deserializes Bake, creates the simulator,
     // binds scene + probe batch. Rates in Hz; frames in samples.
-    bool Load(const IM_AcousticBakeData& Bake, int SampleRateHz, int BlockFrames,
+    bool Load(const FIMAcousticBakeData& Bake, int SampleRateHz, int BlockFrames,
         std::string& OutError);
 
     // H1 W2: synchronizes the complete current rigid-body set. Missing keys
     // are removed, new keys create an instance sub-scene, and retained keys
     // update the local-to-world matrix before one parent-scene commit.
-    bool SyncDynamicMeshes(const std::vector<IM_AcousticDynamicMeshInput>& Input,
+    bool SyncDynamicMeshes(const std::vector<FIMAcousticDynamicMeshInput>& Input,
         std::string& OutError);
-    std::vector<IM_AcousticDynamicMeshReadback> GetDynamicMeshReadback() const;
+    std::vector<FIMAcousticDynamicMeshReadback> GetDynamicMeshReadback() const;
 
     // Batch path: sets every source's inputs, then commits and runs once.
     // Output order matches input order. Generation 0, empty batches, and
@@ -174,32 +174,32 @@ public:
     // from real output (audible EQ energy plus nonzero SH energy), never
     // defaulted true. Generation passes through; Sequence increments per
     // source on success. Output entries are overwritten on every return.
-    bool EvaluateBatch(const std::vector<IM_AcousticSourceInput>& Input,
-        const IPLCoordinateSpace3& Listener, std::vector<IM_AcousticAudioFrame>& Output,
+    bool EvaluateBatch(const std::vector<FIMAcousticSourceInput>& Input,
+        const IPLCoordinateSpace3& Listener, std::vector<FIMAcousticAudioFrame>& Output,
         std::string& OutError);
 
     // H1 W1: explicit Hybrid pathing inputs. Incomplete options fail closed
     // (missing field named in OutError); state is unchanged on failure.
     // Every successful call refreshes the change readback (AppliedToSdk=false
     // until the values reach the SDK at Load/EvaluateBatch).
-    bool SetPathingOptions(const IM_AcousticPathingOptions& Options, std::string& OutError);
-    IM_AcousticPathingOptions GetPathingOptions() const;
-    IM_AcousticPathingReadback GetPathingReadback() const;
-    bool SetApertureTransitPolicy(const IM_AcousticApertureTransitPolicy& Policy,
+    bool SetPathingOptions(const FIMAcousticPathingOptions& Options, std::string& OutError);
+    FIMAcousticPathingOptions GetPathingOptions() const;
+    FIMAcousticPathingReadback GetPathingReadback() const;
+    bool SetApertureTransitPolicy(const FIMAcousticApertureTransitPolicy& Policy,
         std::string& OutError);
-    IM_AcousticApertureTransitPolicy GetApertureTransitPolicy() const;
+    FIMAcousticApertureTransitPolicy GetApertureTransitPolicy() const;
     bool WasApertureTransitBlocked() const { return LastApertureTransitBlocked; }
     std::uint64_t GetLastApertureTransitCycles() const { return LastApertureTransitCycles; }
 
     // Single-source test convenience over EvaluateBatch. Kept for tests only.
     bool Evaluate(std::uint64_t SourceKey, std::uint64_t Generation,
         const IPLCoordinateSpace3& Source, const IPLCoordinateSpace3& Listener,
-        IM_AcousticAudioFrame& OutFrame, std::string& OutError);
+        FIMAcousticAudioFrame& OutFrame, std::string& OutError);
 
     void Remove(std::uint64_t SourceKey);
     // Worker only, with exclusive Writing ownership of Slot. Source is removed
     // and committed before return, freezing the IR until that slot is recycled.
-    bool EvaluateReverb(IM_AcousticReverbSlot& Slot,const IPLCoordinateSpace3& Listener,
+    bool EvaluateReverb(FIMAcousticReverbSlot& Slot,const IPLCoordinateSpace3& Listener,
         std::string& OutError);
     void Shutdown();
     // Serial-owner diagnostic hook. SDK invokes it synchronously during pathing;
@@ -208,14 +208,14 @@ public:
     {PathCallback=Callback;PathUserData=UserData;}
 
 private:
-    struct IM_SourceRecord
+    struct FIMSourceRecord
     {
         IPLSource Source = nullptr;
         std::uint64_t Generation = 0;
         std::uint64_t Sequence = 0;
     };
 
-    struct IM_DynamicMeshRecord
+    struct FIMDynamicMeshRecord
     {
         IPLScene SubScene = nullptr;
         IPLStaticMesh Mesh = nullptr;
@@ -230,15 +230,15 @@ private:
     IPLScene Scene = nullptr;
     IPLProbeBatch ProbeBatch = nullptr;
     IPLSimulator Simulator = nullptr;
-    IM_AcousticPathingOptions PathingOptions;
-    IM_AcousticPathingReadback PathingReadback;
-    IM_AcousticApertureTransitPolicy ApertureTransitPolicy;
+    FIMAcousticPathingOptions PathingOptions;
+    FIMAcousticPathingReadback PathingReadback;
+    FIMAcousticApertureTransitPolicy ApertureTransitPolicy;
     bool LastApertureTransitBlocked = false;
     std::uint64_t LastApertureTransitCycles = 0;
     bool RequirePathingOptions(const char* What, std::string& OutError) const;
     std::vector<IPLSphere> CoverageProbes;
-    std::map<std::uint64_t, IM_SourceRecord> Sources;
-    std::map<std::uint64_t, IM_DynamicMeshRecord> DynamicMeshes;
+    std::map<std::uint64_t, FIMSourceRecord> Sources;
+    std::map<std::uint64_t, FIMDynamicMeshRecord> DynamicMeshes;
     int SampleRateHz = 0;
     int BlockFrames = 0;
     bool Loaded = false;

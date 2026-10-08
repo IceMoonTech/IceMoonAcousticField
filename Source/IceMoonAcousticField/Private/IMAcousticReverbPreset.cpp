@@ -6,9 +6,9 @@
 #include "IMAcousticSpatialization.h"
 #include "HAL/PlatformTime.h"
 
-struct IM_AcousticReverbTraceScope final
+struct FIMAcousticReverbTraceScope final
 {
-    IM_AcousticDeviceBridge* Bridge = nullptr;
+    FIMAcousticDeviceBridge* Bridge = nullptr;
     uint64 AudioBlock = 0;
     double StartSeconds = 0.0;
     bool CallbackTrace = false;
@@ -17,14 +17,14 @@ struct IM_AcousticReverbTraceScope final
     uint8 Fresh = 0;
     uint8 Rendered = 0;
 
-    ~IM_AcousticReverbTraceScope()
+    ~FIMAcousticReverbTraceScope()
     {
         if (!Bridge) return;
         const double EndSeconds = FPlatformTime::Seconds();
         if (RareTail) Bridge->RecordRareTailReverb(AudioBlock, Outcome, Fresh, Rendered, StartSeconds, EndSeconds);
         if (CallbackTrace)
         {
-            IM_AcousticReverbBlockProbe Probe{};
+            FIMAcousticReverbBlockProbe Probe{};
             Probe.AudioBlock = AudioBlock;
             Probe.Outcome = Outcome;
             Probe.Fresh = Fresh;
@@ -36,14 +36,14 @@ struct IM_AcousticReverbTraceScope final
     }
 };
 
-class IM_AcousticSubmixEffect final : public FSoundEffectSubmix
+class FIMAcousticSubmixEffect final : public FSoundEffectSubmix
 {
 public:
-    IM_AcousticSubmixEffect(TSharedPtr<IM_AcousticDeviceBridge,ESPMode::ThreadSafe> InDevice,
-        TSharedPtr<IM_AcousticReverbPool,ESPMode::ThreadSafe> InPool,float InGain)
+    FIMAcousticSubmixEffect(TSharedPtr<FIMAcousticDeviceBridge,ESPMode::ThreadSafe> InDevice,
+        TSharedPtr<FIMAcousticReverbPool,ESPMode::ThreadSafe> InPool,float InGain)
         :Device(MoveTemp(InDevice)),Pool(MoveTemp(InPool)),Gain(InGain)
     {if(Device)Device->ReverbEffectInstances.fetch_add(1,std::memory_order_relaxed);}
-    ~IM_AcousticSubmixEffect() override
+    ~FIMAcousticSubmixEffect() override
     {
         Renderer.Reset();ReleaseCurrent();
         if(Device)Device->ReverbEffectInstances.fetch_sub(1,std::memory_order_relaxed);
@@ -52,13 +52,13 @@ public:
     {
         check(IsInGameThread());
         if(!Device||!Pool||In.SampleRate!=Device->SampleRate)return;
-        IPLContext Context=IM_GetAcousticSDKContext();if(!Context)return;
+        IPLContext Context=IMAcousticSDKContext::GetAcousticSDKContext();if(!Context)return;
         IPLAudioSettings Audio{int(Device->SampleRate),int(Device->BlockFrames)};
         IPLHRTFSettings Settings{};Settings.type=IPL_HRTFTYPE_DEFAULT;Settings.volume=1;
         IPLHRTF HRTF=nullptr;
         if(iplHRTFCreate(Context,&Audio,&Settings,&HRTF)!=IPL_STATUS_SUCCESS)return;
-        Renderer=MakeUnique<IM_AcousticReverbRenderer>();
-        if(!Renderer->Initialize(Context,HRTF,Device->SampleRate,Device->BlockFrames,int(Device->SampleRate*IM_AcousticRecipe::ReverbSavedDurationS)))Renderer.Reset();
+        Renderer=MakeUnique<FIMAcousticReverbRenderer>();
+        if(!Renderer->Initialize(Context,HRTF,Device->SampleRate,Device->BlockFrames,int(Device->SampleRate*IMAcousticRecipe::ReverbSavedDurationS)))Renderer.Reset();
         iplHRTFRelease(&HRTF);
         Dry.SetNumZeroed(Device->BlockFrames);Wet.SetNumZeroed(Device->BlockFrames*2);
     }
@@ -69,7 +69,7 @@ public:
         if(!Out.AudioBuffer)return;
         FMemory::Memzero(Out.AudioBuffer->GetData(),Out.AudioBuffer->Num()*sizeof(float));
         if(!Device||!Pool||!Renderer)return;
-        IM_AcousticReverbTraceScope Trace;
+        FIMAcousticReverbTraceScope Trace;
         Trace.CallbackTrace=Device->CallbackDiagnosticsEnabled.load(std::memory_order_relaxed);
         Trace.RareTail=Device->RareTailDiagnosticsEnabled.load(std::memory_order_relaxed);
         if(Trace.CallbackTrace||Trace.RareTail)
@@ -79,14 +79,14 @@ public:
             Trace.StartSeconds=FPlatformTime::Seconds();
         }
         Device->ReverbProcessedBlocks.fetch_add(1,std::memory_order_relaxed);
-        IM_AcousticTimingScope Timing(Device->ProfilingEnabled.load(std::memory_order_relaxed)?&Device->ReverbTiming:nullptr);
+        FIMAcousticTimingScope Timing(Device->ProfilingEnabled.load(std::memory_order_relaxed)?&Device->ReverbTiming:nullptr);
         const double Now=FPlatformTime::Seconds();
         if(!Device->Enabled.load(std::memory_order_acquire))
         {
             Trace.Outcome=1;
             Renderer->Reset();ReleaseCurrent();
             for(auto& Slot:Pool->Slots)
-            {auto Expected=IM_AcousticIRState::Ready;Slot.State.compare_exchange_strong(Expected,IM_AcousticIRState::Free,std::memory_order_acq_rel);}
+            {auto Expected=EIMAcousticIRState::Ready;Slot.State.compare_exchange_strong(Expected,EIMAcousticIRState::Free,std::memory_order_acq_rel);}
             FMemory::Memzero(Dry.GetData(),Dry.Num()*sizeof(float));
             for(auto& Voice:Device->Voices)Voice->MixDry(Dry.GetData(),Device->BlockFrames,Pool->WorldGeneration,Now);
             return;
@@ -96,17 +96,17 @@ public:
             ||In.NumFrames!=int32(Device->BlockFrames)||Out.NumChannels!=2
             ||Out.AudioBuffer->Num()!=int32(Device->BlockFrames*2))
         {Trace.Outcome=2;Renderer->Reset();ReleaseCurrent();Device->RecordPressureReverbReject(1, FPlatformTime::Seconds());Device->ReverbRejectedBlocks.fetch_add(1);return;}
-        IM_AcousticReverbSlot* Next=nullptr;
+        FIMAcousticReverbSlot* Next=nullptr;
         for(auto& Slot:Pool->Slots)
         {
-            auto Expected=IM_AcousticIRState::Ready;
-            if(!Slot.State.compare_exchange_strong(Expected,IM_AcousticIRState::Reading,std::memory_order_acq_rel))continue;
+            auto Expected=EIMAcousticIRState::Ready;
+            if(!Slot.State.compare_exchange_strong(Expected,EIMAcousticIRState::Reading,std::memory_order_acq_rel))continue;
             if((Current&&Slot.Sequence<=Current->Sequence)||(Next&&Slot.Sequence<=Next->Sequence))
-            {Slot.State.store(IM_AcousticIRState::Free,std::memory_order_release);continue;}
-            if(Next)Next->State.store(IM_AcousticIRState::Free,std::memory_order_release);
+            {Slot.State.store(EIMAcousticIRState::Free,std::memory_order_release);continue;}
+            if(Next)Next->State.store(EIMAcousticIRState::Free,std::memory_order_release);
             Next=&Slot;
         }
-        IM_AcousticReverbSlot* Retired=nullptr;
+        FIMAcousticReverbSlot* Retired=nullptr;
         if(Next){Retired=Current;Current=Next;}
         const bool Fresh=Current&&Now>=Current->CapturedSeconds&&Now-Current->CapturedSeconds<=.25;
         if(Fresh)
@@ -116,7 +116,7 @@ public:
             bool DryAccepted=false;
             for(auto& Voice:Device->Voices)DryAccepted=Voice->MixDry(Dry.GetData(),Device->BlockFrames,Pool->WorldGeneration,Now)||DryAccepted;
             if(DryAccepted)Device->ReverbDryBlocks.fetch_add(1,std::memory_order_relaxed);
-            IM_AcousticReverbMetrics Metrics;
+            FIMAcousticReverbMetrics Metrics;
             if(Renderer->Render(Dry.GetData(),Device->BlockFrames,Current->Params,Current->Listener,Wet.GetData(),&Metrics))
             {
                 Trace.Outcome=3;Trace.Rendered=1;
@@ -148,20 +148,20 @@ public:
         }
         // SDK Apply no longer receives the retired TripleBuffer shell. Its old
         // convolution history is owned by the effect; the worker may reuse source.
-        if(Retired)Retired->State.store(IM_AcousticIRState::Free,std::memory_order_release);
+        if(Retired)Retired->State.store(EIMAcousticIRState::Free,std::memory_order_release);
     }
 private:
-    void ReleaseCurrent(){if(Current){Current->State.store(IM_AcousticIRState::Free,std::memory_order_release);Current=nullptr;}}
-    TSharedPtr<IM_AcousticDeviceBridge,ESPMode::ThreadSafe> Device;
-    TSharedPtr<IM_AcousticReverbPool,ESPMode::ThreadSafe> Pool;
-    TUniquePtr<IM_AcousticReverbRenderer> Renderer;
+    void ReleaseCurrent(){if(Current){Current->State.store(EIMAcousticIRState::Free,std::memory_order_release);Current=nullptr;}}
+    TSharedPtr<FIMAcousticDeviceBridge,ESPMode::ThreadSafe> Device;
+    TSharedPtr<FIMAcousticReverbPool,ESPMode::ThreadSafe> Pool;
+    TUniquePtr<FIMAcousticReverbRenderer> Renderer;
     TArray<float> Dry,Wet;
-    IM_AcousticReverbSlot* Current=nullptr;
+    FIMAcousticReverbSlot* Current=nullptr;
     float Gain;
 };
 
-void UIMAcousticReverbPreset::Bind(TSharedPtr<IM_AcousticDeviceBridge,ESPMode::ThreadSafe> Device,
-    TSharedPtr<IM_AcousticReverbPool,ESPMode::ThreadSafe> Pool,float WetGain)
+void UIMAcousticReverbPreset::Bind(TSharedPtr<FIMAcousticDeviceBridge,ESPMode::ThreadSafe> Device,
+    TSharedPtr<FIMAcousticReverbPool,ESPMode::ThreadSafe> Pool,float WetGain)
 {
     check(IsInGameThread());BoundDevice=MoveTemp(Device);BoundPool=MoveTemp(Pool);
     BoundWetGain=FMath::IsFinite(WetGain)?FMath::Clamp(WetGain,0.f,1.f):0;
@@ -172,5 +172,5 @@ FSoundEffectBase* UIMAcousticReverbPreset::CreateNewEffect() const
 {
     // UAudioMixerBlueprintLibrary::AddSubmixEffect creates the instance on GT
     // before enqueueing it to the mixer. No preset lookup occurs in processing.
-    check(IsInGameThread());return new IM_AcousticSubmixEffect(BoundDevice,BoundPool,BoundWetGain);
+    check(IsInGameThread());return new FIMAcousticSubmixEffect(BoundDevice,BoundPool,BoundWetGain);
 }
