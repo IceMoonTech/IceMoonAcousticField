@@ -43,3 +43,9 @@
 Binaries/
 Intermediate/
 
+# Vendored Steam Audio dependencies are build inputs, not generated outputs.
+!/Source/ThirdParty/SteamAudio/lib/windows-x64/phonon.lib
+!/Source/ThirdParty/SteamAudio/lib/windows-x64/phonon.dll
+!/Source/ThirdParty/SteamAudio/lib/windows-x64/GPUUtilities.dll
+!/Source/ThirdParty/SteamAudio/lib/windows-x64/TrueAudioNext.dll
+

@@ -20,13 +20,23 @@
     },
     {
       "path": "lib/windows-x64/phonon.dll",
-      "sha256": "ca3dbc01dbc24492717011e80f6a51404ca143ae344ca660971d2c983f1e058d",
-      "bytes": 52950168
+      "sha256": "98b926b163d8030649f50c64b49479f997414d9a87c87e2603f6ef677eae6e29",
+      "bytes": 11533824,
+      "source": "Hybrid H0 baseline B: self-built upstream v4.8.1 core, no source patches, Intel IPP 2026.0.1, static CRT",
+      "upstream_prebuilt": {
+        "sha256": "ca3dbc01dbc24492717011e80f6a51404ca143ae344ca660971d2c983f1e058d",
+        "bytes": 52950168
+      }
     },
     {
       "path": "lib/windows-x64/phonon.lib",
-      "sha256": "b6b2dc8c5f91b4d7ae8d9eef03203df8d4675f1f8816fb7ac1b7a6ee3eb0f4d8",
-      "bytes": 94186
+      "sha256": "488ec8faa7620ff215dbfca3976ffc3592c2efeef672d302a1d323d6d80fdead",
+      "bytes": 54404,
+      "source": "Import library for the self-built upstream v4.8.1 core baseline B",
+      "upstream_prebuilt": {
+        "sha256": "b6b2dc8c5f91b4d7ae8d9eef03203df8d4675f1f8816fb7ac1b7a6ee3eb0f4d8",
+        "bytes": 94186
+      }
     },
     {
       "path": "lib/windows-x64/GPUUtilities.dll",
