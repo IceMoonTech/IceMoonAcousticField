@@ -32,23 +32,23 @@ public:
 	AIMAcousticTestSceneBuilder();
 
 	// Whitebox cube mesh (defaults to engine BasicShapes Cube).
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Scene")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "IM|Scene")
 	TObjectPtr<class UStaticMesh> WhiteboxCube;
 
 	// Physical materials per zone; null entries are skipped (mesh default applies).
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Scene")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "IM|Scene")
 	TObjectPtr<class UPhysicalMaterial> PM_Concrete;
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Scene")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "IM|Scene")
 	TObjectPtr<class UPhysicalMaterial> PM_Wood;
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Scene")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "IM|Scene")
 	TObjectPtr<class UPhysicalMaterial> PM_Carpet;
 
 	// Destroys previously built whiteboxes (tag match) and rebuilds the frozen scene.
-	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Scene")
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "IM|Scene")
 	void BuildTestScene();
 
 	// Destroys previously built whiteboxes without rebuilding.
-	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Scene")
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "IM|Scene")
 	void ClearTestScene();
 
 private:

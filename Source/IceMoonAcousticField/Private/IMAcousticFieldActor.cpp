@@ -69,9 +69,9 @@ TWeakObjectPtr<AIMAcousticFieldActor> GWorldAcousticActor;
 
 float SmoothstepSaturated(float InMin, float InMax, float Value)
 {
-    // Equal endpoints retain InvLerp's zero result before applying the cubic.
-    const float Alpha = FMath::Clamp(InMin == InMax ? 0.0f : (Value - InMin) / (InMax - InMin), 0.0f, 1.0f);
-    return Alpha * Alpha * (3.0f - 2.0f * Alpha);
+	// Equal endpoints retain InvLerp's zero result before applying the cubic.
+	const float Alpha = FMath::Clamp(InMin == InMax ? 0.0f : (Value - InMin) / (InMax - InMin), 0.0f, 1.0f);
+	return Alpha * Alpha * (3.0f - 2.0f * Alpha);
 }
 }
  // 静态实例指针，用于快速访问

@@ -18,11 +18,11 @@ class ICEMOONACOUSTICFIELD_API UIMMaterialMap : public UPrimaryDataAsset
 
 public:
 	/** 映射表：将每个物理材质关联到一个音频响应配置 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Acoustic Material Mapping")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "IM|Acoustic Material Mapping")
 	TMap<TObjectPtr<class UPhysicalMaterial>, FIMAudioMaterialResponse> MaterialMap;
 
 	/** fallback  当射线没有命中任何已配置的物理材质时，使用的默认响应 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Acoustic Material Mapping",
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "IM|Acoustic Material Mapping",
 		meta=(DisplayName="Default Response (Open Air)"))
 	FIMAudioMaterialResponse Fallback_MaterialResponse;
 };

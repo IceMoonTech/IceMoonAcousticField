@@ -14,24 +14,24 @@ public:
 	static constexpr int32 CurrentFormat = 2;
 	static constexpr int32 SDKVersion = 0x040801;
 
-	UPROPERTY(VisibleAnywhere, Category="Bake")
+	UPROPERTY(VisibleAnywhere, Category="IM|Bake")
 	int32 FormatVersion = 0;
 
-	UPROPERTY(VisibleAnywhere, Category="Bake")
+	UPROPERTY(VisibleAnywhere, Category="IM|Bake")
 	int32 SteamAudioVersion = 0;
 
-	UPROPERTY(VisibleAnywhere, Category="Bake")
+	UPROPERTY(VisibleAnywhere, Category="IM|Bake")
 	FString WorldPackage;
 
 	// Includes exported geometry, transforms, explicit material coefficients and
 	// probe settings. The exporter recomputes it; file timestamps are not an oracle.
-	UPROPERTY(VisibleAnywhere, Category="Bake")
+	UPROPERTY(VisibleAnywhere, Category="IM|Bake")
 	FString SceneFingerprint;
 
-	UPROPERTY(VisibleAnywhere, Category="Bake")
+	UPROPERTY(VisibleAnywhere, Category="IM|Bake")
 	FString PayloadDigest;
 
-	UPROPERTY(VisibleAnywhere, Category="Bake")
+	UPROPERTY(VisibleAnywhere, Category="IM|Bake")
 	FString MetadataJson;
 
 	UPROPERTY()

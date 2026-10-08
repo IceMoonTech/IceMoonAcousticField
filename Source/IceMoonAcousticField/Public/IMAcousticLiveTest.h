@@ -16,7 +16,7 @@ public:
 	AIMAcousticLiveTest();
 
 	// Gate to run: default false so manual maps are unaffected.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Test")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "IM|Test")
 	bool bRunOnBeginPlay = false;
 
 protected:

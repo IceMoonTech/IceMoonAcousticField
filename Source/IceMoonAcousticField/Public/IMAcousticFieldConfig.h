@@ -25,7 +25,7 @@ public:
 	// ========================================
 
 	/** 物理材质库（全局共享，留空则使用项目默认） */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "1. Material Library",
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "IM|1. Material Library",
 		meta=(Tooltip="物理材质到音频响应的映射库（可选，留空则使用全局默认）"))
 	TObjectPtr<UIMMaterialMap> MaterialLibrary;
 
@@ -34,7 +34,7 @@ public:
 	// ========================================
 
 	/** 查询失败时使用的默认混响参数（通常代表室外/开放空间） */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "2. Default Reverb",
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "IM|2. Default Reverb",
 		meta=(Tooltip="查询失败或无数据时的默认混响（例如室外环境）"))
 	FIM_AudioReverbParameters DefaultReverbParameters;
 
@@ -43,7 +43,7 @@ public:
 	// ========================================
 
 	/** Wet计算参数组 - 控制混响强度的计算逻辑 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "3. Wet Calculation",
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "IM|3. Wet Calculation",
 		meta=(Tooltip="Wet计算参数（封闭度、命中率、靠墙检测等）"))
 	FIM_WetCalculationParameters WetCalculationParameters;
 
@@ -52,12 +52,12 @@ public:
 	// ========================================
 
 	/** 配置预设名称（如：室内、室外、地下城等） */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "4. Metadata",
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "IM|4. Metadata",
 		meta=(Tooltip="此配置的名称/用途描述"))
 	FString ConfigName = "Default";
 
 	/** 配置描述 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "4. Metadata",
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "IM|4. Metadata",
 		meta=(Tooltip="配置的详细说明", MultiLine=true))
 	FString ConfigDescription;
 

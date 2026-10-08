@@ -24,7 +24,7 @@ class ICEMOONACOUSTICFIELD_API UIMAcousticSourceComponent final : public UActorC
 	GENERATED_BODY()
 public:
 	// Explicit reference avoids choosing an arbitrary component on multi-voice actors.
-	UPROPERTY(EditInstanceOnly, Category="Acoustics")
+	UPROPERTY(EditInstanceOnly, Category="IM|Acoustics")
 	TObjectPtr<UAudioComponent> AudioComponent;
 
 	// GT only. Validation never changes playback or the user's attenuation asset.

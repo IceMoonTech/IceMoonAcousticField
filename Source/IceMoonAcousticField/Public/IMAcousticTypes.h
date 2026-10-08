@@ -21,16 +21,16 @@ struct FIMAudioMaterialResponse
 	{}
 
 	// [0-1] 此材质声音完全阻挡的程度. 0=完全通透, 1=完全遮蔽   暂时用不上 可能用于一些声音吸收
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Acoustic Response", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "IM|Acoustic Response", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float Occlusion = 0.3f;
 
 	// 是否光滑平坦 可以理解为除粗糙度
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Acoustic Response", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "IM|Acoustic Response", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float Diffusion = 0.5f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Acoustic Response", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "IM|Acoustic Response", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float LowDampening = 0.5f;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Acoustic Response", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "IM|Acoustic Response", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float HighDampening = 0.5f;
 };
 USTRUCT(BlueprintType)
@@ -38,21 +38,21 @@ struct FIMAudioRayResponse
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "AIM|Cell")
+	UPROPERTY(BlueprintReadOnly, Category = "IM|Cell")
 	float SumDistance = 0.0f;
-	UPROPERTY(BlueprintReadOnly, Category = "AIM|Cell")
+	UPROPERTY(BlueprintReadOnly, Category = "IM|Cell")
 	float AveVariance = 0.0f;
-	UPROPERTY(BlueprintReadOnly, Category = "AIM|Cell")
+	UPROPERTY(BlueprintReadOnly, Category = "IM|Cell")
 	float MinDistance = 0.0f;
-	UPROPERTY(BlueprintReadOnly, Category = "AIM|Cell")
+	UPROPERTY(BlueprintReadOnly, Category = "IM|Cell")
 	float SumHitDirectionVariance = 0.0f;
 
-	UPROPERTY(BlueprintReadOnly, Category = "AIM|Cell")
+	UPROPERTY(BlueprintReadOnly, Category = "IM|Cell")
 	FVector AveHitLocation = FVector::ZeroVector;
 
-	UPROPERTY(BlueprintReadOnly, Category = "AIM|Cell")
+	UPROPERTY(BlueprintReadOnly, Category = "IM|Cell")
 	int32 RayHitCount = 0;
-	UPROPERTY(BlueprintReadOnly, Category = "AIM|Cell")
+	UPROPERTY(BlueprintReadOnly, Category = "IM|Cell")
 	int32 ProbeCount = 0;  
 };
 
@@ -64,10 +64,10 @@ struct FIMGridAudioCell
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "AIM|Cell")
+	UPROPERTY(BlueprintReadOnly, Category = "IM|Cell")
 	FIMAudioRayResponse RayRes;
     
-	UPROPERTY(BlueprintReadOnly, Category = "AIM|Cell")
+	UPROPERTY(BlueprintReadOnly, Category = "IM|Cell")
 	FIMAudioMaterialResponse MatRes;
     
 	float LastUpdateTime = 0.0f;
@@ -216,31 +216,31 @@ struct FIM_WetCalculationParameters
 	{}
 
 	/** 封闭空间的平均距离阈值（米）：小于此值认为是封闭房间 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wet Calculation", meta = (ClampMin = "1.0", ClampMax = "5.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "IM|Wet Calculation", meta = (ClampMin = "1.0", ClampMax = "5.0"))
 	float WetClosedDistanceThreshold = 2.0f;
 
 	/** 开放空间的平均距离阈值（米）：大于此值认为是开阔区域 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wet Calculation", meta = (ClampMin = "5.0", ClampMax = "30.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "IM|Wet Calculation", meta = (ClampMin = "5.0", ClampMax = "30.0"))
 	float WetOpenDistanceThreshold = 15.0f;
 
 	/** 命中率低阈值：低于此值混响减弱 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wet Calculation", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "IM|Wet Calculation", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float WetHitRateLow = 0.2f;
 
 	/** 命中率高阈值：高于此值混响增强 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wet Calculation", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "IM|Wet Calculation", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float WetHitRateHigh = 0.8f;
 
 	/** 靠墙距离阈值（米）：小于此值时增强混响 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wet Calculation", meta = (ClampMin = "0.2", ClampMax = "2.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "IM|Wet Calculation", meta = (ClampMin = "0.2", ClampMax = "2.0"))
 	float WetNearWallDistance = 0.3f;
 
 	/** 靠墙混响增强量：靠近墙壁时额外增加的Wet值 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wet Calculation", meta = (ClampMin = "0.0", ClampMax = "0.5"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "IM|Wet Calculation", meta = (ClampMin = "0.0", ClampMax = "0.5"))
 	float WetNearWallBoost = 0.2f;
 
 	/** Wet最大值：Wet的理论最大输出值（使用平滑压缩映射，而非硬截断） */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wet Calculation", meta = (ClampMin = "0.3", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "IM|Wet Calculation", meta = (ClampMin = "0.3", ClampMax = "1.0"))
 	float MaxWetValue = 0.6f;
 };
 
@@ -261,27 +261,27 @@ struct FIM_AudioReverbParameters
 	{}
     
 	// 场空间查询混合强度
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Reverb Parameters", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "IM|Reverb Parameters", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float Wet = 0.0f;
 
 	// 延迟时间（秒）- 射线找最短(相机->反射碰撞位置 + 发生源->反射碰撞位置) / 声速 * 艺术加工
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Reverb Parameters", meta = (ClampMin = "0.0", ClampMax = "200.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "IM|Reverb Parameters", meta = (ClampMin = "0.0", ClampMax = "200.0"))
 	float Delay = 0.02f;
 
 	// 衰减60dB时间（秒）- 声音留存时间，房间尺寸*材质硬度 0.161 * V / A
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Reverb Parameters", meta = (ClampMin = "0.0", ClampMax = "10.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "IM|Reverb Parameters", meta = (ClampMin = "0.0", ClampMax = "10.0"))
 	float Decay = 0.5f;
 
 	// 密度 - 命中点方差*反射体数量（命中率）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Reverb Parameters", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "IM|Reverb Parameters", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float Density = 0.2f;
 
 	// 扩散 - 房间表面的不规则性。高扩散=声音均匀散射（模糊平滑），低扩散=反射集中（回声）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Reverb Parameters", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "IM|Reverb Parameters", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float Diffusion = 0.4f;
 
 	// 阻尼 - 高频材质吸收（地毯、窗帘等软材质更快吸收高频）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Reverb Parameters", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "IM|Reverb Parameters", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float Dampening = 0.6f;
 
 	//Gain   不管    纯粹的工程控制。它就是混音师调整音量用的，用于确保混响不会太大或太小
