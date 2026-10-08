@@ -47,7 +47,7 @@ IMAF prioritizes **practical runtime performance** and **workflow simplicity** o
 ### Dependencies
 - Unreal Engine **5.5+**
 - **C++ Project** is required.
-- **Internal Dependencies** (for full build): `IceMoonDataInterface`, `IceMoonBlueprintGPUMathUtilities`
+- **Internal Dependencies** (for full build): `IceMoonDataInterface`
 
 ### Steps
 1.  Clone this repository into your project's **`Plugins/`** folder.
@@ -184,12 +184,12 @@ bool QueryAcousticFieldSmooth(
 ### 依赖
 - Unreal Engine **5.5+**
 - **C++ 项目**
-- **依赖插件**：`IceMoonDataInterface`、`IceMoonBlueprintGPUMathUtilities`
+- **依赖插件**：`IceMoonDataInterface`
 
 ### 步骤
 
 1. 克隆到 `Plugins/` 文件夹
-2. 添加 IceMoonDataInterface IceMoonBlueprintGPUMathUtilities 插件
+2. 添加 IceMoonDataInterface 插件
 3. 重新生成项目文件并编译
 
 ---

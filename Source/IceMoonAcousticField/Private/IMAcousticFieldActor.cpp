@@ -3,7 +3,9 @@
 #include "IMAcousticFieldActor.h"
 #include "IMMaterialMap.h"
 #include "IMAcousticFieldConfig.h"
-#include "IMMathUtils.h"
+#include "IM_Common/Public/Data/IMCommonMathUtils.h"
+#include "HAL/PlatformTime.h"
+#include "Math/RandomStream.h"
 #include "IM_Common/Public/Gameplay/IMViewUtils.h"
 #include "Kismet/GameplayStatics.h"
 #include "Runtime/PhysicsCore/Public/PhysicalMaterials/PhysicalMaterial.h" 
@@ -12,6 +14,65 @@
 namespace IMAcousticFieldActorPrivate
 {
 TWeakObjectPtr<AIMAcousticFieldActor> GWorldAcousticActor;
+
+// Preserve the retired utility's seed consumption, degree cone and sample order.
+	void GetFibonacciSphereSamples(
+		TArray<FVector>& OutDirections, 
+		int32 NumSamples = 1, 
+		FVector ConeDirection = FVector::UpVector, 
+		float ConeAngleDegree = 360.0f, 
+		bool bStochasticJitter = true, 
+		int32 RandomSeed = -1)
+	{
+		OutDirections.Empty(NumSamples);
+		if (NumSamples <= 0) return;
+		
+		RandomSeed = (RandomSeed < 0) ? static_cast<int32>(FPlatformTime::Cycles()) : RandomSeed;
+		if (ConeDirection.IsNearlyZero()) { ConeDirection = FVector::UpVector; }
+		ConeDirection.Normalize();
+
+		FRandomStream LocalStream(RandomSeed);
+		const float GoldenAngle = PI * (3.0f - FMath::Sqrt(5.0f));
+		const float MinCosTheta = FMath::Cos(FMath::DegreesToRadians(ConeAngleDegree * 0.5f));
+		const float PhiOffset = LocalStream.GetFraction() * 2.0f * PI;
+		
+		for (int32 i = 0; i < NumSamples; ++i)
+		{
+			const float Jitter = bStochasticJitter ? (LocalStream.GetFraction() - 0.5f) : 0.0f;
+			
+			const float t = (static_cast<float>(i) + 0.5f + Jitter) / static_cast<float>(NumSamples);
+			const float ClampedT = FMath::Clamp(t, 0.0f, 1.0f);
+			
+			const float CosTheta = MinCosTheta + (1.0f - MinCosTheta) * ClampedT;
+			const float SinTheta = FMath::Sqrt(FMath::Max(0.0f, 1.0f - CosTheta * CosTheta));
+			
+			const float Phi = GoldenAngle * static_cast<float>(i) + PhiOffset;
+			
+			const FVector PointOnZUpSphere(
+				FMath::Cos(Phi) * SinTheta,
+				FMath::Sin(Phi) * SinTheta,
+				CosTheta
+			);
+
+			if (!ConeDirection.Equals(FVector::UpVector, KINDA_SMALL_NUMBER))
+			{
+				const FQuat Rotation = FQuat::FindBetweenNormals(FVector::UpVector, ConeDirection);
+				OutDirections.Add(Rotation.RotateVector(PointOnZUpSphere));
+			}
+			else
+			{
+				OutDirections.Add(PointOnZUpSphere);
+			}
+		}
+		//UE_LOG(LogUnrealMath, Warning, TEXT("RestDir %.3f,%.3f,%.3f, ConeAngleDegree %.3f OutDirections[0]方向 %.3f,%.3f,%.3f"), ConeDirection.X, ConeDirection.Y, ConeDirection.Z, ConeAngleDegree, OutDirections[0].X, OutDirections[0].Y, OutDirections[0].Z);
+	}
+
+float SmoothstepSaturated(float InMin, float InMax, float Value)
+{
+    // Equal endpoints retain InvLerp's zero result before applying the cubic.
+    const float Alpha = FMath::Clamp(InMin == InMax ? 0.0f : (Value - InMin) / (InMax - InMin), 0.0f, 1.0f);
+    return Alpha * Alpha * (3.0f - 2.0f * Alpha);
+}
 }
  // 静态实例指针，用于快速访问
 
@@ -250,7 +311,7 @@ void AIMAcousticFieldActor::AsyncFireProbes( FVector Origin, int32 NumTraces, fl
 	FTraceDelegate TraceDelegate;
 	TraceDelegate.BindUObject(this, &AIMAcousticFieldActor::OnAsyncTraceComplete);
 	TArray<FVector> SampleDirections;
-	IMMathUtils::GetFibonacciSphereSamples(SampleDirections, NumTraces, Direction, ConeDegree, true, RandomSeed);
+	IMAcousticFieldActorPrivate::GetFibonacciSphereSamples(SampleDirections, NumTraces, Direction, ConeDegree, true, RandomSeed);
 
 	FCollisionQueryParams Params;
 	Params.bReturnPhysicalMaterial = true;
@@ -793,7 +854,7 @@ FIM_AudioReverbParameters AIMAcousticFieldActor::CalculateCellReverbParameters(c
 	const float AvgDistanceM = AvgDistanceCm * 0.01f; // 转换为米
 
 	// 距离映射：封闭阈值内（小房间）→1.0, 开放阈值外（开阔空间）→0.0
-	const float ClosureFactor = IMMathUtils::Remap_Sat<float>(
+	const float ClosureFactor = IMCommonMathUtils::RemapSaturated<float>(
 		WetParams.WetOpenDistanceThreshold,
 		WetParams.WetClosedDistanceThreshold,
 		0.0f, 1.0f, AvgDistanceM);
@@ -801,7 +862,7 @@ FIM_AudioReverbParameters AIMAcousticFieldActor::CalculateCellReverbParameters(c
 	// 2. 墙壁覆盖率（射线命中率）
 	const float HitRate = static_cast<float>(CellResults.RayRes.RayHitCount) / static_cast<float>(CellResults.RayRes.ProbeCount);
 	// 平滑插值：命中率阈值控制混响强弱
-	const float HitRateFactor = IMMathUtils::Smoothstep_Sat<float>(
+	const float HitRateFactor = IMAcousticFieldActorPrivate::SmoothstepSaturated(
 		WetParams.WetHitRateLow,
 		WetParams.WetHitRateHigh,
 		HitRate);
@@ -831,7 +892,7 @@ FIM_AudioReverbParameters AIMAcousticFieldActor::CalculateCellReverbParameters(c
 	// 4. 最短距离修正（靠墙时增强混响）
 	// 如果最短距离很近，说明靠近墙壁，应该增强混响
 	const float MinDistM = CellResults.RayRes.MinDistance * 0.01f;
-	const float NearWallBoost = IMMathUtils::Remap_Sat<float>(
+	const float NearWallBoost = IMCommonMathUtils::RemapSaturated<float>(
 		2.0f,
 		WetParams.WetNearWallDistance,
 		0.0f,
@@ -968,7 +1029,7 @@ bool AIMAcousticFieldActor::InterpolateAtLod(const int32 LodIndex, const FVector
 		}
 
 		const float TimeSinceUpdate = InterpWorld->GetTimeSeconds() - Cell.LastUpdateTime;
-		const float TimeWeight = IMMathUtils::Remap_Sat<float>(5.0f, 30.0f, 1.0f, 0.2f, TimeSinceUpdate); //时间权重
+		const float TimeWeight = IMCommonMathUtils::RemapSaturated<float>(5.0f, 30.0f, 1.0f, 0.2f, TimeSinceUpdate); //时间权重
 		const float ClampedVariance = Cell.RayRes.AveVariance / 2000.0;  // todo 有问题 1m平方就 10000了
 		const float Confidence = 1.0f / (1.0f + ClampedVariance *  0.0001f); // 方差越大，可信度越低 说明空间均匀性很差  todo 默认先0.0001f后面调整 暴露出来
 		const float Weight = (1.0f / DistanceSqr) * TimeWeight * Confidence;
@@ -1193,7 +1254,7 @@ bool AIMAcousticFieldActor::QueryAcousticFieldSmooth(
 	const float WetChange = FMath::Abs(TargetResponse.Wet - Cache->LastResult.Wet);
 
 	// 自适应因子：小变化→1.0（慢速平滑），大变化→0.25（快速响应，4倍加速）
-	const float AdaptiveFactor = IMMathUtils::Remap_Sat<float>(0.075f, 0.2f, 1.0f, 0.25f, WetChange);
+	const float AdaptiveFactor = IMCommonMathUtils::RemapSaturated<float>(0.075f, 0.2f, 1.0f, 0.25f, WetChange);
 	const float EffectiveSmoothSpeed = SmoothSpeed * AdaptiveFactor;
 
 	// 指数平滑：Alpha = 1 - e^(-Δt / τ)

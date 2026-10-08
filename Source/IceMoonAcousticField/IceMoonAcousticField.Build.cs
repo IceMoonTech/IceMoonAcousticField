@@ -65,8 +65,7 @@ public class IceMoonAcousticField : ModuleRules
 					"PhysicsCore",
 					"Json",
 					"JsonUtilities",
-				"IM_Common",
-				"IceMoonBlueprintGPUMathUtilities"
+				"IM_Common"
 				// ... add private dependencies that you statically link with here ...	
 			}
 			);

@@ -31,11 +31,6 @@
 			"Name": "IceMoonDataInterface",
 			"Enabled": true,
 			"Optional": false
-		},
-		{
-			"Name": "IceMoonBlueprintGPUMathUtilities",
-			"Enabled": true,
-			"Optional": false
 		}
 	]
 }
