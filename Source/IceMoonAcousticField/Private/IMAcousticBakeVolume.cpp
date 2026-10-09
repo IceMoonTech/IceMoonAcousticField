@@ -605,9 +605,14 @@ void AIMAcousticBakeVolume::PostRegisterAllComponents()
 	// callbacks. Re-export in the editor at a bounded cadence so all supported
 	// geometry changes invalidate the same fingerprint, even without realtime.
 	TWeakObjectPtr<AIMAcousticBakeVolume> WeakOwner(this);
-	Runtime->ValidationTicker=FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([WeakOwner](float)
+	Runtime->ValidationTicker=FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([WeakOwner,LastValidationSeconds=FPlatformTime::Seconds()](float) mutable
 	{
 		auto* Owner=WeakOwner.Get();if(!Owner||!Owner->GetWorld())return false;
+		// Automation helpers pump the core ticker with synthetic deltas, so the 1s ticker interval alone does not bound
+		// real-time cost; a full scene re-export per pump would starve unrelated tests' waits.
+		const double NowSeconds=FPlatformTime::Seconds();
+		if(NowSeconds-LastValidationSeconds<1.0)return true;
+		LastValidationSeconds=NowSeconds;
 		if(Owner->GetWorld()->IsGameWorld()||(GEditor&&GEditor->PlayWorld)||Owner->Runtime->Job||!Owner->BakedField)return true;
 		const FString PreviousStatus=Owner->Status;FString Error;
 		if(!Owner->CaptureScene())Owner->Status=TEXT("Bake stale: scene export is incomplete. See Scene Issues.");
@@ -759,14 +764,14 @@ bool AIMAcousticBakeVolume::CaptureScene()
 						Mx.x=FMath::Max(Mx.x,VLocal.x);Mx.y=FMath::Max(Mx.y,VLocal.y);Mx.z=FMath::Max(Mx.z,VLocal.z);
 					}
 				}
-				UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticBakeBounds sdkmin=(%.3f,%.3f,%.3f) sdkmax=(%.3f,%.3f,%.3f) %s"),Mn.x,Mn.y,Mn.z,Mx.x,Mx.y,Mx.z,*Primitive->GetPathName());
+				UE_LOG(LogTemp,Verbose,TEXT("IMLogs AcousticBakeBounds sdkmin=(%.3f,%.3f,%.3f) sdkmax=(%.3f,%.3f,%.3f) %s"),Mn.x,Mn.y,Mn.z,Mx.x,Mx.y,Mx.z,*Primitive->GetPathName());
 			}
 		}
 		ActorTris.Add(Primitive->GetPathName(),static_cast<int32>(Runtime->Geometry.Triangles.size())-ActorStart);
 	}
 	ExportedTriangles=static_cast<int32>(Runtime->Geometry.Triangles.size());
-	for(const auto& KVLocal:ActorTris)UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticBakeActor tris=%d %s"),KVLocal.Value,*KVLocal.Key);
-	for(UPrimitiveComponent* Prim:Components)if(ActorTris.Contains(Prim->GetPathName()))UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticBakePlace loc=%s scale=%s mob=%d %s"),*Prim->GetComponentLocation().ToString(),*Prim->GetComponentScale().ToString(),int(Prim->Mobility),*Prim->GetPathName());
+	for(const auto& KVLocal:ActorTris)UE_LOG(LogTemp,Verbose,TEXT("IMLogs AcousticBakeActor tris=%d %s"),KVLocal.Value,*KVLocal.Key);
+	for(UPrimitiveComponent* Prim:Components)if(ActorTris.Contains(Prim->GetPathName()))UE_LOG(LogTemp,Verbose,TEXT("IMLogs AcousticBakePlace loc=%s scale=%s mob=%d %s"),*Prim->GetComponentLocation().ToString(),*Prim->GetComponentScale().ToString(),int(Prim->Mobility),*Prim->GetPathName());
 	{
 		// Segment-piercing test: the exact hole-axis segment the sweep measures.
 		// Lists baked tris the ray must cross (or total=0 = baked data truly open).
