@@ -9,6 +9,20 @@
 #include "MetasoundSource.h"
 #include "Sound/SoundWave.h"
 
+namespace IMAcousticSourceComponentPrivate
+{
+	// Both pipelines own these acoustic effects.
+	// Spatialization is checked separately because the pipeline requirements differ.
+	bool HasCompetingNativeProcessing(const FSoundAttenuationSettings& Settings)
+	{
+		return Settings.bAttenuate
+			|| Settings.bAttenuateWithLPF
+			|| Settings.bEnableOcclusion
+			|| Settings.bEnableListenerFocus
+			|| Settings.bEnableReverbSend;
+	}
+}
+
 #if WITH_EDITORONLY_DATA
 void UIMAcousticSourceComponent::OnRegister()
 {
@@ -104,9 +118,8 @@ bool UIMAcousticSourceComponent::ValidateSource(FString& Failure) const
 	if (IMAcousticMetaSound::IsAcousticMetaSound(Audio->Sound))
 	{
 		const FSoundAttenuationSettings* Settings = Audio->GetAttenuationSettingsToApply();
-		if (Audio->bAllowSpatialization || (Settings && (Settings->bSpatialize || Settings->bAttenuate
-			|| Settings->bAttenuateWithLPF || Settings->bEnableOcclusion || Settings->bEnableListenerFocus
-			|| Settings->bEnableReverbSend)))
+		if (Audio->bAllowSpatialization || (Settings && (Settings->bSpatialize
+			|| IMAcousticSourceComponentPrivate::HasCompetingNativeProcessing(*Settings))))
 		{
 			Failure = TEXT("Acoustic MetaSound owns stereo spatialization and attenuation; disable native processing.");
 			return false;
@@ -131,8 +144,7 @@ bool UIMAcousticSourceComponent::ValidateSource(FString& Failure) const
 		Failure = TEXT("Enable plugin spatialization on the AudioComponent attenuation settings.");
 		return false;
 	}
-	if (Settings->bAttenuate || Settings->bAttenuateWithLPF || Settings->bEnableOcclusion
-		|| Settings->bEnableListenerFocus || Settings->bEnableReverbSend)
+	if (IMAcousticSourceComponentPrivate::HasCompetingNativeProcessing(*Settings))
 	{
 		Failure = TEXT("Disable native distance, air absorption, occlusion, listener focus and reverb sends; V2 owns these paths.");
 		return false;
