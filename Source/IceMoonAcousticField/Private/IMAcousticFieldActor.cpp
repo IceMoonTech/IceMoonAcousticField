@@ -73,6 +73,24 @@ float SmoothstepSaturated(float InMin, float InMax, float Value)
 	const float Alpha = FMath::Clamp(InMin == InMax ? 0.0f : (Value - InMin) / (InMax - InMin), 0.0f, 1.0f);
 	return Alpha * Alpha * (3.0f - 2.0f * Alpha);
 }
+
+// ResolveLodParent supplies the axis ratios and bit bound for every mask update.
+bool TryGetLodChildBitIndex(const FIntVector& ChildCoord, const FIntVector& ParentCoord,
+	int32 RatioXY, int32 RatioZ, uint64 ParentBound, uint64& OutLocalIndex)
+{
+	const FIntVector LocalCoord(
+		ChildCoord.X - ParentCoord.X * RatioXY,
+		ChildCoord.Y - ParentCoord.Y * RatioXY,
+		ChildCoord.Z - ParentCoord.Z * RatioZ);
+	const bool bLocalValid = LocalCoord.X >= 0 && LocalCoord.X < RatioXY
+		&& LocalCoord.Y >= 0 && LocalCoord.Y < RatioXY
+		&& LocalCoord.Z >= 0 && LocalCoord.Z < RatioZ;
+	OutLocalIndex = static_cast<uint64>(LocalCoord.X)
+		+ static_cast<uint64>(LocalCoord.Y) * static_cast<uint64>(RatioXY)
+		+ static_cast<uint64>(LocalCoord.Z) * static_cast<uint64>(RatioXY) * static_cast<uint64>(RatioXY);
+	return bLocalValid && OutLocalIndex < ParentBound;
+}
+
 }
  // 静态实例指针，用于快速访问
 
@@ -500,22 +518,8 @@ void AIMAcousticFieldActor::AddAudioFieldForLod(const FHitResult& HitResult)
 			uint64 ParentBound = 0;
 			if (ResolveLodParent(LodIndex, GridCoord, ParentGridCoord, RatioXY, RatioZ, ParentBound))
 			{
-				// 计算在本父单元格内的局部3D坐标（分轴比）
-				const FIntVector ResolvedLocal(
-					GridCoord.X - ParentGridCoord.X * RatioXY,
-					GridCoord.Y - ParentGridCoord.Y * RatioXY,
-					GridCoord.Z - ParentGridCoord.Z * RatioZ);
-
-				// 单元判据：逐轴 < ratio 且索引 < 上界
-				const bool bLocalValid = ResolvedLocal.X >= 0 && ResolvedLocal.X < RatioXY
-					&& ResolvedLocal.Y >= 0 && ResolvedLocal.Y < RatioXY
-					&& ResolvedLocal.Z >= 0 && ResolvedLocal.Z < RatioZ;
-				// 将3D局部坐标转换为1D索引
-				const uint64 LocalIndex = static_cast<uint64>(ResolvedLocal.X)
-					+ static_cast<uint64>(ResolvedLocal.Y) * static_cast<uint64>(RatioXY)
-					+ static_cast<uint64>(ResolvedLocal.Z) * static_cast<uint64>(RatioXY) * static_cast<uint64>(RatioXY);
-
-				if (bLocalValid && LocalIndex < ParentBound)
+				uint64 LocalIndex = 0;
+				if (IMAcousticFieldActorPrivate::TryGetLodChildBitIndex(GridCoord, ParentGridCoord, RatioXY, RatioZ, ParentBound, LocalIndex))
 				{
 					// 获取对应LOD的掩码Map
 					TMap<FIntVector, uint64>& MaskMap = CellSubBitMaskArray[LodIndex];
@@ -566,18 +570,8 @@ void AIMAcousticFieldActor::InvalidateAcousticRegion(const FBox& ChangedBounds)
 					{
 						if (uint64* Mask = CellSubBitMaskArray[LodIndex].Find(ParentGridCoord))
 						{
-							const FIntVector LocalCoord(
-								RemovedGridCoord.X - ParentGridCoord.X * RatioXY,
-								RemovedGridCoord.Y - ParentGridCoord.Y * RatioXY,
-								RemovedGridCoord.Z - ParentGridCoord.Z * RatioZ);
-							const bool bLocalValid = LocalCoord.X >= 0 && LocalCoord.X < RatioXY
-								&& LocalCoord.Y >= 0 && LocalCoord.Y < RatioXY
-								&& LocalCoord.Z >= 0 && LocalCoord.Z < RatioZ;
-							const uint64 LocalIndex = static_cast<uint64>(LocalCoord.X)
-								+ static_cast<uint64>(LocalCoord.Y) * static_cast<uint64>(RatioXY)
-								+ static_cast<uint64>(LocalCoord.Z) * static_cast<uint64>(RatioXY) * static_cast<uint64>(RatioXY);
-
-							if (bLocalValid && LocalIndex < ParentBound)
+							uint64 LocalIndex = 0;
+							if (IMAcousticFieldActorPrivate::TryGetLodChildBitIndex(RemovedGridCoord, ParentGridCoord, RatioXY, RatioZ, ParentBound, LocalIndex))
 							{
 								// 将对应的bit清零
 								*Mask &= ~(1ULL << LocalIndex);
@@ -1125,19 +1119,8 @@ void AIMAcousticFieldActor::TickTrimAudioFieldForLod(const float GameTime)
 			// 在父LOD的Mask Map中查找
 			if (uint64* Mask = CellSubBitMaskArray[LodIndex].Find(ParentGridCoord))
 			{
-				// 计算此Cell在父Cell内的局部索引（分轴比 + 逐轴上界）
-				const FIntVector LocalCoord(
-					RemovedGridCoord.X - ParentGridCoord.X * RatioXY,
-					RemovedGridCoord.Y - ParentGridCoord.Y * RatioXY,
-					RemovedGridCoord.Z - ParentGridCoord.Z * RatioZ);
-				const bool bLocalValid = LocalCoord.X >= 0 && LocalCoord.X < RatioXY
-					&& LocalCoord.Y >= 0 && LocalCoord.Y < RatioXY
-					&& LocalCoord.Z >= 0 && LocalCoord.Z < RatioZ;
-				const uint64 LocalIndex = static_cast<uint64>(LocalCoord.X)
-					+ static_cast<uint64>(LocalCoord.Y) * static_cast<uint64>(RatioXY)
-					+ static_cast<uint64>(LocalCoord.Z) * static_cast<uint64>(RatioXY) * static_cast<uint64>(RatioXY);
-
-				if (bLocalValid && LocalIndex < ParentBound)
+				uint64 LocalIndex = 0;
+				if (IMAcousticFieldActorPrivate::TryGetLodChildBitIndex(RemovedGridCoord, ParentGridCoord, RatioXY, RatioZ, ParentBound, LocalIndex))
 				{
 					// 使用位与非 (AND NOT) 操作，将对应的bit清零
 					*Mask &= ~(1ULL << LocalIndex);
