@@ -154,26 +154,18 @@ void AIMAcousticFieldActor::Tick(float DeltaTime)
 	if (LastQueryTimeOffset < ActiveStateThreshold)
 	{
 		CurrentState = 0; // 活跃状态
+		PrimaryActorTick.TickInterval = 0.0f; // 0.0f 表示每帧Tick
 	}else if (LastQueryTimeOffset > DormantStateThreshold)
 	{
 		CurrentState = 2; // 休眠状态
+		PrimaryActorTick.TickInterval = 1.0f;
 	}else
 	{
 		CurrentState = 1; // 中等状态
+		PrimaryActorTick.TickInterval = 0.1f;
 	}
 	//状态切换 修改tick
-	switch (CurrentState)
-	{
-		case 0:
-		PrimaryActorTick.TickInterval = 0.0f; // 0.0f 表示每帧Tick
-		break;
-		case 1:
-		PrimaryActorTick.TickInterval = 0.1f;
-		break;
-	case 2:
-		PrimaryActorTick.TickInterval = 1.0f;
-		break;
-	}
+
 #if WITH_EDITOR
 	if(CVar_DebugLevelStat.GetValueOnGameThread() > 0){
 		// 显示状态和统计信息
