@@ -29,8 +29,8 @@ template<typename ParamsType>
 static FIMAcousticMetaSoundContextPtr ContextFromBuild(const ParamsType& Params)
 {
 		const FName Key = Frontend::SourceInterface::Environment::DeviceID;
-		return Params.Environment.Contains<uint32>(Key)
-				? IMAcousticMetaSound::FindAcousticMetaSoundContext(Params.Environment.GetValue<uint32>(Key)) : nullptr;
+		return Params.Environment.template Contains<uint32>(Key)
+				? IMAcousticMetaSound::FindAcousticMetaSoundContext(Params.Environment.template GetValue<uint32>(Key)) : nullptr;
 }
 
 static IPLHRTF CreateOperatorHRTF(const FOperatorSettings& Settings)
