@@ -139,9 +139,9 @@ bool UIMAcousticBakeAsset::GetProbePreview(const FString& ExpectedWorld,const FS
 	check(IsInGameThread());Out.Reset();Failure.Reset();
 	if(!Validate(ExpectedWorld,ExpectedFingerprint,Failure))return false;
 	TSharedPtr<FJsonObject> Root;if(!IMAcousticBakeAssetPrivate::ReadMetadata(MetadataJson,Root,Failure))return false;
-	const auto& Origin=Root->GetArrayField(TEXT("bounds_origin_cm"));
-	OriginCm=FVector(Origin[0]->AsNumber(),Origin[1]->AsNumber(),Origin[2]->AsNumber());
+	const auto& OriginCmValues=Root->GetArrayField(TEXT("bounds_origin_cm"));
+	OriginCm=FVector(OriginCmValues[0]->AsNumber(),OriginCmValues[1]->AsNumber(),OriginCmValues[2]->AsNumber());
 	for(const auto& Value:Root->GetArrayField(TEXT("probes_m")))
-	{const auto& P=Value->AsArray();Out.Add(FVector4(P[0]->AsNumber(),P[1]->AsNumber(),P[2]->AsNumber(),P[3]->AsNumber()));}
+	{const auto& SdkProbeMeters=Value->AsArray();Out.Add(FVector4(SdkProbeMeters[0]->AsNumber(),SdkProbeMeters[1]->AsNumber(),SdkProbeMeters[2]->AsNumber(),SdkProbeMeters[3]->AsNumber()));}
 	return true;
 }
