@@ -93,22 +93,12 @@ bool FIMAcousticReverbRenderer::Render(const float* Mono, int Frames,
 	if(Metrics)*Metrics={};
 	if (!Stereo || Frames <= 0) { Reset(); return false; }
 	if (!ReflectionEffect || !DecodeEffect || BlockFrames <= 0 || IRSizeSamples <= 0
-		|| !Mono || Frames != BlockFrames)
-	{
-		IMAcousticReverbRendererPrivate::ReverbClear(Stereo, Frames);
-		Reset();
-		return false;
-	}
-	if (EffectParams.type != IPL_REFLECTIONEFFECTTYPE_CONVOLUTION
+		|| !Mono || Frames != BlockFrames
+		|| EffectParams.type != IPL_REFLECTIONEFFECTTYPE_CONVOLUTION
 		|| EffectParams.ir == nullptr
 		|| EffectParams.numChannels != IMAcousticReverbRendererPrivate::ReverbAmbiChannels
-		|| EffectParams.irSize != IRSizeSamples)
-	{
-		IMAcousticReverbRendererPrivate::ReverbClear(Stereo, Frames);
-		Reset();
-		return false;
-	}
-	if (!IMAcousticReverbRendererPrivate::ReverbFinite(Listener))
+		|| EffectParams.irSize != IRSizeSamples
+		|| !IMAcousticReverbRendererPrivate::ReverbFinite(Listener))
 	{
 		IMAcousticReverbRendererPrivate::ReverbClear(Stereo, Frames);
 		Reset();
