@@ -87,8 +87,7 @@ public:
 			Renderer->Reset();ReleaseCurrent();
 			for(auto& Slot:Pool->Slots)
 			{auto Expected=EIMAcousticIRState::Ready;Slot.State.compare_exchange_strong(Expected,EIMAcousticIRState::Free,std::memory_order_acq_rel);}
-			FMemory::Memzero(Dry.GetData(),Dry.Num()*sizeof(float));
-			for(auto& Voice:Device->Voices)Voice->MixDry(Dry.GetData(),Device->BlockFrames,Pool->WorldGeneration,Now);
+			DiscardDrySends(Now);
 			return;
 		}
 		if(!Device->Alive.load(std::memory_order_acquire)||Pool->Stopped.load(std::memory_order_acquire)
@@ -143,14 +142,18 @@ public:
 			// keeps the 2-slot ring from filling and cascading into
 			// DryDroppedBlocks. Discarded sends never reach the wet bus: the
 			// output buffer stays zeroed and no ReverbDryBlocks credit is taken.
-			FMemory::Memzero(Dry.GetData(),Dry.Num()*sizeof(float));
-			for(auto& Voice:Device->Voices)Voice->MixDry(Dry.GetData(),Device->BlockFrames,Pool->WorldGeneration,Now);
+			DiscardDrySends(Now);
 		}
 		// SDK Apply no longer receives the retired TripleBuffer shell. Its old
 		// convolution history is owned by the effect; the worker may reuse source.
 		if(Retired)Retired->State.store(EIMAcousticIRState::Free,std::memory_order_release);
 	}
 private:
+	void DiscardDrySends(double Now)
+	{
+		FMemory::Memzero(Dry.GetData(),Dry.Num()*sizeof(float));
+		for(auto& Voice:Device->Voices)Voice->MixDry(Dry.GetData(),Device->BlockFrames,Pool->WorldGeneration,Now);
+	}
 	void ReleaseCurrent(){if(Current){Current->State.store(EIMAcousticIRState::Free,std::memory_order_release);Current=nullptr;}}
 	TSharedPtr<FIMAcousticDeviceBridge,ESPMode::ThreadSafe> Device;
 	TSharedPtr<FIMAcousticReverbPool,ESPMode::ThreadSafe> Pool;
