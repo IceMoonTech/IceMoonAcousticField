@@ -28,6 +28,13 @@ bool ValidFrame(const FIMAcousticAudioFrame& Frame)
 	}
 	return true;
 }
+
+void ClearStereoOutputs(float* Stereo, int Frames, float* DirectStereo, float* PathStereo)
+{
+	std::fill_n(Stereo, Frames * 2, 0.0f);
+	if (DirectStereo) { std::fill_n(DirectStereo, Frames * 2, 0.0f); }
+	if (PathStereo) { std::fill_n(PathStereo, Frames * 2, 0.0f); }
+}
 }
 
 FIMAcousticAudioRenderer::~FIMAcousticAudioRenderer() { Shutdown(); }
@@ -92,9 +99,7 @@ bool FIMAcousticAudioRenderer::Render(const float* DryMono, int Frames,
 {
 	if (Metrics) { *Metrics = {}; }
 	if (!Stereo || Frames <= 0) { return false; }
-	std::fill_n(Stereo, Frames * 2, 0.0f);
-	if (DirectStereo) { std::fill_n(DirectStereo, Frames * 2, 0.0f); }
-	if (PathStereo) { std::fill_n(PathStereo, Frames * 2, 0.0f); }
+	IMAcousticAudioRendererPrivate::ClearStereoOutputs(Stereo, Frames, DirectStereo, PathStereo);
 	if (!DryMono || Frames != BlockFrames || !DirectEffect || !BinauralEffect || !PathEffect
 		|| !IMAcousticAudioRendererPrivate::ValidFrame(Frame))
 	{
@@ -173,9 +178,7 @@ bool FIMAcousticAudioRenderer::Render(const float* DryMono, int Frames,
 			if (!IMAcousticAudioRendererPrivate::Finite(DirectOutput[C][I]) || !IMAcousticAudioRendererPrivate::Finite(PathOutput[C][I]) || !IMAcousticAudioRendererPrivate::Finite(Sum))
 			{
 				if(Metrics)Metrics->Failure=!IMAcousticAudioRendererPrivate::Finite(DirectOutput[C][I])?EIMAcousticRenderFailure::NonfiniteDirect:EIMAcousticRenderFailure::NonfinitePath;
-				std::fill_n(Stereo, Frames * 2, 0.0f);
-				if (DirectStereo) { std::fill_n(DirectStereo, Frames * 2, 0.0f); }
-				if (PathStereo) { std::fill_n(PathStereo, Frames * 2, 0.0f); }
+				IMAcousticAudioRendererPrivate::ClearStereoOutputs(Stereo, Frames, DirectStereo, PathStereo);
 				Reset();
 				return false;
 			}
