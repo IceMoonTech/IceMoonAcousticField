@@ -821,7 +821,7 @@ FIM_AudioReverbParameters AIMAcousticFieldActor::CalculateCellReverbParameters(c
 	Density(0.5f),
 	Diffusion(0.5f),
 	Dampening(0.5f)
-	 */
+		*/
 
 	// ========== 实时计算 Wet（混响强度） ==========
 	// 基于：1.空间封闭度 2.墙壁覆盖率 3.空间均匀性

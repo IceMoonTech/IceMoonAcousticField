@@ -1,10 +1,35 @@
 #include "IMAcousticSimulationWorker.h"
+#include "HAL/Event.h"
 #include "HAL/RunnableThread.h"
 #include "HAL/PlatformProcess.h"
 #include "HAL/PlatformTime.h"
+#include "IMAcousticStallDiagnostics.h"
+#include "ProfilingDebugging/CpuProfilerTrace.h"
+#include "Tasks/Task.h"
+
+namespace IMAcousticSimulationWorkerPrivate
+{
+struct FIMAcousticReverbWorkState
+{
+	FIMAcousticSimulation Simulation;
+	FIMAcousticWorkerProbe Probe{};
+	IPLCoordinateSpace3 Listener{};
+	std::string Error;
+	uint64 Sequence = 0;
+	bool Cancelled = false;
+};
+}
 
 FIMAcousticSimulationWorker::FIMAcousticSimulationWorker() = default;
-FIMAcousticSimulationWorker::~FIMAcousticSimulationWorker() { StopAndJoin(); }
+FIMAcousticSimulationWorker::~FIMAcousticSimulationWorker()
+{
+	StopAndJoin();
+	if (SnapshotEvent)
+	{
+		FPlatformProcess::ReturnSynchEventToPool(SnapshotEvent);
+		SnapshotEvent = nullptr;
+	}
+}
 
 bool FIMAcousticSimulationWorker::Start(TSharedPtr<FIMAcousticDeviceBridge, ESPMode::ThreadSafe> InBridge,
 	uint64 InWorldGeneration, FIMAcousticBakeData&& InBake,
@@ -20,6 +45,8 @@ bool FIMAcousticSimulationWorker::Start(TSharedPtr<FIMAcousticDeviceBridge, ESPM
 	WorldGeneration = InWorldGeneration;
 	Bake = MoveTemp(InBake);
 	Reverb=MoveTemp(InReverb);
+	if (!SnapshotEvent) { SnapshotEvent = FPlatformProcess::GetSynchEventFromPool(false); }
+	if (!SnapshotEvent) { StopAndJoin(); return false; }
 	StopRequested.store(false, std::memory_order_release);
 	WorkerState.store(EIMWorkerState::Loading, std::memory_order_release);
 	Thread.Reset(FRunnableThread::Create(this, TEXT("IMAcousticSimulation"), 0, TPri_Normal));
@@ -30,10 +57,16 @@ bool FIMAcousticSimulationWorker::Start(TSharedPtr<FIMAcousticDeviceBridge, ESPM
 bool FIMAcousticSimulationWorker::Submit(TSharedPtr<const FIMAcousticWorldSnapshot, ESPMode::ThreadSafe> Snapshot)
 {
 	check(IsInGameThread());
-	return Thread && Snapshot && Snapshot->WorldGeneration == WorldGeneration && Snapshots.Push(Snapshot);
+	const bool Pushed = Thread && Snapshot && Snapshot->WorldGeneration == WorldGeneration && Snapshots.Push(Snapshot);
+	if (Pushed && SnapshotEvent) { SnapshotEvent->Trigger(); }
+	return Pushed;
 }
 
-void FIMAcousticSimulationWorker::Stop() { StopRequested.store(true, std::memory_order_release); }
+void FIMAcousticSimulationWorker::Stop()
+{
+	StopRequested.store(true, std::memory_order_release);
+	if (SnapshotEvent) { SnapshotEvent->Trigger(); }
+}
 
 void FIMAcousticSimulationWorker::StopAndJoin()
 {
@@ -77,6 +110,18 @@ uint32 FIMAcousticSimulationWorker::Run()
 		if(Reverb)Reverb->Stopped.store(true,std::memory_order_release);
 		return 1;
 	}
+	TSharedPtr<IMAcousticSimulationWorkerPrivate::FIMAcousticReverbWorkState, ESPMode::ThreadSafe> ReverbWork;
+	if (Reverb)
+	{
+		ReverbWork = MakeShared<IMAcousticSimulationWorkerPrivate::FIMAcousticReverbWorkState, ESPMode::ThreadSafe>();
+		if (!ReverbWork->Simulation.SetPathingOptions(FIMAcousticPathingOptions::DefaultHybrid(), Error)
+			|| !ReverbWork->Simulation.Load(Bake, Bridge->SampleRate, Bridge->BlockFrames, Error))
+		{
+			WorkerState.store(EIMWorkerState::LoadFailed, std::memory_order_release);
+			Reverb->Stopped.store(true, std::memory_order_release);
+			return 1;
+		}
+	}
 	Bake = {}; // No longer needed after SDK has loaded the immutable bytes.
 	WorkerState.store(EIMWorkerState::Running, std::memory_order_release);
 	struct FIMRequestLease
@@ -91,11 +136,47 @@ uint32 FIMAcousticSimulationWorker::Run()
 	Leases.SetNum(Bridge->Voices.Num());
 	TSharedPtr<const FIMAcousticWorldSnapshot, ESPMode::ThreadSafe> Latest;
 	constexpr double LeaseSeconds = 0.250; // Same safety lease as audio; missed release cannot leak a source forever.
-	constexpr double UpdateSeconds = 0.050; // 20Hz simulation; audio interpolates/render state separately.
-	uint64 ReverbSequence=0;
+	// The graph consumes 512 frames at 48 kHz (~10.67 ms). Keep the 50 ms
+	// solve cadence so moving-route spatial samples remain stable, but let a
+	// newly submitted GT snapshot wake the worker immediately. The 250 ms
+	// lease remains the fail-closed lifetime; the event only removes idle
+	// waiting after a listener or dynamic-geometry change.
+	constexpr double UpdateSeconds = 0.050;
+	UE::Tasks::FTask ReverbTask;
 	std::string LastReverbError;
 	std::string LastDynamicError;
 	std::string LastTransitError;
+	const auto ConsumeReverbCompletion = [&]()
+	{
+		FIMAcousticWorkerProbe Completed{};
+		if (!ReverbTask.IsValid() || !ReverbTask.IsCompleted()) return Completed;
+		ReverbTask.Wait();
+		Completed = ReverbWork->Probe;
+		if (!ReverbWork->Cancelled && Completed.ReverbAttempt)
+		{
+			if (Completed.ReverbOk)
+			{
+				if (!LastReverbError.empty())
+				{
+					UE_LOG(LogTemp, Display, TEXT("IMLogs AcousticReverbCoverage recovered"));
+					LastReverbError.clear();
+				}
+			}
+			else
+			{
+				if (ReverbWork->Error != LastReverbError)
+				{
+					UE_LOG(LogTemp, Warning, TEXT("IMLogs AcousticReverbDegraded %s listener=(%g,%g,%g)"),
+						UTF8_TO_TCHAR(ReverbWork->Error.c_str()), ReverbWork->Listener.origin.x,
+						ReverbWork->Listener.origin.y, ReverbWork->Listener.origin.z);
+					LastReverbError = ReverbWork->Error;
+				}
+				FailedUpdates.fetch_add(1, std::memory_order_relaxed);
+			}
+		}
+		ReverbTask = {};
+		return Completed;
+	};
 	double PreviousUpdate=0;
 	while (!StopRequested.load(std::memory_order_acquire) && Bridge->Alive.load(std::memory_order_acquire))
 	{
@@ -103,6 +184,8 @@ uint32 FIMAcousticSimulationWorker::Run()
 		if(PreviousUpdate)IMAcousticTiming::AcousticRecordMaximum(Bridge->MaxWorkerGapUs,uint64((Started-PreviousUpdate)*1.e6));
 		PreviousUpdate=Started;
 		const uint64 ProfileStart=Bridge->ProfilingEnabled.load(std::memory_order_relaxed)?FPlatformTime::Cycles64():0;
+		const bool bStallTiming = Bridge->StallTimingEnabled.load(std::memory_order_acquire);
+		const FIMAcousticWorkerProbe CompletedReverbProbe = ConsumeReverbCompletion();
 		TSharedPtr<const FIMAcousticWorldSnapshot, ESPMode::ThreadSafe> Next;
 		while (Snapshots.Pop(Next)) { Latest = MoveTemp(Next); }
 		const bool SnapshotValid = Latest && Latest->WorldGeneration == WorldGeneration
@@ -198,7 +281,7 @@ uint32 FIMAcousticSimulationWorker::Run()
 		// keys are complete; multi-voice iterations record the count plus first.
 		// POD stores only, no log, no I/O, no wait, no lock, no allocation.
 		// All Seconds fields are FPlatformTime::Seconds() wall clock, seconds.
-		FIMAcousticWorkerProbe ProbeLocal{};
+		FIMAcousticWorkerProbe ProbeLocal = CompletedReverbProbe;
 		ProbeLocal.WorldGeneration = WorldGeneration;
 		ProbeLocal.LoopStartSeconds = Started;
 		ProbeLocal.SnapshotCaptured = Latest ? Latest->CapturedSeconds : 0.0;
@@ -303,6 +386,7 @@ uint32 FIMAcousticSimulationWorker::Run()
 					Result.AudioComponentId = Leases[Voice].Request.AudioComponentId;
 					if (I == 0) { ProbeLocal.FirstAudioId = Result.AudioComponentId; }
 					Result.WorldGeneration = WorldGeneration;
+					Result.SpatialVersion = Latest->SpatialVersion;
 					// Age is based on the original GT snapshot, not republished now.
 					Result.PublishedSeconds = Latest->CapturedSeconds;
 					if (!Bridge->Voices[Voice]->Results.Push(Result)) { AllPushed = false; }
@@ -315,43 +399,105 @@ uint32 FIMAcousticSimulationWorker::Run()
 			if(SolveStart)Bridge->WorkerSolveTiming.Record(SolveStart);
 		}
 		else if(SolveStart)Bridge->WorkerSolveTiming.Record(SolveStart);
-		if(GeometrySnapshotValid&&Reverb&&!Reverb->Stopped.load(std::memory_order_acquire))
+		const bool bReverbRouteEnabled = (Bridge->RenderRoutes.load(std::memory_order_relaxed) & 4u) != 0;
+		if (GeometrySnapshotValid && bReverbRouteEnabled && ReverbWork && !ReverbTask.IsValid()
+			&& !Reverb->Stopped.load(std::memory_order_acquire))
 		{
-			for(auto& Slot:Reverb->Slots)
+			for (auto& Slot : Reverb->Slots)
 			{
-				auto Expected=EIMAcousticIRState::Free;
-				if(!Slot.State.compare_exchange_strong(Expected,EIMAcousticIRState::Writing,std::memory_order_acq_rel))continue;
-				ProbeLocal.ReverbAttempt = 1;
-				ProbeLocal.ReverbStartSeconds = FPlatformTime::Seconds();
-				// Sub-phase diagnostic: SDK reverb eval isolated from solve/publish.
-				const uint64 RevStart=ProfileStart?FPlatformTime::Cycles64():0;
-				const bool ReverbOkLocal = Simulation.EvaluateReverb(Slot,Latest->Listener,Error);
-				if(RevStart)Bridge->WorkerReverbTiming.Record(RevStart);
-				ProbeLocal.ReverbEndSeconds = FPlatformTime::Seconds();
-				if(ReverbOkLocal)
-				{
-					if(!LastReverbError.empty()){UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticReverbCoverage recovered"));LastReverbError.clear();}
-					Slot.Sequence=++ReverbSequence;Slot.CapturedSeconds=Latest->CapturedSeconds;
-					ProbeLocal.ReverbOk = 1;
-					ProbeLocal.ReverbSequence = Slot.Sequence;
-					ProbeLocal.ReverbCaptured = Slot.CapturedSeconds;
-					Slot.State.store(EIMAcousticIRState::Ready,std::memory_order_release);
-				}
-				else
-				{
-					if(Error!=LastReverbError)
-					{UE_LOG(LogTemp,Warning,TEXT("IMLogs AcousticReverbDegraded %s listener=(%g,%g,%g)"),UTF8_TO_TCHAR(Error.c_str()),Latest->Listener.origin.x,Latest->Listener.origin.y,Latest->Listener.origin.z);LastReverbError=Error;}
-					FailedUpdates.fetch_add(1);Slot.State.store(EIMAcousticIRState::Free,std::memory_order_release);
-				}
+				auto Expected = EIMAcousticIRState::Free;
+				if (!Slot.State.compare_exchange_strong(Expected, EIMAcousticIRState::Writing, std::memory_order_acq_rel)) continue;
+				const uint32 SlotIndex = uint32(&Slot - &Reverb->Slots[0]);
+				ReverbTask = UE::Tasks::Launch(UE_SOURCE_LOCATION,
+					[Work = ReverbWork, Pool = Reverb, Device = Bridge, Snapshot = Latest,
+						Meshes = MoveTemp(DynamicInputs), TransitPolicy, SlotIndex, bStallTiming,
+						bProfile = ProfileStart != 0]()
+					{
+						Work->Probe = {};
+						Work->Error.clear();
+						Work->Cancelled = Pool->Stopped.load(std::memory_order_acquire)
+							|| !Device->Alive.load(std::memory_order_acquire)
+							|| Device->WorldGeneration.load(std::memory_order_acquire) != Snapshot->WorldGeneration;
+						auto& Target = Pool->Slots[SlotIndex];
+						if (Work->Cancelled)
+						{
+							Target.State.store(EIMAcousticIRState::Free, std::memory_order_release);
+							return;
+						}
+						Work->Listener = Snapshot->Listener;
+						auto& Probe = Work->Probe;
+						Probe.ReverbAttempt = 1;
+						Probe.ReverbSlot = SlotIndex;
+						Probe.ReverbStartSeconds = FPlatformTime::Seconds();
+						const uint64 ReverbProfileStart = bProfile ? FPlatformTime::Cycles64() : 0;
+						FIMAcousticStallThreadClock CpuBefore, CpuAfter;
+						if (bStallTiming) CpuBefore = IM_AcousticReadStallThreadClock();
+						bool ReverbOk = false;
+						{
+							TRACE_CPUPROFILER_EVENT_SCOPE_CONDITIONAL(IMDEBUG_AC0848_WorkerReverb, bStallTiming);
+							ReverbOk = Work->Simulation.SyncDynamicMeshes(Meshes, Work->Error)
+								&& Work->Simulation.SetApertureTransitPolicy(TransitPolicy, Work->Error)
+								&& Work->Simulation.EvaluateReverb(Target, Snapshot->Listener, Work->Error);
+						}
+						if (bStallTiming)
+						{
+							CpuAfter = IM_AcousticReadStallThreadClock();
+							Probe.ReverbCpuWallBeforeSeconds = CpuBefore.Seconds;
+							Probe.ReverbCpuWallAfterSeconds = CpuAfter.Seconds;
+							Probe.ReverbCpu100nsBefore = CpuBefore.Cpu100ns;
+							Probe.ReverbCpu100nsAfter = CpuAfter.Cpu100ns;
+							Probe.ReverbCpuCyclesBefore = CpuBefore.CpuCycles;
+							Probe.ReverbCpuCyclesAfter = CpuAfter.CpuCycles;
+							Probe.ReverbCpuThreadIdBefore = CpuBefore.ThreadId;
+							Probe.ReverbCpuThreadIdAfter = CpuAfter.ThreadId;
+							Probe.ReverbCpuValidBefore = CpuBefore.Valid;
+							Probe.ReverbCpuValidAfter = CpuAfter.Valid;
+						}
+						if (ReverbProfileStart) Device->WorkerReverbTiming.Record(ReverbProfileStart);
+						Probe.ReverbEndSeconds = FPlatformTime::Seconds();
+						Work->Cancelled = Pool->Stopped.load(std::memory_order_acquire)
+							|| !Device->Alive.load(std::memory_order_acquire)
+							|| Device->WorldGeneration.load(std::memory_order_acquire) != Snapshot->WorldGeneration;
+						if (ReverbOk && !Work->Cancelled)
+						{
+							Target.Sequence = ++Work->Sequence;
+							Target.SpatialVersion = Snapshot->SpatialVersion;
+							Target.CapturedSeconds = Snapshot->CapturedSeconds;
+							Probe.ReverbOk = 1;
+							Probe.ReverbSequence = Target.Sequence;
+							Probe.ReverbCaptured = Target.CapturedSeconds;
+							Probe.ReverbSpatialVersion = Target.SpatialVersion;
+							if (bProfile) Probe.ReverbReadyBeforeSeconds = FPlatformTime::Seconds();
+							Target.State.store(EIMAcousticIRState::Ready, std::memory_order_release);
+							if (bProfile) Probe.ReverbReadyAfterSeconds = FPlatformTime::Seconds();
+						}
+						else Target.State.store(EIMAcousticIRState::Free, std::memory_order_release);
+					});
 				break;
 			}
 		}
 		if(ProfileStart)Bridge->WorkerTiming.Record(ProfileStart);
 		const double Remaining = UpdateSeconds - (FPlatformTime::Seconds() - Started);
-		if (Remaining > 0.0) { FPlatformProcess::SleepNoStats(static_cast<float>(Remaining)); }
+		if (SnapshotEvent)
+		{
+			const uint32 WaitMilliseconds = Remaining > 0.0
+				? static_cast<uint32>(FMath::Clamp(FMath::CeilToInt(Remaining * 1000.0), 1, 1000))
+				: 0;
+			SnapshotEvent->Wait(WaitMilliseconds);
+		}
+		else if (Remaining > 0.0) { FPlatformProcess::SleepNoStats(static_cast<float>(Remaining)); }
 		ProbeLocal.WaitEndSeconds = FPlatformTime::Seconds();
 		Bridge->TraceWorker(ProbeLocal);
 	}
 	if(Reverb)Reverb->Stopped.store(true,std::memory_order_release);
+	if (ReverbTask.IsValid())
+	{
+		ReverbTask.Wait();
+		auto Completed = ConsumeReverbCompletion();
+		Completed.WorldGeneration = WorldGeneration;
+		Completed.LoopStartSeconds = FPlatformTime::Seconds();
+		Completed.WaitEndSeconds = Completed.LoopStartSeconds;
+		if (Completed.ReverbAttempt) Bridge->TraceWorker(Completed);
+	}
 	return 0; // Simulator dies here; detached source leases survive in the shared IR pool.
 }

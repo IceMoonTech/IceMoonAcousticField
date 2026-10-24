@@ -3,6 +3,7 @@
 #include "IMAcousticBakeVolume.h"
 #include "IMAcousticSourceComponent.h"
 #include "IMAcousticSpatialization.h"
+#include "IMAcousticMetaSound.h"
 #include "AudioMixerBlueprintLibrary.h"
 #include "Components/AudioComponent.h"
 #include "Editor.h"
@@ -105,9 +106,12 @@ public:
 			SourceMarker = SourceActor->FindComponentByClass<UIMAcousticSourceComponent>();
 			MetaSound = Cast<UMetaSoundSource>(Audio->Sound);
 			if (!SourceMarker.IsValid() || !MetaSound.IsValid() || !MetaSound->GetPathName().StartsWith(WaterDropMetaSound)
-				|| MetaSound->OutputFormat != EMetaSoundOutputAudioFormat::Mono || MetaSound->NumChannels != 1)
+				|| MetaSound->OutputFormat != EMetaSoundOutputAudioFormat::Stereo || MetaSound->NumChannels != 2)
 			{
-				return Finish(false, TEXT("PIE source is not the authored mono water-drop MetaSound."));
+				return Finish(false, FString::Printf(TEXT("PIE source is not the authored stereo-output water-drop MetaSound: sound=%s class=%s is_metasound=%d path=%s format=%d channels=%d expected=%s"),
+					*GetPathNameSafe(Audio->Sound), *GetNameSafe(Audio->Sound ? Audio->Sound->GetClass() : nullptr), MetaSound.IsValid() ? 1 : 0,
+					MetaSound.IsValid() ? *MetaSound->GetPathName() : TEXT("<not-metasound>"), MetaSound.IsValid() ? int32(MetaSound->OutputFormat) : -1,
+					MetaSound.IsValid() ? MetaSound->NumChannels : -1, WaterDropMetaSound));
 			}
 			FString SourceError;
 			if (!SourceMarker->ValidateSource(SourceError))
@@ -289,6 +293,9 @@ private:
 
 	bool WriteReceipt() const
 	{
+		const uint32 SampleRateHz = Bridge.IsValid() ? Bridge->SampleRate : 0;
+		const double SourceInputDelaySeconds = SampleRateHz > 0
+			? double(FIMAcousticMetaSoundContext::SourceInputDelayFrames) / double(SampleRateHz) : 0.0;
 		FString Json;
 		auto Writer = TJsonWriterFactory<>::Create(&Json);
 		Writer->WriteObjectStart();
@@ -297,7 +304,12 @@ private:
 		Writer->WriteValue(TEXT("map"), WaterDropMap);
 		Writer->WriteValue(TEXT("source_metasound"), WaterDropMetaSound);
 		Writer->WriteValue(TEXT("source_duration_seconds"), WaterDropLoopSeconds);
-		Writer->WriteValue(TEXT("recording_contract"), TEXT("record at least 62.5 seconds so both 28.176s and 56.352s full-asset boundaries are audible"));
+		Writer->WriteValue(TEXT("source_input_delay_blocks"), int32(FIMAcousticMetaSoundContext::SourceInputDelayBlocks));
+		Writer->WriteValue(TEXT("source_input_delay_frames"), int32(FIMAcousticMetaSoundContext::SourceInputDelayFrames));
+		Writer->WriteValue(TEXT("source_input_delay_seconds"), SourceInputDelaySeconds);
+		Writer->WriteValue(TEXT("source_input_delay_priming_blocks_per_play"), int32(FIMAcousticMetaSoundContext::SourceInputDelayBlocks));
+		Writer->WriteValue(TEXT("sample_rate_hz"), int32(SampleRateHz));
+		Writer->WriteValue(TEXT("recording_contract"), TEXT("record at least 62.5 seconds so both full 28.176s loops and the 56.352s boundary remain audible after the fixed source pipeline delay"));
 		Writer->WriteValue(TEXT("same_source_and_start"), true);
 		Writer->WriteValue(TEXT("audio_component_gain"), 0.7);
 		Writer->WriteValue(TEXT("offline_reverb"), false);
@@ -308,8 +320,10 @@ private:
 		Writer->WriteValue(TEXT("dry_file_bytes"), static_cast<double>(IFileManager::Get().FileSize(*DryFile)));
 		Writer->WriteValue(TEXT("wet_file_bytes"), static_cast<double>(IFileManager::Get().FileSize(*WetFile)));
 		Writer->WriteValue(TEXT("raw_source_sha256"), TEXT("8284c59901421d002db751a1e082d2551a74cb7789ddf97e782baf95221e3159"));
-		Writer->WriteValue(TEXT("loop_boundary_seconds_1"), WaterDropLoopSeconds);
-		Writer->WriteValue(TEXT("loop_boundary_seconds_2"), WaterDropLoopSeconds * 2.0);
+		Writer->WriteValue(TEXT("source_loop_boundary_seconds_1"), WaterDropLoopSeconds);
+		Writer->WriteValue(TEXT("source_loop_boundary_seconds_2"), WaterDropLoopSeconds * 2.0);
+		Writer->WriteValue(TEXT("loop_boundary_seconds_1"), WaterDropLoopSeconds + SourceInputDelaySeconds);
+		Writer->WriteValue(TEXT("loop_boundary_seconds_2"), WaterDropLoopSeconds * 2.0 + SourceInputDelaySeconds);
 		Writer->WriteObjectEnd();
 		Writer->Close();
 		const FString Receipt = FPaths::Combine(EvidenceDirectory, TEXT("runtime-recording-receipt.json"));

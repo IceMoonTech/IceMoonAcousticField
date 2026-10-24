@@ -1,11 +1,15 @@
 #include "IMAcousticSimulation.h"
 #include "IMAcousticBakeRecipe.h"
 #include "IMAcousticSDKContext.h"
+#if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
+#include "Tests/IMAcousticOrdinaryEnvironmentBoundaryTest.h"
+#endif
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include "HAL/PlatformMemory.h"
 #include "HAL/PlatformTime.h"
 
 // W1 fixed small-scale config. Units follow the SDK headers (meters, seconds,
@@ -13,6 +17,15 @@
 // them is a verified performance claim. Raise only with measured need.
 namespace IMAcousticSimulationPrivate
 {
+void IMLogSDKStage(const char* Operation, const TCHAR* Stage, double StartedAt)
+{
+	const FPlatformMemoryStats Memory=FPlatformMemory::GetStats();
+	constexpr double BytesPerMiB=1024.0*1024.0;
+	UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticSDKStage op=%s stage=%s elapsed_ms=%.3f working_set_mib=%.3f peak_working_set_mib=%.3f commit_mib=%.3f peak_commit_mib=%.3f"),
+		UTF8_TO_TCHAR(Operation),Stage,(FPlatformTime::Seconds()-StartedAt)*1000.0,
+		Memory.UsedPhysical/BytesPerMiB,Memory.PeakUsedPhysical/BytesPerMiB,
+		Memory.UsedVirtual/BytesPerMiB,Memory.PeakUsedVirtual/BytesPerMiB);
+}
 // Although phonon.h calls this optional, the pinned Win64 4.8.1 path baker
 // calls a null callback (native W1 fault RIP=0 at iplPathBakerBake; upstream
 // issue #167 describes the same failure). Always supply a live callback.
@@ -163,6 +176,7 @@ struct FIMBakeSceneScope
 	~FIMBakeSceneScope() { Reset(); }
 	bool Build(const FIMAcousticSceneInput& Geo, const char* What, std::string& OutError)
 	{
+		const double StartedAt=FPlatformTime::Seconds();
 		Reset();
 		const IPLContext Shared = IMAcousticSDKContext::GetAcousticSDKContext();
 		Ctx = Shared ? iplContextRetain(Shared) : nullptr;
@@ -190,6 +204,7 @@ struct FIMBakeSceneScope
 		}
 		iplStaticMeshAdd(Mesh, Scene);
 		iplSceneCommit(Scene);
+		IMLogSDKStage(What,TEXT("scene_build"),StartedAt);
 		return true;
 	}
 	void Reset()
@@ -273,12 +288,14 @@ bool FIMAcousticSimulation::Bake(const FIMAcousticSceneInput& Input, FIMAcoustic
 	do
 	{
 		if (!Scope.Build(Input, "Bake", Error)) { break; }
+		const double ProbeBatchStartedAt=FPlatformTime::Seconds();
 		if (iplProbeBatchCreate(Scope.Ctx, &Batch) != IPL_STATUS_SUCCESS || Batch == nullptr)
 		{
 			Error = "Bake: iplProbeBatchCreate failed."; break;
 		}
 		for (const auto& P : Input.Probes) { iplProbeBatchAddProbe(Batch, P); }
 		iplProbeBatchCommit(Batch);
+		IMAcousticSimulationPrivate::IMLogSDKStage("Bake",TEXT("probe_batch_commit"),ProbeBatchStartedAt);
 
 		IPLBakedDataIdentifier PathId{};
 		PathId.type = IPL_BAKEDDATATYPE_PATHING;
@@ -295,9 +312,12 @@ bool FIMAcousticSimulation::Bake(const FIMAcousticSceneInput& Input, FIMAcoustic
 		PathParams.visRange = IMAcousticRecipe::PathVisRangeM;
 		PathParams.pathRange = IMAcousticRecipe::PathRangeM;
 		PathParams.numThreads = IMAcousticRecipe::BakeThreads;
+		const double PathStartedAt=FPlatformTime::Seconds();
 		iplPathBakerBake(Scope.Ctx, &PathParams, IMAcousticSimulationPrivate::BakeProgress, nullptr);
+		IMAcousticSimulationPrivate::IMLogSDKStage("Bake",TEXT("pathing"),PathStartedAt);
 		if (Cancelled()) { Error = "Bake: cancelled after pathing pass."; break; }
-		if (iplProbeBatchGetDataSize(Batch, &PathId) == 0)
+		const auto PathLayerBytes = iplProbeBatchGetDataSize(Batch, &PathId);
+		if (PathLayerBytes == 0)
 		{
 			Error = "Bake: pathing layer empty after iplPathBakerBake."; break;
 		}
@@ -323,13 +343,17 @@ bool FIMAcousticSimulation::Bake(const FIMAcousticSceneInput& Input, FIMAcoustic
 		ReverbParams.bakeBatchSize = 1; // only used by STATICLISTENER; kept as a well-formed placeholder.
 		ReverbParams.openCLDevice = nullptr;
 		ReverbParams.radeonRaysDevice = nullptr;
+		const double ReverbStartedAt=FPlatformTime::Seconds();
 		iplReflectionsBakerBake(Scope.Ctx, &ReverbParams, IMAcousticSimulationPrivate::BakeProgress, nullptr);
+		IMAcousticSimulationPrivate::IMLogSDKStage("Bake",TEXT("reverb"),ReverbStartedAt);
 		if (Cancelled()) { Error = "Bake: cancelled after reverb pass."; break; }
-		if (iplProbeBatchGetDataSize(Batch, &ReverbId) == 0)
+		const auto ReverbLayerBytes = iplProbeBatchGetDataSize(Batch, &ReverbId);
+		if (ReverbLayerBytes == 0)
 		{
 			Error = "Bake: reverb layer empty after iplReflectionsBakerBake."; break;
 		}
 
+		const double SerializeStartedAt=FPlatformTime::Seconds();
 		IPLSerializedObjectSettings SerSettings{};
 		if (iplSerializedObjectCreate(Scope.Ctx, &SerSettings, &SceneObj) != IPL_STATUS_SUCCESS || SceneObj == nullptr)
 		{
@@ -343,6 +367,14 @@ bool FIMAcousticSimulation::Bake(const FIMAcousticSceneInput& Input, FIMAcoustic
 		}
 		iplProbeBatchSave(Batch, BatchObj);
 		if (!IMAcousticSimulationPrivate::CopySerialized(BatchObj, TmpBatch, Error, "probe batch")) { break; }
+		IMAcousticSimulationPrivate::IMLogSDKStage("Bake",TEXT("serialize"),SerializeStartedAt);
+		// SDK layer sizes exclude the batch's probe spheres and shared layout;
+		// they are not compressed asset bytes and need not sum to TmpBatch.size().
+		UE_LOG(LogTemp, Display, TEXT("IMLogs AcousticSDKProbeLayers pathing_bytes=%llu reverb_bytes=%llu raw_probe_batch_bytes=%llu probes=%llu"),
+			static_cast<unsigned long long>(PathLayerBytes),
+			static_cast<unsigned long long>(ReverbLayerBytes),
+			static_cast<unsigned long long>(TmpBatch.size()),
+			static_cast<unsigned long long>(Input.Probes.size()));
 		Ok = true;
 	} while (false);
 
@@ -369,6 +401,7 @@ bool FIMAcousticSimulation::GenerateProbes(const FIMAcousticSceneInput& Geometry
 	IMAcousticSimulationPrivate::FIMBakeSceneScope Scope;
 	if (!Scope.Build(Geometry, "GenerateProbes", OutError)) { return false; }
 
+	const double GenerateStartedAt=FPlatformTime::Seconds();
 	IPLProbeArray Array = nullptr;
 	if (iplProbeArrayCreate(Scope.Ctx, &Array) != IPL_STATUS_SUCCESS || Array == nullptr)
 	{
@@ -377,6 +410,7 @@ bool FIMAcousticSimulation::GenerateProbes(const FIMAcousticSceneInput& Geometry
 	// The SDK keeps no reference to Params after the call returns.
 	iplProbeArrayGenerateProbes(Array, Scope.Scene, const_cast<IPLProbeGenerationParams*>(&Params));
 	const IPLint32 Count = iplProbeArrayGetNumProbes(Array);
+	IMAcousticSimulationPrivate::IMLogSDKStage("GenerateProbes",TEXT("probe_generate"),GenerateStartedAt);
 	std::vector<IPLSphere> Tmp;
 	bool Ok = false;
 	std::string Error;
@@ -413,6 +447,7 @@ bool FIMAcousticSimulation::GenerateProbes(const FIMAcousticSceneInput& Geometry
 bool FIMAcousticSimulation::Load(const FIMAcousticBakeData& Bake, int SampleRateHzIn, int BlockFramesIn,
 	std::string& OutError)
 {
+	const double TotalStartedAt=FPlatformTime::Seconds();
 	// H1 W1: creation binds an explicit options identity; unset fields fail here, not silently below.
 	if (!RequirePathingOptions("Load", OutError)) { return false; }
 	if (Bake.Scene.empty() || Bake.ProbeBatch.empty()) { OutError = "Load: bake payload empty."; return false; }
@@ -428,6 +463,7 @@ bool FIMAcousticSimulation::Load(const FIMAcousticBakeData& Bake, int SampleRate
 	std::string Error;
 	do
 	{
+		const double SceneLoadStartedAt=FPlatformTime::Seconds();
 		const IPLContext SharedContext = IMAcousticSDKContext::GetAcousticSDKContext();
 		Context = SharedContext ? iplContextRetain(SharedContext) : nullptr;
 		if (Context == nullptr)
@@ -448,6 +484,8 @@ bool FIMAcousticSimulation::Load(const FIMAcousticBakeData& Bake, int SampleRate
 		{
 			Scene = nullptr; Error = "Load: iplSceneLoad failed."; break;
 		}
+		IMAcousticSimulationPrivate::IMLogSDKStage("Load",TEXT("scene_load"),SceneLoadStartedAt);
+		const double BatchLoadStartedAt=FPlatformTime::Seconds();
 		IPLSerializedObjectSettings BatchSer{};
 		BatchSer.data = const_cast<IPLbyte*>(Bake.ProbeBatch.data());
 		BatchSer.size = Bake.ProbeBatch.size();
@@ -470,6 +508,8 @@ bool FIMAcousticSimulation::Load(const FIMAcousticBakeData& Bake, int SampleRate
 		// In 4.8.1 only commit builds mProbeTree; simulatePathing dereferences it.
 		// The cold-load native fixture reproduced the null tree without this call.
 		iplProbeBatchCommit(ProbeBatch);
+		IMAcousticSimulationPrivate::IMLogSDKStage("Load",TEXT("probe_batch_load_commit"),BatchLoadStartedAt);
+		const double SimulatorStartedAt=FPlatformTime::Seconds();
 		IPLSimulationSettings SimSettings{};
 		SimSettings.flags = static_cast<IPLSimulationFlags>(
 			IPL_SIMULATIONFLAGS_DIRECT | IPL_SIMULATIONFLAGS_PATHING | IPL_SIMULATIONFLAGS_REFLECTIONS);
@@ -500,6 +540,7 @@ bool FIMAcousticSimulation::Load(const FIMAcousticBakeData& Bake, int SampleRate
 		// against the load-time static snapshot only (W3 closed-door leak).
 		iplSceneCommit(Scene);
 		iplSimulatorCommit(Simulator);
+		IMAcousticSimulationPrivate::IMLogSDKStage("Load",TEXT("simulator_setup"),SimulatorStartedAt);
 		SampleRateHz = SampleRateHzIn;
 		BlockFrames = BlockFramesIn;
 		CoverageProbes=Bake.CoverageProbes;
@@ -525,6 +566,7 @@ bool FIMAcousticSimulation::Load(const FIMAcousticBakeData& Bake, int SampleRate
 		OutError = Kept;
 		return false;
 	}
+	IMAcousticSimulationPrivate::IMLogSDKStage("Load",TEXT("total"),TotalStartedAt);
 	return true;
 }
 
@@ -837,7 +879,9 @@ bool FIMAcousticSimulation::EvaluateBatch(const std::vector<FIMAcousticSourceInp
 		// H1 W1: runtime-settable Hybrid pathing (Hybrid default: validation on, alternate paths on).
 		Inputs.enableValidation = PathingOptions.EnableValidation ? IPL_TRUE : IPL_FALSE;
 		Inputs.findAlternatePaths = PathingOptions.FindAlternatePaths ? IPL_TRUE : IPL_FALSE;
-		Inputs.numTransmissionRays = 0; // transmission disabled; unused.
+		// SDK 4.8.1 validation requires a positive budget even when the
+		// transmission flag is disabled. This value is unused in that mode.
+		Inputs.numTransmissionRays = 1;
 		Inputs.deviationModel = nullptr; // default physics deviation model.
 		iplSourceSetInputs(Recs[I]->Source, Inputs.flags, &Inputs);
 	}
@@ -991,13 +1035,25 @@ bool FIMAcousticSimulation::EvaluateReverb(FIMAcousticReverbSlot& Slot,
 	// closed rather than refreshing a potentially stale SDK energy field.
 	constexpr int MaxSelectedProbes=8;
 	int Overlaps=0,Blocked=0;
+#if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
+	const bool ObserveFirstCoverage = IM_IsOrdinaryCoverageObservationArmedForTest();
+	uint32 VisitedProbes = 0, UncertainProbes = 0, RaycastBlockedProbes = 0, UnsafeProbes = 0;
+#endif
 	IPLSimulationSharedInputs VisibilityShared{};VisibilityShared.listener=Listener;
 	iplSimulatorSetSharedInputs(Simulator,IPL_SIMULATIONFLAGS_DIRECT,&VisibilityShared);
 	iplSourceAdd(Slot.Source,Simulator);iplSimulatorCommit(Simulator);
 	for(const auto& Probe:CoverageProbes)
 	{
+#if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
+		if (ObserveFirstCoverage) ++VisitedProbes;
+#endif
 		if(!SafeCoveragePoint(Probe.center)||!IMAcousticSimulationPrivate::SimulationFinite(Probe.radius)||Probe.radius<=0||Probe.radius>MaxCoverageCoordinate)
-		{Blocked=MaxSelectedProbes;break;}
+		{
+#if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
+			if (ObserveFirstCoverage) ++UnsafeProbes;
+#endif
+			Blocked=MaxSelectedProbes;break;
+		}
 		const double X=double(Listener.origin.x)-Probe.center.x,Y=double(Listener.origin.y)-Probe.center.y,Z=double(Listener.origin.z)-Probe.center.z;
 		const double Distance2=X*X+Y*Y+Z*Z,Radius2=double(Probe.radius)*Probe.radius;
 		// SDK containment uses float subtract/multiply/add and float AABBs.
@@ -1018,7 +1074,13 @@ bool FIMAcousticSimulation::EvaluateReverb(FIMAcousticReverbSlot& Slot,
 		}
 		// Counting uncertainty as blocked is a conservative upper bound even
 		// if SDK omits it. It can never supply the required visible witness.
-		if(Uncertain){if(++Blocked>=MaxSelectedProbes)break;continue;}
+		if(Uncertain)
+		{
+#if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
+			if (ObserveFirstCoverage) ++UncertainProbes;
+#endif
+			if(++Blocked>=MaxSelectedProbes)break;continue;
+		}
 		IPLSimulationInputs Visibility{};Visibility.flags=IPL_SIMULATIONFLAGS_DIRECT;
 		Visibility.directFlags=IPL_DIRECTSIMULATIONFLAGS_OCCLUSION;
 		Visibility.source=Listener;Visibility.source.origin=Probe.center;
@@ -1026,12 +1088,41 @@ bool FIMAcousticSimulation::EvaluateReverb(FIMAcousticReverbSlot& Slot,
 		iplSourceSetInputs(Slot.Source,IPL_SIMULATIONFLAGS_DIRECT,&Visibility);
 		iplSimulatorRunDirect(Simulator);
 		IPLSimulationOutputs Result{};iplSourceGetOutputs(Slot.Source,IPL_SIMULATIONFLAGS_DIRECT,&Result);
-		if(Result.direct.occlusion!=1.f)++Blocked;
+		if(Result.direct.occlusion!=1.f)
+		{
+#if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
+			if (ObserveFirstCoverage) ++RaycastBlockedProbes;
+#endif
+			++Blocked;
+		}
 		if(Blocked>=MaxSelectedProbes)break;
 	}
 	iplSourceRemove(Slot.Source,Simulator);iplSimulatorCommit(Simulator);
 	if(Overlaps==0||Blocked==Overlaps||Blocked>=MaxSelectedProbes)
-	{OutError="Reverb: no certified visible probe coverage at listener.";return false;}
+	{
+#if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
+		if (ObserveFirstCoverage)
+		{
+			FIMAcousticOrdinaryCoverageFailure Probe;
+			Probe.Seconds = FPlatformTime::Seconds();
+			Probe.ListenerX = Listener.origin.x;
+			Probe.ListenerY = Listener.origin.y;
+			Probe.ListenerZ = Listener.origin.z;
+			Probe.TotalProbes = uint32(CoverageProbes.size());
+			Probe.VisitedProbes = VisitedProbes;
+			Probe.Overlaps = Overlaps;
+			Probe.Blocked = Blocked;
+			Probe.Uncertain = UncertainProbes;
+			Probe.RaycastBlocked = RaycastBlockedProbes;
+			Probe.UnsafeProbes = UnsafeProbes;
+			Probe.SelectedProbeCap = MaxSelectedProbes;
+			Probe.RejectionMask = (Overlaps == 0 ? 1u : 0u) | (Blocked == Overlaps ? 2u : 0u)
+				| (Blocked >= MaxSelectedProbes ? 4u : 0u);
+			IM_RecordOrdinaryCoverageFailureForTest(Probe);
+		}
+#endif
+		OutError="Reverb: no certified visible probe coverage at listener.";return false;
+	}
 	IPLSimulationInputs Inputs{};Inputs.flags=IPL_SIMULATIONFLAGS_REFLECTIONS;
 	Inputs.source=Listener;Inputs.baked=IPL_TRUE;Inputs.bakedDataIdentifier=Id;
 	Inputs.reverbScale[0]=Inputs.reverbScale[1]=Inputs.reverbScale[2]=1;

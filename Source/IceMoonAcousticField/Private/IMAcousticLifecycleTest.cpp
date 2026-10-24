@@ -111,6 +111,8 @@ public:
 			Competitor=World->SpawnActorDeferred<AIMAcousticBakeVolume>(AIMAcousticBakeVolume::StaticClass(),Transform);
 			if(!Competitor.IsValid())return Finish(false,TEXT("Cannot spawn competing acoustic owner."));
 			Competitor->BakeBounds->SetBoxExtent(Volume->BakeBounds->GetUnscaledBoxExtent());
+			Competitor->MaterialDrive=Volume->MaterialDrive;
+			Competitor->PhysicalMaterials=Volume->PhysicalMaterials;
 			Competitor->Materials=Volume->Materials;Competitor->ProbeSpacingCm=Volume->ProbeSpacingCm;
 			Competitor->ProbeHeightCm=Volume->ProbeHeightCm;Competitor->BakedField=Volume->BakedField;
 			Competitor->FinishSpawning(Transform);OwnerEpoch=Bridge->ReverbWorldGeneration.load();Stage=13;Stamp=Now;return false;
@@ -119,8 +121,8 @@ public:
 		{
 			const bool bOwnershipRejected=Competitor.IsValid()
 				&&(Competitor->Status.Contains(TEXT("already belongs"),ESearchCase::IgnoreCase)
-				   ||Competitor->Status.Contains(TEXT("already owned"),ESearchCase::IgnoreCase)
-				   ||Competitor->Status.Contains(TEXT("ownership"),ESearchCase::IgnoreCase));
+					||Competitor->Status.Contains(TEXT("already owned"),ESearchCase::IgnoreCase)
+					||Competitor->Status.Contains(TEXT("ownership"),ESearchCase::IgnoreCase));
 			UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticLifecycleCompetitor status=%s rejected=%d"),*Competitor->Status,int(bOwnershipRejected));
 			if(!bOwnershipRejected)
 				return Finish(false,TEXT("Competing volume did not exercise device ownership rejection."));

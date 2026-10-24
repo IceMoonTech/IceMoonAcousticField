@@ -1,6 +1,7 @@
 #if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
 // Editor preparation only. Root runs this in the manifest-bound copy after its
-// audio tests. Requires editor Build.cs dependency AudioEditor (USoundFactory).
+// audio tests. Ordinary audition uses the already authored graph and selected
+// full water-drop Wave; the W3 pressure tests retain their synthetic stimulus.
 // First run: duplicate the existing single-level whitebox, clear its wrong-map
 // bake binding, author persistent native audio, then use BakeVolume's own bake.
 // Existing target: validate and exit WITHOUT saving, rebaking or overwriting.
@@ -24,11 +25,13 @@
 #include "Sound/AmbientSound.h"
 #include "Sound/SoundAttenuation.h"
 #include "Sound/SoundWave.h"
+#include "MetasoundDocumentInterface.h"
+#include "MetasoundFrontendDocument.h"
+#include "MetasoundOperatorSettings.h"
+#include "MetasoundSource.h"
 #include "StaticMeshResources.h"
 #include "Editor.h"
 #include "EngineUtils.h"
-#include "Factories/Factory.h"
-#include "Factories/SoundFactory.h"
 #include "FileHelpers.h"
 #include "ObjectTools.h"
 #include "AssetRegistry/AssetRegistryModule.h"
@@ -46,12 +49,13 @@ namespace IMAcousticAuditionSetupTestPrivate
 {
 constexpr const TCHAR* SourceMap=TEXT("/IceMoonAcousticField/L_IceMoonAcousticField");
 constexpr const TCHAR* TargetMap=TEXT("/IceMoonAcousticField/Tests/IM_V2Audition");
-constexpr const TCHAR* WavePackagePath=TEXT("/IceMoonAcousticField/Tests/IM_V2AuditionReference");
+constexpr const TCHAR* IMMetaSoundPackage=TEXT("/IceMoonAcousticField/Tests/Audio/MS_WaterDropEryliaa_FullLoopOnPlay");
+constexpr const TCHAR* WavePackagePath=TEXT("/IceMoonAcousticField/Tests/Audio/SW_WaterDropPotsi_SoftTailModerate_28s");
 constexpr const TCHAR* AttenuationPackage=TEXT("/IceMoonAcousticField/Tests/IM_V2AuditionAttenuation");
-constexpr const TCHAR* SpatializationPackage=TEXT("/IceMoonAcousticField/Tests/IM_V2AuditionSpatialization");
-// Integer-generator v1 PCM, mono 48kHz/16-bit, 8 seconds. Changing the generator
-// requires an explicit reference-contract revision, never accepting arbitrary WAVs.
-constexpr const TCHAR* ReferencePCMHash=TEXT("E477B3B7184885AF8064E473C89D8981CDDD2E5C");
+// User-selected potsi Moderate PCM, 48 kHz/mono/16-bit and 28.176 seconds.
+// Hash imported PCM, not the container or historical MetaSound asset name.
+constexpr int32 IMSelectedFrames=1352448;
+constexpr const TCHAR* IMSelectedPCMHash=TEXT("6845F1DD535FFC9F99E0FC87B97C3A8221043BEC");
 constexpr const TCHAR* ReadyTag=TEXT("IMAcousticAuditionPreparedV1");
 constexpr const TCHAR* SourceTag=TEXT("IMAcousticAuditionReferenceV1");
 const FVector SourcePosition(550,300,150),StartPosition(750,300,150);
@@ -80,6 +84,8 @@ struct FIMGeometryIdentity
 	int32 Meshes=0,WhiteboxMeshes=0,Instances=0;
 	FString Hash;
 	TArray<FString> Rows;
+	TMap<FString,TWeakObjectPtr<UStaticMeshComponent>> Components;
+	TArray<FString> NonBakedAdditions;
 };
 bool Geometry(UWorld* World,FIMGeometryIdentity& Out,FString& Error)
 {
@@ -124,7 +130,8 @@ bool Geometry(UWorld* World,FIMGeometryIdentity& Out,FString& Error)
 					Row+=TEXT("|")+TransformKey(T);++Out.Instances;
 				}
 			}
-			Out.Rows.Add(Row);++Out.Meshes;if(It->ActorHasTag(TEXT("IMAcousticWhitebox")))++Out.WhiteboxMeshes;
+			Out.Rows.Add(Row);Out.Components.Add(Row,const_cast<UStaticMeshComponent*>(M));
+			++Out.Meshes;if(It->ActorHasTag(TEXT("IMAcousticWhitebox")))++Out.WhiteboxMeshes;
 		}
 	}
 	Out.Rows.Sort();FSHA1 Hash;
@@ -143,6 +150,34 @@ bool FindVolume(UWorld* World,AIMAcousticBakeVolume*& Out,FString& Error)
 	{if(Out)return Reject(Error,TEXT("Expected one BakeVolume, found multiple."));Out=*It;}
 	return Out!=nullptr||Reject(Error,TEXT("Existing W2 BakeVolume/material mapping is missing; run W2 preparation first."));
 }
+bool IMPreservesGeometry(const FIMGeometryIdentity& Baseline,FIMGeometryIdentity& Target,
+	const AIMAcousticBakeVolume* Volume,FString& Error)
+{
+	if(!Volume||!Volume->BakeBounds||Target.WhiteboxMeshes!=Baseline.WhiteboxMeshes)
+		return Reject(Error,TEXT("Audition whitebox mesh count/bake region differs."));
+	for(const FString& Row:Baseline.Rows)
+		if(!Target.Components.Contains(Row))return Reject(Error,TEXT("An original whitebox component changed or disappeared: ")+Row);
+	const FBox Region=Volume->BakeBounds->Bounds.GetBox();
+	for(const FString& Row:Target.Rows)
+	{
+		if(Baseline.Components.Contains(Row))continue;
+		const auto* Component=Target.Components.FindChecked(Row).Get();
+		if(!Component||Component->ComponentHasTag(TEXT("IMAcousticRequired")))
+			return Reject(Error,TEXT("An additional component cannot be treated as a non-baked helper: ")+Row);
+		// CaptureScene excludes movable/editor/ignored helpers and geometry
+		// outside this exact world-space bake box. Original rows remain exact;
+		// an added static component inside the region still fails preparation.
+		bool bExcluded=Component->Mobility!=EComponentMobility::Static
+			||Component->ComponentHasTag(TEXT("IMAcousticIgnore"))
+			||!Region.Intersect(Component->CalcBounds(Component->GetComponentTransform()).GetBox());
+#if WITH_EDITORONLY_DATA
+		bExcluded|=Component->IsVisualizationComponent()||Component->IsEditorOnly();
+#endif
+		if(!bExcluded)return Reject(Error,TEXT("Additional baked geometry requires an explicit new fixture contract: ")+Row);
+		Target.NonBakedAdditions.Add(Component->GetPathName(Volume->GetWorld()->PersistentLevel));
+	}
+	return true;
+}
 bool UnusedPackage(const TCHAR* Name,FString& Error)
 {
 	return (!FPackageName::DoesPackageExist(Name)&&!FindPackage(nullptr,Name))
@@ -158,52 +193,87 @@ bool SaveNewAsset(UObject* Asset,FString& Error)
 }
 bool VerifyWave(USoundWave* Wave,FString& Error)
 {
-	if(!Wave||Wave->GetPathName()!=ObjectPath(WavePackagePath)||Wave->NumChannels!=1||!Wave->bLooping
-		||Wave->GetImportedSampleRate()!=48000||Wave->GetSoundAssetCompressionTypeEnum()!=ESoundAssetCompressionType::PCM
-		||Wave->VirtualizationMode!=EVirtualizationMode::PlayWhenSilent)
-		return Reject(Error,TEXT("Reference SoundWave path/mono/48k/looping/PCM/virtualization contract differs."));
+	// The graph's Wave Player owns playback and the full loop. Keep the accepted
+	// imported asset settings; legacy standalone-wave virtualization is unrelated.
+	if(!Wave||Wave->GetPathName()!=ObjectPath(WavePackagePath)||Wave->NumChannels!=1
+		||Wave->GetImportedSampleRate()!=48000)
+		return Reject(Error,TEXT("Selected water-drop Wave path/mono/48k contract differs."));
 	TArray<uint8> PCM;uint32 Rate=0;uint16 Channels=0;
-	if(!Wave->GetImportedSoundWaveData(PCM,Rate,Channels)||Rate!=48000||Channels!=1||PCM.Num()!=48000*8*2
-		||HashBytes(PCM.GetData(),PCM.Num())!=ReferencePCMHash)
-		return Reject(Error,TEXT("Imported reference PCM differs from the fixed integer-generated stimulus."));
+	if(!Wave->GetImportedSoundWaveData(PCM,Rate,Channels)||Rate!=48000||Channels!=1||PCM.Num()!=IMSelectedFrames*2
+		||HashBytes(PCM.GetData(),PCM.Num())!=IMSelectedPCMHash)
+		return Reject(Error,TEXT("Imported water-drop PCM differs from the selected full-loop source."));
 	return true;
 }
+
+const FMetasoundFrontendLiteral* IMUnconnectedDefault(const FMetasoundFrontendGraph& Graph,
+	const FMetasoundFrontendNode& Node,const TCHAR* Name)
+{
+	const auto* Pin=Node.Interface.Inputs.FindByPredicate([&](const auto& V){return V.Name==Name;});
+	if(!Pin||Graph.Edges.ContainsByPredicate([&](const auto& E)
+		{return E.ToNodeID==Node.GetID()&&E.ToVertexID==Pin->VertexID;}))return nullptr;
+	const auto* Literal=Node.InputLiterals.FindByPredicate([&](const auto& V){return V.VertexID==Pin->VertexID;});
+	return Literal?&Literal->Value:nullptr;
+}
+
+bool IMVerifyAuditionGraph(const FMetasoundFrontendGraph& Graph,USoundWave*& Wave,FString& Error)
+{
+	Wave=nullptr;
+	const FMetasoundFrontendNode* Player=nullptr;
+	for(const auto& Node:Graph.Nodes)if(Node.Name==TEXT("Wave Player"))
+	{if(Player)return Reject(Error,TEXT("Ordinary audition requires exactly one Wave Player."));Player=&Node;}
+	if(!Player)return Reject(Error,TEXT("Ordinary audition Wave Player is missing."));
+	const auto* Asset=IMUnconnectedDefault(Graph,*Player,TEXT("Wave Asset"));
+	UObject* Object=nullptr;
+	if(!Asset||!Asset->TryGet(Object)||!VerifyWave(Cast<USoundWave>(Object),Error))
+		return Reject(Error,TEXT("Wave Player does not consume the selected water-drop default: ")+Error);
+	const auto* Loop=IMUnconnectedDefault(Graph,*Player,TEXT("Loop"));bool Looping=false;
+	if(!Loop||!Loop->TryGet(Looping)||!Looping)
+		return Reject(Error,TEXT("Wave Player must consume its enabled loop default."));
+	for(const auto& Expected:{TPair<const TCHAR*,float>(TEXT("Start Time"),0.f),
+		TPair<const TCHAR*,float>(TEXT("Pitch Shift"),0.f),TPair<const TCHAR*,float>(TEXT("Loop Start"),0.f),
+		TPair<const TCHAR*,float>(TEXT("Loop Duration"),-1.f)})
+	{
+		const auto* Literal=IMUnconnectedDefault(Graph,*Player,Expected.Key);float Actual=0.f;
+		if(!Literal||!Literal->TryGet(Actual)||!FMath::IsNearlyEqual(Actual,Expected.Value))
+			return Reject(Error,FString::Printf(TEXT("Wave Player %s differs from the unpitched full-loop contract."),Expected.Key));
+	}
+	Wave=CastChecked<USoundWave>(Object);return true;
+}
+
+bool IMVerifyAuditionSound(USoundBase* Sound,USoundWave*& Wave,FString& Error)
+{
+	Wave=nullptr;auto* Source=Cast<UMetaSoundSource>(Sound);
+	if(!Source||Source->GetPathName()!=ObjectPath(IMMetaSoundPackage)
+		||Source->OutputFormat!=EMetaSoundOutputAudioFormat::Stereo||Source->NumChannels!=2
+		||Source->GetOperatorSettings(48000).GetNumFramesPerBlock()!=512)
+		return Reject(Error,TEXT("Ordinary audition requires the current stereo acoustic MetaSound with 512-frame blocks."));
+	const auto* Document=Cast<IMetaSoundDocumentInterface>(Source);
+	if(!Document)return Reject(Error,TEXT("Ordinary audition source has no native MetaSound document."));
+	return IMVerifyAuditionGraph(Document->GetConstDocument().RootGraph.GetConstDefaultGraph(),Wave,Error);
+}
+
 bool CreateAudio(UWorld* World,FString& Error)
 {
-	// Preflight every destination before creating any asset; no import-overwrite
-	// route is reachable, even though the factory's UI is suppressed.
-	for(const TCHAR* Name:{WavePackagePath,AttenuationPackage,SpatializationPackage})if(!UnusedPackage(Name,Error))return false;
-	const FString File=FPaths::Combine(FPaths::ProjectSavedDir(),TEXT("AcousticV2/AuditionInput/IM_V2Reference.wav"));
-	TArray<uint8> WAV;
-	if(!FFileHelper::LoadFileToArray(WAV,*File)||WAV.Num()!=44+48000*8*2
-		||HashBytes(WAV.GetData()+44,WAV.Num()-44)!=ReferencePCMHash)
-		return Reject(Error,TEXT("Missing/mismatched fixed WAV. Run Tests/IM_CreateAcousticReference.py in this copy first."));
-	auto* Factory=NewObject<USoundFactory>();Factory->bAutoCreateCue=false;Factory->SuppressImportDialogs();
-	UPackage* WavePackage=CreatePackage(WavePackagePath);
-	auto* Wave=Cast<USoundWave>(UFactory::StaticImportObject(USoundWave::StaticClass(),WavePackage,
-		FName(*FPackageName::GetLongPackageAssetName(WavePackagePath)),RF_Public|RF_Standalone,*File,nullptr,Factory));
-	if(!Wave)return Reject(Error,TEXT("USoundFactory failed to import the fixed reference."));
-	Wave->bLooping=true;Wave->VirtualizationMode=EVirtualizationMode::PlayWhenSilent;
-	Wave->SetSoundAssetCompressionType(ESoundAssetCompressionType::PCM);Wave->PostEditChange();
-	if(!VerifyWave(Wave,Error)||!SaveNewAsset(Wave,Error))return false;
-	auto* Spatial=NewObject<UIMAcousticSpatializationSettings>(CreatePackage(SpatializationPackage),
-		FName(*FPackageName::GetLongPackageAssetName(SpatializationPackage)),RF_Public|RF_Standalone);
-	if(!SaveNewAsset(Spatial,Error))return false;
+	USoundWave* Wave=nullptr;
+	auto* Sound=LoadObject<UMetaSoundSource>(nullptr,*ObjectPath(IMMetaSoundPackage));
+	if(!IMVerifyAuditionSound(Sound,Wave,Error)||!UnusedPackage(AttenuationPackage,Error))return false;
 	auto* Attenuation=NewObject<USoundAttenuation>(CreatePackage(AttenuationPackage),
 		FName(*FPackageName::GetLongPackageAssetName(AttenuationPackage)),RF_Public|RF_Standalone);
 	auto& S=Attenuation->Attenuation;
-	S.bSpatialize=true;S.SpatializationAlgorithm=SPATIALIZATION_HRTF;
+	S.bSpatialize=false;
 	S.bAttenuate=false;S.bAttenuateWithLPF=false;S.bEnableOcclusion=false;S.bEnableListenerFocus=false;S.bEnableReverbSend=false;
-	S.PluginSettings.SpatializationPluginSettingsArray.Reset();S.PluginSettings.SpatializationPluginSettingsArray.Add(Spatial);
+	S.PluginSettings.SpatializationPluginSettingsArray.Reset();
 	S.PluginSettings.OcclusionPluginSettingsArray.Reset();S.PluginSettings.ReverbPluginSettingsArray.Reset();S.PluginSettings.SourceDataOverridePluginSettingsArray.Reset();
 	if(!SaveNewAsset(Attenuation,Error))return false;
 	FActorSpawnParameters Spawn;Spawn.Name=TEXT("IM_V2AuditionSource");Spawn.SpawnCollisionHandlingOverride=ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 	auto* Ambient=World->SpawnActor<AAmbientSound>(SourcePosition,FRotator::ZeroRotator,Spawn);
 	if(!Ambient)return Reject(Error,TEXT("Cannot spawn persistent AAmbientSound."));
-	Ambient->SetActorLabel(TEXT("IM_V2_AUDITION_SOURCE - looping 48k mono"));Ambient->Tags.AddUnique(SourceTag);
-	auto* Audio=Ambient->GetAudioComponent();Audio->bAutoActivate=true;Audio->bAutoDestroy=false;Audio->bStopWhenOwnerDestroyed=true;
-	Audio->bAllowSpatialization=true;Audio->bIsUISound=false;Audio->bOverrideAttenuation=false;Audio->SetAttenuationSettings(Attenuation);
-	Audio->VolumeMultiplier=.7f;Audio->PitchMultiplier=1;Audio->SetSound(Wave);
+	Ambient->SetActorLabel(TEXT("IM_V2_AUDITION_SOURCE - full water-drop MetaSound"));Ambient->Tags.AddUnique(SourceTag);
+	// BakeVolume starts managed playback after the source has its graph binding;
+	// automatic AudioComponent activation would race that initialization.
+	auto* Audio=Ambient->GetAudioComponent();Audio->bAutoActivate=false;Audio->bAutoDestroy=false;Audio->bStopWhenOwnerDestroyed=true;
+	Audio->bAllowSpatialization=false;Audio->bIsUISound=false;Audio->bOverrideAttenuation=false;Audio->SetAttenuationSettings(Attenuation);
+	Audio->VolumeMultiplier=.7f;Audio->PitchMultiplier=1;Audio->SetSound(Sound);
 	auto* Marker=NewObject<UIMAcousticSourceComponent>(Ambient,TEXT("IM_AcousticSource"),RF_Transactional);
 	Marker->AudioComponent=Audio;Ambient->AddInstanceComponent(Marker);Marker->RegisterComponent();
 	if(!Marker->ValidateSource(Error))return false;
@@ -256,7 +326,9 @@ public:
 				return Finish(PreparedValid,PreparedValid?TEXT("Existing audition map validated; no writes or rebake."):Error);
 			}
 			if(!UnusedPackage(TargetMap,Error))return Finish(false,Error);
-			for(const TCHAR* Name:{WavePackagePath,AttenuationPackage,SpatializationPackage})if(!UnusedPackage(Name,Error))return Finish(false,Error);
+			USoundWave* SelectedWave=nullptr;
+			if(!IMVerifyAuditionSound(LoadObject<UMetaSoundSource>(nullptr,*ObjectPath(IMMetaSoundPackage)),SelectedWave,Error)
+				||!UnusedPackage(AttenuationPackage,Error))return Finish(false,Error);
 			for(TActorIterator<AActor> It(Source);It;++It)
 			{
 				TArray<UAudioComponent*> Audio;It->GetComponents(Audio);
@@ -290,7 +362,7 @@ public:
 			Volume->SetActorLabel(TEXT("IM_V2_AUDITION_FIELD - V2 and route switches"));
 			if(!Volume->BakeBounds->Bounds.GetBox().IsInsideOrOn(SourcePosition)||!Volume->BakeBounds->Bounds.GetBox().IsInsideOrOn(StartPosition))
 				return Finish(false,TEXT("Source/start lies outside copied bake bounds."));
-			if(!Geometry(World,TargetGeometry,Error)||TargetGeometry.Hash!=Baseline.Hash)return Finish(false,TEXT("Audio authoring changed existing mesh geometry: ")+Error);
+			if(!Geometry(World,TargetGeometry,Error)||!IMPreservesGeometry(Baseline,TargetGeometry,Volume.Get(),Error))return Finish(false,TEXT("Audio authoring changed existing mesh geometry: ")+Error);
 			Volume->GenerateProbes();
 			if(Volume->GeneratedProbes<=0)return Finish(false,TEXT("Copied-map probe generation failed: ")+Volume->Status);
 			Volume->Bake();if(!Volume->Status.StartsWith(TEXT("Baking.")))return Finish(false,TEXT("Copied-map bake did not start: ")+Volume->Status);
@@ -306,7 +378,7 @@ public:
 			}
 			if(!Volume->ValidateCurrentBake(Error)||Volume->BakedField->WorldPackage!=TargetMap
 				||Volume->BakedField->GetPathName()==OriginalBakePath)return Finish(false,TEXT("New map requires its own current bake asset: ")+Error);
-			if(!Geometry(Volume->GetWorld(),TargetGeometry,Error)||TargetGeometry.Hash!=Baseline.Hash)return Finish(false,TEXT("Bake changed copied mesh geometry: ")+Error);
+			if(!Geometry(Volume->GetWorld(),TargetGeometry,Error)||!IMPreservesGeometry(Baseline,TargetGeometry,Volume.Get(),Error))return Finish(false,TEXT("Bake changed copied mesh geometry: ")+Error);
 			Volume->Tags.AddUnique(ReadyTag);Volume->MarkPackageDirty();
 			const FString File=FPackageName::LongPackageNameToFilename(TargetMap,FPackageName::GetMapPackageExtension());
 			if(!FEditorFileUtils::SaveLevel(Volume->GetWorld()->PersistentLevel,File))return Finish(false,TEXT("Cannot save audition source and new bake binding."));
@@ -321,10 +393,9 @@ private:
 	{
 		UWorld* World=GEditor->GetEditorWorldContext().World();
 		if(!World||World->GetOutermost()->GetName()!=TargetMap)return Reject(Error,TEXT("Wrong audition world."));
-		if(!Geometry(World,TargetGeometry,Error)||TargetGeometry.Hash!=Baseline.Hash||TargetGeometry.Meshes!=Baseline.Meshes
-			||TargetGeometry.WhiteboxMeshes!=Baseline.WhiteboxMeshes||TargetGeometry.Instances!=Baseline.Instances)
-			return Reject(Error,TEXT("Audition geometry/count differs from current source whitebox; existing map will not be overwritten."));
 		AIMAcousticBakeVolume* Found=nullptr;if(!FindVolume(World,Found,Error))return false;Volume=Found;
+		if(!Geometry(World,TargetGeometry,Error)||!IMPreservesGeometry(Baseline,TargetGeometry,Found,Error))
+			return Reject(Error,TEXT("Audition geometry differs from the preserved whitebox contract; existing map will not be overwritten: ")+Error);
 		if(!Volume->ActorHasTag(ReadyTag)||!Volume->BakedField||Volume->BakedField->WorldPackage!=TargetMap
 			||Volume->BakedField->GetPathName()==OriginalBakePath||!Volume->BakedField->GetPathName().StartsWith(TEXT("/IceMoonAcousticField/")))
 			return Reject(Error,TEXT("Audition map is incomplete or uses a wrong-map/non-plugin bake; refusing overwrite or automatic recovery."));
@@ -350,13 +421,13 @@ private:
 			||Marker->CreationMethod!=EComponentCreationMethod::Instance||!Marker->GetOwner()->GetActorLocation().Equals(SourcePosition,.01))
 			return Reject(Error,TEXT("Persistent source actor/component/placement is missing or differs."));
 		if(!Marker->ValidateSource(Error))return false;Audio=Marker->AudioComponent;
-		if(!Audio->bAutoActivate||Audio->bAutoDestroy||!Audio->bStopWhenOwnerDestroyed||Audio->bIsUISound||Audio->bOverrideAttenuation
+		if(Audio->bAutoActivate||Audio->bAutoDestroy||!Audio->bStopWhenOwnerDestroyed||Audio->bIsUISound||Audio->bAllowSpatialization
 			||!Audio->AttenuationSettings||Audio->AttenuationSettings->GetPathName()!=ObjectPath(AttenuationPackage)
 			||!FMath::IsNearlyEqual(Audio->VolumeMultiplier,.7f)||!FMath::IsNearlyEqual(Audio->PitchMultiplier,1.f))
 			return Reject(Error,TEXT("Persistent AudioComponent autoplay/attenuation/volume contract differs."));
-		const auto& Settings=Audio->AttenuationSettings->Attenuation.PluginSettings.SpatializationPluginSettingsArray;
-		if(Settings.Num()!=1||Settings[0]->GetPathName()!=ObjectPath(SpatializationPackage))return Reject(Error,TEXT("Wrong persistent spatialization asset."));
-		if(!VerifyWave(Cast<USoundWave>(Audio->Sound),Error))return false;
+		ActualSoundPath=GetPathNameSafe(Audio->Sound);USoundWave* SelectedWave=nullptr;
+		if(!IMVerifyAuditionSound(Audio->Sound,SelectedWave,Error))return false;
+		ActualWavePath=SelectedWave->GetPathName();
 		if(World->GetWorldSettings()->DefaultGameMode!=AGameModeBase::StaticClass())return Reject(Error,TEXT("Native movement GameMode differs."));
 		FFileHelper::SaveStringArrayToFile(TargetGeometry.Rows,*FPaths::Combine(Evidence,TEXT("audition-geometry.txt")));
 		return true;
@@ -376,7 +447,10 @@ private:
 			W->WriteValue(TEXT("source_map"),SourceMap);W->WriteValue(TEXT("target_map"),TargetMap);W->WriteValue(TEXT("source_file_sha1"),SourceFileHash);
 			W->WriteValue(TEXT("source_meshes"),Baseline.Meshes);W->WriteValue(TEXT("source_whitebox_meshes"),Baseline.WhiteboxMeshes);
 			W->WriteValue(TEXT("target_meshes"),TargetGeometry.Meshes);W->WriteValue(TEXT("source_geometry_sha1"),Baseline.Hash);W->WriteValue(TEXT("target_geometry_sha1"),TargetGeometry.Hash);
-			W->WriteValue(TEXT("probe_count"),ProbeCount);W->WriteValue(TEXT("reference_pcm_sha1"),ReferencePCMHash);
+			W->WriteArrayStart(TEXT("non_baked_additional_components"));for(const FString& Path:TargetGeometry.NonBakedAdditions)W->WriteValue(Path);W->WriteArrayEnd();
+			W->WriteValue(TEXT("probe_count"),ProbeCount);W->WriteValue(TEXT("selected_wave_pcm_sha1"),IMSelectedPCMHash);
+			W->WriteValue(TEXT("sound_asset"),ActualSoundPath);W->WriteValue(TEXT("wave_asset"),ActualWavePath);
+			W->WriteValue(TEXT("selected_wave_frames"),IMSelectedFrames);W->WriteValue(TEXT("source_contract"),TEXT("full-waterdrop-stereo-metasound-v2"));
 			if(Volume.IsValid()&&Volume->BakedField){W->WriteValue(TEXT("bake_asset"),Volume->BakedField->GetPathName());W->WriteValue(TEXT("world_package"),Volume->BakedField->WorldPackage);W->WriteValue(TEXT("scene_fingerprint"),Volume->BakedField->SceneFingerprint);}
 			W->WriteObjectEnd();W->Close();
 			if(!FFileHelper::SaveStringToFile(Json,*FPaths::Combine(Evidence,TEXT("prepare-result.json"))))
@@ -387,7 +461,7 @@ private:
 		UE_LOG(LogTemp,Display,TEXT("IMExitEditor %s"),Success?TEXT("PASS"):TEXT("FAIL"));return true;
 	}
 	FAutomationTestBase* Test;double Started;int32 Stage=0,ProbeCount=0;bool bCreatedMap=false,bExisting=false;
-	FString SourceFile,SourceFileHash,OriginalBakePath,Evidence;
+	FString SourceFile,SourceFileHash,OriginalBakePath,Evidence,ActualSoundPath,ActualWavePath;
 	FIMGeometryIdentity Baseline,TargetGeometry;
 	TWeakObjectPtr<AIMAcousticBakeVolume> Volume;
 };
@@ -397,5 +471,44 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FIMAcousticPrepareAudition,"IceMoon.AcousticFie
 bool FIMAcousticPrepareAudition::RunTest(const FString&)
 {
 	ADD_LATENT_AUTOMATION_COMMAND(IMAcousticAuditionSetupTestPrivate::FIMAuditionPrepareCommand(this));return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(IM_AcousticAuditionSourceContract,
+	"IceMoon.AcousticField.Audition.SelectedSourceContract",
+	EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
+bool IM_AcousticAuditionSourceContract::RunTest(const FString&)
+{
+	// Native document copies supply counterexamples without changing an asset
+	// or a live audio operator. This validates fixture identity, not hearing.
+	FString Error;USoundWave* Wave=nullptr;
+	auto* Sound=LoadObject<UMetaSoundSource>(nullptr,*IMAcousticAuditionSetupTestPrivate::ObjectPath(IMAcousticAuditionSetupTestPrivate::IMMetaSoundPackage));
+	if(!IMAcousticAuditionSetupTestPrivate::IMVerifyAuditionSound(Sound,Wave,Error)){AddError(Error);return false;}
+	UE_LOG(LogTemp,Display,TEXT("IMLogs AuditionSelectedWave compression=%d virtualization=%d frames=%d imported_pcm_sha1=%s"),
+		static_cast<int32>(Wave->GetSoundAssetCompressionTypeEnum()),static_cast<int32>(Wave->VirtualizationMode),IMAcousticAuditionSetupTestPrivate::IMSelectedFrames,IMAcousticAuditionSetupTestPrivate::IMSelectedPCMHash);
+	auto* Legacy=LoadObject<USoundWave>(nullptr,
+		TEXT("/IceMoonAcousticField/Tests/IM_V2AuditionReference.IM_V2AuditionReference"));
+	if(!Legacy){AddError(TEXT("Legacy stimulus is needed for the source identity counterexample."));return false;}
+	Error.Empty();
+	if(IMAcousticAuditionSetupTestPrivate::IMVerifyAuditionSound(Legacy,Wave,Error))
+	{AddError(TEXT("Legacy fixed stimulus was incorrectly accepted as ordinary water-drop MetaSound."));return false;}
+	const auto* Document=Cast<IMetaSoundDocumentInterface>(Sound);
+	const auto& Original=Document->GetConstDocument().RootGraph.GetConstDefaultGraph();
+	for(const TCHAR* PinName:{TEXT("Wave Asset"),TEXT("Loop"),TEXT("Loop Duration")})
+	{
+		FMetasoundFrontendGraph Counterexample=Original;
+		auto* Player=Counterexample.Nodes.FindByPredicate([](const auto& N){return N.Name==TEXT("Wave Player");});
+		const auto* Pin=Player?Player->Interface.Inputs.FindByPredicate([&](const auto& V){return V.Name==PinName;}):nullptr;
+		auto* Literal=Pin?Player->InputLiterals.FindByPredicate([&](const auto& V){return V.VertexID==Pin->VertexID;}):nullptr;
+		if(!Literal){AddError(TEXT("Counterexample input default is missing."));return false;}
+		if(FCString::Strcmp(PinName,TEXT("Wave Asset"))==0)Literal->Value.Set(static_cast<UObject*>(Legacy));
+		else if(FCString::Strcmp(PinName,TEXT("Loop"))==0)Literal->Value.Set(false);
+		else Literal->Value.Set(1.f);
+		Error.Empty();
+		if(IMAcousticAuditionSetupTestPrivate::IMVerifyAuditionGraph(Counterexample,Wave,Error))
+		{AddError(FString::Printf(TEXT("Invalid %s default passed ordinary source validation."),PinName));return false;}
+	}
+	UE_LOG(LogTemp,Display,TEXT("IMLogs AuditionSelectedSourceContract full_source=1 rejected_legacy=1 rejected_wave_loop_duration_mutants=3"));
+	UE_LOG(LogTemp,Display,TEXT("IMExitEditor PASS AuditionSelectedSourceContract"));
+	return true;
 }
 #endif

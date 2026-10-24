@@ -29,8 +29,8 @@ struct FHitResult;
 struct FTraceDatum; // <-- 需要为回调函数前向声明
 
 /**
- * 关卡单例Actor，负责管理整个世界的声学场数据。 核心:低开销/解决声源动态/不同相机位置导致的动态音效问题(音频遮蔽 环境声学)  辅助用于返回碰撞对象位置发现等用于其他用途
- * 弥补传统烘焙声学方案无法响应实时环境变化的缺陷， 更加的便携易用性
+	* 关卡单例Actor，负责管理整个世界的声学场数据。 核心:低开销/解决声源动态/不同相机位置导致的动态音效问题(音频遮蔽 环境声学)  辅助用于返回碰撞对象位置发现等用于其他用途
+	* 弥补传统烘焙声学方案无法响应实时环境变化的缺陷， 更加的便携易用性
 
 	AIM 插件 - 核心特性状态
 	✅ 已实现
@@ -63,12 +63,12 @@ struct FTraceDatum; // <-- 需要为回调函数前向声明
 		- 声学寻路/隧道效应：技术成本高，暂不实现
 		- 提前通知/Token模式：对工作流破坏性大
 		- Cell内sub-point法线/入射角存储：复杂度高，SDF方案更优
- */
+	*/
 UCLASS()
 class ICEMOONACOUSTICFIELD_API AIMAcousticFieldActor : public AActor
 {
 	GENERATED_BODY()
-    
+	
 public:
 	AIMAcousticFieldActor();
 
@@ -83,31 +83,31 @@ public:
 	static AIMAcousticFieldActor* GetAcousticFieldActor(const UObject* WorldContextObject);
 
 	/**
-	 * [按需探测] 请求在指定位置进行一次小规模、高优先级的探测。
-	 * 用于填充远程音源等缓存未命中的区域。
-	 * @param NumTraces 发射的射线数量。
-	 */
+		* [按需探测] 请求在指定位置进行一次小规模、高优先级的探测。
+		* 用于填充远程音源等缓存未命中的区域。
+		* @param NumTraces 发射的射线数量。
+		*/
 	UFUNCTION(BlueprintCallable, Category = "IM|Tracing")
 	void AsyncFireProbes(FVector Origin, int32 NumTraces = 3, float Radius = 2000.0f, FVector ConeDirection = FVector::UpVector, float ConeDegree = 179.99,  int RandomSeed = -1); 
-    
+	
 	// 临近查询 如果有多个则插值
 	UFUNCTION(BlueprintCallable, Category = "IM|Acoustics")
 	bool QueryAcousticField(FVector QueryLocation, FIM_AudioReverbParameters& OutResponse);
 
 	/**
-	 * [平滑查询] 带指数平滑的声场查询，专为AnimNotify等离散采样事件设计
-	 * 自动缓存每个声源的上次查询结果，平滑过渡避免混响参数跳变
-	 * @param SourceObject 声源对象（可以是Actor或Component，推荐用Component）
-	 * @param SoundSlot 声音槽位名称（如 "FootL", "FootR", "Jump"）
-	 * @param QueryLocation 查询位置
-	 * @param OutResponse 平滑后的混响参数
-	 * @param SmoothSpeed 平滑时间常数（秒，默认5.0）
-	 *        - 表示达到63.2%收敛所需时间，3倍时间达到95%收敛
-	 *        - 离散采样（脚步）推荐 3.0-5.0 秒
-	 *        - 连续采样（环境音）推荐 0.5-1.0 秒
-	 *        - 值越大响应越慢，需要更多次查询才完全过渡
-	 * @return 总是返回true（失败时平滑到默认值）
-	 */
+		* [平滑查询] 带指数平滑的声场查询，专为AnimNotify等离散采样事件设计
+		* 自动缓存每个声源的上次查询结果，平滑过渡避免混响参数跳变
+		* @param SourceObject 声源对象（可以是Actor或Component，推荐用Component）
+		* @param SoundSlot 声音槽位名称（如 "FootL", "FootR", "Jump"）
+		* @param QueryLocation 查询位置
+		* @param OutResponse 平滑后的混响参数
+		* @param SmoothSpeed 平滑时间常数（秒，默认5.0）
+		*        - 表示达到63.2%收敛所需时间，3倍时间达到95%收敛
+		*        - 离散采样（脚步）推荐 3.0-5.0 秒
+		*        - 连续采样（环境音）推荐 0.5-1.0 秒
+		*        - 值越大响应越慢，需要更多次查询才完全过渡
+		* @return 总是返回true（失败时平滑到默认值）
+		*/
 	UFUNCTION(BlueprintCallable, Category = "IM|Acoustics") 
 	bool QueryAcousticFieldSmooth(
 		UObject* SourceObject,
@@ -117,10 +117,10 @@ public:
 		float SmoothSpeed = 3.0f);
 
 	/**
-	 * [清理缓存] 手动清理指定对象的平滑查询缓存
-	 * @param SourceObject 要清理的对象（Actor或Component）
-	 * @param SoundSlot 声音槽位（NAME_None表示清理该对象的所有槽位）
-	 */
+		* [清理缓存] 手动清理指定对象的平滑查询缓存
+		* @param SourceObject 要清理的对象（Actor或Component）
+		* @param SoundSlot 声音槽位（NAME_None表示清理该对象的所有槽位）
+		*/
 	UFUNCTION(BlueprintCallable, Category = "IM|Acoustics")
 	void ClearSmoothQueryCache(UObject* SourceObject, FName SoundSlot = NAME_None);
 
@@ -151,7 +151,7 @@ public:
 		meta=(Tooltip="声场配置预设资产（必需）"))
 	TObjectPtr<class UIMAcousticFieldConfig> ConfigAsset;
 
-    
+	
 	// ========================================
 	// 网格配置
 	// ========================================
@@ -162,16 +162,16 @@ public:
 	float GridCellSize = 200.0f;
 
 	/** LOD层级倍增系数 - 控制LOD之间的密度差异
-	 * 2 = 渐进式 (2m, 4m, 8m) - 适合室内场景，更细腻的过渡
-	 * 4 = 激进式 (2m, 8m, 32m) - 适合大型室外场景
-	 */
+		* 2 = 渐进式 (2m, 4m, 8m) - 适合室内场景，更细腻的过渡
+		* 4 = 激进式 (2m, 8m, 32m) - 适合大型室外场景
+		*/
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "IM|Configuration",
 		meta=(Tooltip="LOD倍增系数: 2=室内优化(2-4-8m), 4=室外优化(2-8-32m)", ClampMin="2", ClampMax="4"))
 	int32 LodMultiplier = 2;
 
 	/** Z轴最大单元格高度钳制（厘米）- 防止垂直方向跨越多个楼层
-	 * 典型楼层高度约400cm，建议设置为400-500cm
-	 */
+		* 典型楼层高度约400cm，建议设置为400-500cm
+		*/
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "IM|Configuration",
 		meta=(Tooltip="Z轴最大cell高度（厘米），避免跨楼层。0=不钳制", ClampMin="0.0", ClampMax="1000.0"))
 	float MaxCellHeightZ = 400.0f;
@@ -213,7 +213,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "IM|Configuration|Override",
 		meta=(EditCondition="bOverrideWetCalculation", EditConditionHides, Tooltip="此实例特定的Wet计算参数"))
 	FIM_WetCalculationParameters WetCalculationParameters_Override;
-    
+	
 private:
 	/** 异步射线检测完成后的回调函数（GameThread：引擎 UWorld::ResetAsyncTrace 内 ExecuteIfBound） */
 	void OnAsyncTraceComplete(const FTraceHandle& TraceHandle, FTraceDatum& TraceDatum);
@@ -221,7 +221,7 @@ private:
 	bool ResolveLodParent(int32 ChildLod, const FIntVector& ChildCoord, FIntVector& OutParentCoord, int32& OutRatioXY, int32& OutRatioZ, uint64& OutBound) const;
 	/** [内部] GameThread 串行落盘：回调只入队，Tick 出队。 */
 	void DrainPendingProbes();
-    
+	
 	// TODO  工具函数 对于全部周围函数计算声场遮蔽系数 理论上 应该是随机周围偏移采样
 	// 我原版写的是每秒射线基于 法线法向当作z计算新的xy  然后 lerp(x -x y -y,随机方向, .035) 射 四个射线   *20m最大场 根据这几个射线的距离来  计算 回响延迟时间
 	// 首先是回响延迟   =  平均射线长度 * 2来回 / 声速30cm/s  * 0.7艺术变化(因为平均大概率比中位数大一点)
@@ -230,11 +230,11 @@ private:
 	// 然后 density      我是根据平均值 和  每个射线的 平方  然后把这值 loge 得到一个新值 使用 remap min15 max10 反映映射回 density  
 	// 然后 dry level    gain   bandwidth  diffusion  dampening  decay 都没使用   基本除了延迟
 	/**
-	 * [内部工具] 根据一组射线检测结果，计算出一个综合的声学响应。
-	 * 这是你注释中描述的算法的实现入口。
-	 * @param HitResults 一批发声源周围的射线检测结果。
-	 * @return 计算出的FAIM_AudioMaterialResponse。
-	 */
+		* [内部工具] 根据一组射线检测结果，计算出一个综合的声学响应。
+		* 这是你注释中描述的算法的实现入口。
+		* @param HitResults 一批发声源周围的射线检测结果。
+		* @return 计算出的FAIM_AudioMaterialResponse。
+		*/
 	FIM_AudioReverbParameters CalculateCellReverbParameters(const FVector QueryPos,const FIMGridAudioCell& CellResults);
 
 	void AddAudioFieldForLod(const FHitResult& HitResult);

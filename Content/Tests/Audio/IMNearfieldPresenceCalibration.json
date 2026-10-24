@@ -1,0 +1,26 @@
+{
+  "compensation_gain": 0.31889112854837204,
+  "compensation_db": -9.927151250517433,
+  "method": "Same canonical contacts, 400ms stereo mean-square windows, equal event weighting, both source windows nonzero. Current native stage correlations locate event windows only; no old recording reanalysis.",
+  "contacts": 20,
+  "window_frames": 19200,
+  "sample_rate": 48000,
+  "raw_effective_rms_dbfs": {
+    "physical_raw": -53.472952385299166,
+    "exaggerated_raw": -43.54580113478174
+  },
+  "alignment_frames": {
+    "physical_raw": {
+      "presence_to_nearfield": 3852,
+      "nearfield_to_master": 1024
+    },
+    "exaggerated_raw": {
+      "presence_to_nearfield": 0,
+      "nearfield_to_master": 0
+    }
+  },
+  "raw_WAV_sha256": {
+    "physical_raw": "cc0742b0b3a1315ecb7877f77fba8bc4ecafc0730a4446d99976f75405a3dae2",
+    "exaggerated_raw": "d3c1fc19afb617f4142b2b958fd799b1645b751751f7b5fbe6b614260a0ba261"
+  }
+}

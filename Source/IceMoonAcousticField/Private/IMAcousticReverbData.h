@@ -20,6 +20,9 @@ struct FIMAcousticReverbSlot
 	IPLReflectionEffectParams Params{};
 	IPLCoordinateSpace3 Listener{};
 	std::uint64_t Sequence=0;
+	// Matches the listener pose version used to generate this IR. A ready IR
+	// from an earlier pose is not safe to apply after the listener moves.
+	std::uint64_t SpatialVersion=0;
 	double CapturedSeconds=0;
 	~FIMAcousticReverbSlot(){if(Source)iplSourceRelease(&Source);}
 };

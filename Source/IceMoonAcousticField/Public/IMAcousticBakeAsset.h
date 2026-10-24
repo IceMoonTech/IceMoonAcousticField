@@ -11,7 +11,7 @@ class ICEMOONACOUSTICFIELD_API UIMAcousticBakeAsset final : public UDataAsset
 {
 	GENERATED_BODY()
 public:
-	static constexpr int32 CurrentFormat = 2;
+	static constexpr int32 CurrentFormat = 4;
 	static constexpr int32 SDKVersion = 0x040801;
 
 	UPROPERTY(VisibleAnywhere, Category="IM|Bake")
@@ -34,6 +34,11 @@ public:
 	UPROPERTY(VisibleAnywhere, Category="IM|Bake")
 	FString MetadataJson;
 
+	// Format 2 stores raw SDK bytes. Format 3 stores each section as a
+	// little-endian uint32 raw length followed by lossless Zlib bytes. Format 4
+	// stores fixed-size independently-compressed chunks after a reversible
+	// four-byte-plane shuffle. The format version keeps old assets readable
+	// without changing the pinned acoustic recipe or bytes passed to Steam Audio.
 	UPROPERTY()
 	TArray<uint8> SceneData;
 
@@ -41,6 +46,8 @@ public:
 	TArray<uint8> ProbeData;
 
 	bool Validate(const FString& ExpectedWorld, const FString& ExpectedFingerprint, FString& Failure) const;
+	bool ReadPayload(const FString& ExpectedWorld, const FString& ExpectedFingerprint,
+		TArray<uint8>& OutScene, TArray<uint8>& OutProbes, FString& Failure) const;
 	bool CommitCompleteBake(const FString& InWorld, const FString& InFingerprint,
 		const FString& InMetadata, TArray<uint8>&& InScene, TArray<uint8>&& InProbes, FString& Failure);
 	bool GetProbePreview(const FString& ExpectedWorld,const FString& ExpectedFingerprint,

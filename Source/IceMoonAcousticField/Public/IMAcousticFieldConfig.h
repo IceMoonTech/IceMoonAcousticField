@@ -10,10 +10,10 @@
 class UIMMaterialMap;
 
 /**
- * 声场配置预设 - 定义场景特定的声学参数
- * 包括：默认混响、Wet计算参数等
- * 可创建多个预设：室内、室外、地下城等，供不同关卡使用
- */
+	* 声场配置预设 - 定义场景特定的声学参数
+	* 包括：默认混响、Wet计算参数等
+	* 可创建多个预设：室内、室外、地下城等，供不同关卡使用
+	*/
 UCLASS(BlueprintType)
 class ICEMOONACOUSTICFIELD_API UIMAcousticFieldConfig : public UPrimaryDataAsset
 {

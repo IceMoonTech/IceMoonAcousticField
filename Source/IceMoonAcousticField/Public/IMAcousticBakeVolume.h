@@ -5,11 +5,43 @@
 
 class UBoxComponent;
 class UMaterialInterface;
+class UPhysicalMaterial;
 class UStaticMeshComponent;
 class UIMAcousticBakeAsset;
 class USoundSubmix;
 class UIMAcousticReverbPreset;
 struct FIMAcousticFieldRuntime;
+#if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
+class FIMAcousticOperationMemorySampler;
+#endif
+
+UENUM()
+enum class EIMAcousticMaterialDrive : uint8
+{
+	PhysicalMaterial,
+	LegacyRenderMaterial
+};
+
+USTRUCT()
+struct FIMAcousticPhysicalMaterialMapping
+{
+	GENERATED_BODY()
+	UPROPERTY(EditAnywhere, Category="IM|Material")
+	TObjectPtr<UPhysicalMaterial> PhysicalMaterial;
+	// Steam Audio's band centers are 400 Hz, 2.5 kHz and 15 kHz (phonon.h).
+	// Soil presets are adjustable estimates, not measurements inferred from color.
+	UPROPERTY(EditAnywhere, Category="IM|Material", meta=(ClampMin="0", ClampMax="1", ToolTip="Energy absorption in [0,1]: X=400 Hz, Y=2.5 kHz, Z=15 kHz. Larger values absorb more reflected energy; rebake after editing."))
+	FVector Absorption = FVector(0.1, 0.1, 0.1);
+	UPROPERTY(EditAnywhere, Category="IM|Material", meta=(ClampMin="0", ClampMax="1"))
+	float Scattering = 0.5f;
+	// NonSolid vegetation is an explicit first-version approximation: its leaf
+	// cards neither block nor reflect; trunks retain their solid wood sections.
+	// Every placement still contributes to the scene identity and audit counts.
+	UPROPERTY(EditAnywhere, Category="IM|Material")
+	bool bSolidGeometry = true;
+	UPROPERTY(EditAnywhere, Category="IM|Material", meta=(ToolTip="Only solid surfaces may support probes. Disable this for non-solid leaf and grass cards."))
+	bool bSupportsProbes = true;
+};
 
 USTRUCT()
 struct FIMAcousticMaterialMapping
@@ -35,8 +67,17 @@ public:
 	~AIMAcousticBakeVolume() override;
 	UPROPERTY(VisibleAnywhere, Category="IM|Acoustics")
 	TObjectPtr<UBoxComponent> BakeBounds;
+	UPROPERTY(EditAnywhere, Category="IM|Acoustics|Materials")
+	EIMAcousticMaterialDrive MaterialDrive = EIMAcousticMaterialDrive::PhysicalMaterial;
+	UPROPERTY(EditAnywhere, Category="IM|Acoustics|Materials", meta=(EditCondition="MaterialDrive == EIMAcousticMaterialDrive::PhysicalMaterial"))
+	TArray<FIMAcousticPhysicalMaterialMapping> PhysicalMaterials;
+	// Explicit compatibility mode for historical fixtures and authored volumes.
 	UPROPERTY(EditAnywhere, Category="IM|Acoustics")
 	TArray<FIMAcousticMaterialMapping> Materials;
+	UPROPERTY(VisibleAnywhere, Category="IM|Acoustics|Materials")
+	int32 NonSolidTriangles = 0;
+	UPROPERTY(VisibleAnywhere, Category="IM|Acoustics|Materials")
+	int32 NonSolidSections = 0;
 	UPROPERTY(EditAnywhere, Category="IM|Acoustics", meta=(ClampMin="25", Units="cm"))
 	float ProbeSpacingCm = 100.0f;
 	UPROPERTY(EditAnywhere, Category="IM|Acoustics", meta=(ClampMin="25", Units="cm"))
@@ -94,14 +135,35 @@ public:
 	UPROPERTY(VisibleAnywhere, Transient, Category="IM|Acoustics|Debug")
 	FString OverlaySummary;
 	bool ValidateCurrentBake(FString& Failure);
+#if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
+	// Test-only readback of the exact scene submitted to the bake path.
+	bool IM_CaptureSceneGeometryForTest(TArray<FVector>& OutVertices,
+		TArray<FIntVector>& OutTriangles, TArray<int32>& OutMaterialIndices,
+		FString& OutFingerprint);
+	bool IM_CaptureDynamicGeometryForTest(UStaticMeshComponent* Component,
+		int32& OutVertexCount, int32& OutTriangleCount, FString& Failure);
+	void IM_GetGeneratedProbeCentersForTest(TArray<FVector>& OutSDKCenters) const;
+	// GT-only evidence cleanup: cancel/join the owned bake and detach its
+	// publication ticker before restoring an earlier test binding.
+	bool IM_CancelAndDrainBakeForTest();
+	// Measures the actual one-second Editor ticker body for automation only.
+	void IM_SetEditorValidationProfilingForTest(bool bEnable,
+		FIMAcousticOperationMemorySampler* MemorySampler = nullptr);
+	bool IM_GetEditorValidationProfileForTest(int32& OutTicks, double& OutCaptureMs,
+		double& OutAssetValidationMs, double& OutMaxTickMs) const;
+	UIMAcousticReverbPreset* IM_GetEnvironmentPresetForTest() const { return ReverbPreset.Get(); }
+#endif
 	// H1 W3 negative control only (test-only): request a pathing-validation
 	// flip on the running worker; poll IM_GetAppliedPathingValidationForTest
 	// until it matches. Returns false when no worker is running.
 	bool SetPathingValidationForTest(bool bOn);
-	int ReadAppliedPathingValidationForTest() const;
+	int GetAppliedPathingValidationForTest() const;
 	bool SetApertureTransitForTest(bool bOn, const FVector& CenterUE,
 		const FVector& HalfExtentUE);
 
+	// GT only. Stores the lateral azimuth of a footstep into the audio-thread slot of this audio component at the
+	// trigger moment; the per-frame Tick copy would otherwise reach a short sample after its onset (previous foot's value).
+	void PublishPresenceLateralNow(uint64 AudioComponentId, float LateralAzimuthRadians);
 	void Tick(float DeltaSeconds) override;
 	void PostRegisterAllComponents() override;
 	bool ShouldTickIfViewportsOnly() const override { return true; }

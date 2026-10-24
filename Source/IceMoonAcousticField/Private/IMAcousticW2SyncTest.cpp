@@ -22,6 +22,10 @@ IPLCoordinateSpace3 H2DMFrame(float OX, float OY, float OZ)
 	F.origin = {OX, OY, OZ};
 	return F;
 }
+namespace IMAcousticW2SyncTestPrivate
+{
+
+}
 void H2DMBoxRoom(FIMAcousticSceneInput& Out)
 {
 	// Closed box x in [-3,3], y in [-2,2], z in [0,3], outward winding, meters.
@@ -35,6 +39,10 @@ void H2DMBoxRoom(FIMAcousticSceneInput& Out)
 	Out.MaterialIndices.assign(Out.Triangles.size(), 0);
 	Out.Probes = {{{-1.0f,0.0f,1.5f},0.6f},{{1.0f,0.0f,1.5f},0.6f}};
 }
+namespace IMAcousticW2SyncTestPrivate
+{
+
+}
 void H2DMPanel(FIMAcousticSceneInput& Out)
 {
 	// Thin door panel x in [-0.05,0.05], y in [-1,1], z in [0,2], meters.
@@ -47,6 +55,10 @@ void H2DMPanel(FIMAcousticSceneInput& Out)
 	Out.Materials.push_back(M);
 	Out.MaterialIndices.assign(Out.Triangles.size(), 0);
 }
+namespace IMAcousticW2SyncTestPrivate
+{
+
+}
 IPLMatrix4x4 H2DMTranslate(float X, float Y, float Z)
 {
 	// Affine only: last row (0,0,0,1), translation in column 3 (C API order).
@@ -54,6 +66,10 @@ IPLMatrix4x4 H2DMTranslate(float X, float Y, float Z)
 	M.elements[0][0]=1.0f; M.elements[1][1]=1.0f; M.elements[2][2]=1.0f; M.elements[3][3]=1.0f;
 	M.elements[0][3]=X; M.elements[1][3]=Y; M.elements[2][3]=Z;
 	return M;
+}
+namespace IMAcousticW2SyncTestPrivate
+{
+
 }
 FString H2DMDynJson(uint64 Key, uint64 Hash, float TX, float TY, float TZ)
 {

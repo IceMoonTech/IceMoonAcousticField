@@ -27,7 +27,7 @@ public class IceMoonAcousticField : ModuleRules
 			}
 		}
 		PublicDependencyModuleNames.Add("AudioExtensions");
-		PrivateDependencyModuleNames.AddRange(new[] { "AudioMixer", "Projects", "RenderCore", "RHI", "AssetRegistry", "MetasoundEngine", "MetasoundFrontend", "MetasoundGraphCore" });
+		PrivateDependencyModuleNames.AddRange(new[] { "AudioMixer", "InputCore", "Projects", "RenderCore", "RHI", "AssetRegistry", "MetasoundEngine", "MetasoundGenerator", "MetasoundFrontend", "MetasoundGraphCore" });
 		PublicIncludePaths.AddRange(
 			new string[] {
 				// ... add public include paths required here ...
@@ -60,11 +60,13 @@ public class IceMoonAcousticField : ModuleRules
 			{
 				"CoreUObject",
 				"Engine",
+				"Landscape",
+				"Chaos", // Registered Landscape heightfield face materials.
 				"Slate",
 				"SlateCore",
-					"PhysicsCore",
-					"Json",
-					"JsonUtilities",
+				"PhysicsCore",
+				"Json",
+				"JsonUtilities",
 				"IM_Common"
 				// ... add private dependencies that you statically link with here ...	
 			}
@@ -84,7 +86,7 @@ public class IceMoonAcousticField : ModuleRules
 			{
 				"UnrealEd",           // 核心编辑器功能
 				"LevelEditor",        // 可选,如果需要更多编辑器功能
-				"AudioEditor"         // USoundFactory 导入固定参考声
+				"AudioEditor", "MetasoundEditor", "MeshDescription", "ImageCore", "BlueprintGraph" // Fixture imports, mesh identities and Landscape source mip metadata.
 			});
 		}
 	}

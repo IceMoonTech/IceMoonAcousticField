@@ -17,12 +17,12 @@ enum class EIMWhiteboxZone : uint8
 };
 
 /**
- * Builds the frozen P0 acoustic test scene (A 10x6x3 + corridor 6x2x3 + B 8x6x3 + C wing,
- * maze annex, coupled absorb/reflect pair, upper floor with stair void, open yard) from
- * /Engine/BasicShapes/Cube. All spawned actors are Static mobility
- * (v1 probes only hit Static/Stationary) and tagged for one-click cleanup.
- * Assumption (to verify in manual test): BasicShapes Cube is a 1m box centered at origin.
- */
+	* Builds the frozen P0 acoustic test scene (A 10x6x3 + corridor 6x2x3 + B 8x6x3 + C wing,
+	* maze annex, coupled absorb/reflect pair, upper floor with stair void, open yard) from
+	* /Engine/BasicShapes/Cube. All spawned actors are Static mobility
+	* (v1 probes only hit Static/Stationary) and tagged for one-click cleanup.
+	* Assumption (to verify in manual test): BasicShapes Cube is a 1m box centered at origin.
+	*/
 UCLASS(Blueprintable, BlueprintType)
 class ICEMOONACOUSTICFIELD_API AIMAcousticTestSceneBuilder : public AActor
 {

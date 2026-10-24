@@ -1,0 +1,463 @@
+{
+  "license_dedication": "Kenney \"Impact Sounds\" 1.0 (created 2019-12-19) is released by Kenney under CC0 1.0 Universal; the pack License.txt is kept beside the files.",
+  "license_url": "http://creativecommons.org/publicdomain/zero/1.0/",
+  "pack": {
+    "name": "Impact Sounds 1.0",
+    "author": "Kenney (www.kenney.nl)",
+    "asset_page": "https://kenney.nl/assets/impact-sounds",
+    "archive_url": "https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip",
+    "archive_sha256": "029d734af1582474edf3a694d1b0cebc97c1c152f2f39fa34d4c2bafc5de77f8",
+    "archive_bytes": 800850,
+    "download_date": "2026-10-21",
+    "license_file": "E:\\BaiduSyncdisk\\project\\AgentWorkSpaceProject\\im-acoustic-v2-bake\\Plugins\\IceMoonAcousticField\\Content\\Tests\\Audio\\Footsteps\\Source\\Kenney\\License.txt",
+    "license_file_sha256": "b49aa9c56b04528b95913de13e506a0f7c5e807b9925db9bfef86af1f91120db"
+  },
+  "preparation": {
+    "script": "E:\\BaiduSyncdisk\\project\\AgentWorkSpaceProject\\im-acoustic-v2-bake\\Plugins\\IceMoonAcousticField\\Content\\Tests\\Audio\\Footsteps\\Source\\IMPrepareKenneyFootsteps.py",
+    "script_sha256": "0600007168e530c8d7f7fd58819f69d2c33ad4b340fc499655f079b31dd76f27",
+    "decoder": "ffmpeg ogg -> mono 48 kHz PCM16",
+    "processing": "decode plus one shared gain only; no EQ, layering or trimming",
+    "shared_trim_db": -13.85,
+    "trim_rationale": "Mean RMS (power mean) of the ten new samples is set equal to the power-mean RMS of the reference recordings listed below, so the loudness context of the existing distance gain and equal-loudness compensation is unchanged. Not a final loudness calibration.",
+    "reference_recordings": [
+      {
+        "file": "E:\\BaiduSyncdisk\\project\\AgentWorkSpaceProject\\im-acoustic-v2-bake\\Saved\\AcousticV2\\GameFootstepR89_20261007\\materials\\wood01.wav",
+        "sha256": "52042437788cd092d591aad57d9eb77e19fde669686b88daa0ca8ecd144b9ca5",
+        "rms_dbfs": -38.02975454582211
+      },
+      {
+        "file": "E:\\BaiduSyncdisk\\project\\AgentWorkSpaceProject\\im-acoustic-v2-bake\\Saved\\AcousticV2\\GameFootstepR89_20261007\\materials\\wood03.wav",
+        "sha256": "95fb6bfd271ed9c0418da87f35c494d4a1bf1fa9cb1adcf74d27a3de053128ab",
+        "rms_dbfs": -32.13640706226159
+      },
+      {
+        "file": "E:\\BaiduSyncdisk\\project\\AgentWorkSpaceProject\\im-acoustic-v2-bake\\Saved\\AcousticV2\\GameFootstepR89_20261007\\materials\\stone01.wav",
+        "sha256": "033646abfedbda7a59eb14f00ad346fca852498e3c527bf488195f0aa7dc4cb1",
+        "rms_dbfs": -36.297877801081
+      }
+    ]
+  },
+  "format": "Mono PCM16 48000Hz; the original Kenney .ogg files are retained under Source/Kenney/Original.",
+  "files": [
+    {
+      "file": "E:\\BaiduSyncdisk\\project\\AgentWorkSpaceProject\\im-acoustic-v2-bake\\Plugins\\IceMoonAcousticField\\Content\\Tests\\Audio\\Footsteps\\Source\\Kenney\\Prepared\\SW_IMFootstepKenneyWood00.wav",
+      "ue_asset": "/IceMoonAcousticField/Tests/Audio/Footsteps/SW_IMFootstepKenneyWood00",
+      "material": "wood",
+      "source_url": "https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip",
+      "asset_page": "https://kenney.nl/assets/impact-sounds",
+      "author": "Kenney (www.kenney.nl)",
+      "license": "CC0-1.0",
+      "license_url": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "download_date": "2026-10-21",
+      "sha256": "6289ec1e81194c280abe13ab251aab3592aa9e734466cb82c20236047742541a",
+      "original_member": "Audio/footstep_wood_000.ogg",
+      "original_file": "E:\\BaiduSyncdisk\\project\\AgentWorkSpaceProject\\im-acoustic-v2-bake\\Plugins\\IceMoonAcousticField\\Content\\Tests\\Audio\\Footsteps\\Source\\Kenney\\Original\\footstep_wood_000.ogg",
+      "original_sha256": "5f1c252942a220d658121bd9417448cd19649ded9fff2ff15f6e50899373ce8e",
+      "sample_rate": 48000,
+      "channels": 1,
+      "bits_per_sample": 16,
+      "shared_trim_db": -13.85,
+      "analysis": {
+        "rms_dbfs": -35.006422146204955,
+        "peak_dbfs": -14.774975019378546,
+        "centroid_hz": 108.58874883435632,
+        "energy_share_20_16000": {
+          "20-60": 0.16062408283082755,
+          "60-150": 0.6247437948978741,
+          "150-400": 0.21266211086652043,
+          "400-1000": 0.0019370444907071613,
+          "1000-3000": 3.201683564770688e-05,
+          "3000-8000": 8.797606566249337e-07,
+          "8000-16000": 7.031776641838759e-08
+        },
+        "band_dbfs": {
+          "20-60": -43.26108084771364,
+          "60-150": -37.36216794311924,
+          "150-400": -42.04228625283501,
+          "400-1000": -62.447791497576254,
+          "1000-3000": -80.26540338977979,
+          "3000-8000": -95.87554209410554,
+          "8000-16000": -106.84853678101842
+        }
+      }
+    },
+    {
+      "file": "E:\\BaiduSyncdisk\\project\\AgentWorkSpaceProject\\im-acoustic-v2-bake\\Plugins\\IceMoonAcousticField\\Content\\Tests\\Audio\\Footsteps\\Source\\Kenney\\Prepared\\SW_IMFootstepKenneyWood01.wav",
+      "ue_asset": "/IceMoonAcousticField/Tests/Audio/Footsteps/SW_IMFootstepKenneyWood01",
+      "material": "wood",
+      "source_url": "https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip",
+      "asset_page": "https://kenney.nl/assets/impact-sounds",
+      "author": "Kenney (www.kenney.nl)",
+      "license": "CC0-1.0",
+      "license_url": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "download_date": "2026-10-21",
+      "sha256": "5ead906f5e3d23d862dc17ae81dc163b870a87c9f777b6e30aa0a955f9c6acd8",
+      "original_member": "Audio/footstep_wood_001.ogg",
+      "original_file": "E:\\BaiduSyncdisk\\project\\AgentWorkSpaceProject\\im-acoustic-v2-bake\\Plugins\\IceMoonAcousticField\\Content\\Tests\\Audio\\Footsteps\\Source\\Kenney\\Original\\footstep_wood_001.ogg",
+      "original_sha256": "e4f68e1c9fd55b4dc8ca89ed2bbab6f200171bc54bdc18aa96b80d8e7336f462",
+      "sample_rate": 48000,
+      "channels": 1,
+      "bits_per_sample": 16,
+      "shared_trim_db": -13.85,
+      "analysis": {
+        "rms_dbfs": -33.87609198343521,
+        "peak_dbfs": -14.844975852019491,
+        "centroid_hz": 110.75747578620643,
+        "energy_share_20_16000": {
+          "20-60": 0.12851494585411863,
+          "60-150": 0.6484969965201823,
+          "150-400": 0.2196319779339458,
+          "400-1000": 0.0032679747711180933,
+          "1000-3000": 8.616348504949145e-05,
+          "3000-8000": 1.790800453695909e-06,
+          "8000-16000": 1.5063513210819578e-07
+        },
+        "band_dbfs": {
+          "20-60": -42.9400587413302,
+          "60-150": -35.9105154270614,
+          "150-400": -40.612639390136536,
+          "400-1000": -58.886808166143695,
+          "1000-3000": -74.67636255189716,
+          "3000-8000": -91.49912315973546,
+          "8000-16000": -102.25033238975476
+        }
+      }
+    },
+    {
+      "file": "E:\\BaiduSyncdisk\\project\\AgentWorkSpaceProject\\im-acoustic-v2-bake\\Plugins\\IceMoonAcousticField\\Content\\Tests\\Audio\\Footsteps\\Source\\Kenney\\Prepared\\SW_IMFootstepKenneyWood02.wav",
+      "ue_asset": "/IceMoonAcousticField/Tests/Audio/Footsteps/SW_IMFootstepKenneyWood02",
+      "material": "wood",
+      "source_url": "https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip",
+      "asset_page": "https://kenney.nl/assets/impact-sounds",
+      "author": "Kenney (www.kenney.nl)",
+      "license": "CC0-1.0",
+      "license_url": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "download_date": "2026-10-21",
+      "sha256": "f09dfef6cbb908c2a7435167662ef06041889bc8ee5d37425db518c60e3239d1",
+      "original_member": "Audio/footstep_wood_002.ogg",
+      "original_file": "E:\\BaiduSyncdisk\\project\\AgentWorkSpaceProject\\im-acoustic-v2-bake\\Plugins\\IceMoonAcousticField\\Content\\Tests\\Audio\\Footsteps\\Source\\Kenney\\Original\\footstep_wood_002.ogg",
+      "original_sha256": "9ff095b05cee5eec40b081defe3f0eef7232bb16d4865ce03b9f6dbab875cfdd",
+      "sample_rate": 48000,
+      "channels": 1,
+      "bits_per_sample": 16,
+      "shared_trim_db": -13.85,
+      "analysis": {
+        "rms_dbfs": -33.272139301183415,
+        "peak_dbfs": -14.754663926954354,
+        "centroid_hz": 99.10311469613913,
+        "energy_share_20_16000": {
+          "20-60": 0.15547182885292685,
+          "60-150": 0.7681085179535039,
+          "150-400": 0.07466135888713027,
+          "400-1000": 0.0017199006427157841,
+          "1000-3000": 3.7529499857902194e-05,
+          "3000-8000": 7.60857346230372e-07,
+          "8000-16000": 1.0330651886481311e-07
+        },
+        "band_dbfs": {
+          "20-60": -41.55513604756372,
+          "60-150": -34.61742730806477,
+          "150-400": -44.740694219457914,
+          "400-1000": -61.1166195327332,
+          "1000-3000": -77.72792535294634,
+          "3000-8000": -94.658620738747,
+          "8000-16000": -103.33037584661655
+        }
+      }
+    },
+    {
+      "file": "E:\\BaiduSyncdisk\\project\\AgentWorkSpaceProject\\im-acoustic-v2-bake\\Plugins\\IceMoonAcousticField\\Content\\Tests\\Audio\\Footsteps\\Source\\Kenney\\Prepared\\SW_IMFootstepKenneyWood03.wav",
+      "ue_asset": "/IceMoonAcousticField/Tests/Audio/Footsteps/SW_IMFootstepKenneyWood03",
+      "material": "wood",
+      "source_url": "https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip",
+      "asset_page": "https://kenney.nl/assets/impact-sounds",
+      "author": "Kenney (www.kenney.nl)",
+      "license": "CC0-1.0",
+      "license_url": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "download_date": "2026-10-21",
+      "sha256": "82a93ff8fcf4af2bc3bf5bd9ad9de84994b60632e3bc809c74dd08ede6db0e48",
+      "original_member": "Audio/footstep_wood_003.ogg",
+      "original_file": "E:\\BaiduSyncdisk\\project\\AgentWorkSpaceProject\\im-acoustic-v2-bake\\Plugins\\IceMoonAcousticField\\Content\\Tests\\Audio\\Footsteps\\Source\\Kenney\\Original\\footstep_wood_003.ogg",
+      "original_sha256": "2a68a083daa9eda08fed0ea5da5280dfbe0de226196c576be02f95259dd139d9",
+      "sample_rate": 48000,
+      "channels": 1,
+      "bits_per_sample": 16,
+      "shared_trim_db": -13.85,
+      "analysis": {
+        "rms_dbfs": -35.32595601251886,
+        "peak_dbfs": -14.931798682286754,
+        "centroid_hz": 111.02253425027328,
+        "energy_share_20_16000": {
+          "20-60": 0.1831392522485201,
+          "60-150": 0.5510306618911696,
+          "150-400": 0.2645644854042572,
+          "400-1000": 0.0010314200739196305,
+          "1000-3000": 0.00023215967783425353,
+          "3000-8000": 1.695081012919785e-06,
+          "8000-16000": 3.256232861846207e-07
+        },
+        "band_dbfs": {
+          "20-60": -43.08727836156464,
+          "60-150": -38.3033350712582,
+          "150-400": -41.48977727840364,
+          "400-1000": -65.58073693230989,
+          "1000-3000": -72.05722480373029,
+          "3000-8000": -93.42318813542377,
+          "8000-16000": -100.58793817873487
+        }
+      }
+    },
+    {
+      "file": "E:\\BaiduSyncdisk\\project\\AgentWorkSpaceProject\\im-acoustic-v2-bake\\Plugins\\IceMoonAcousticField\\Content\\Tests\\Audio\\Footsteps\\Source\\Kenney\\Prepared\\SW_IMFootstepKenneyWood04.wav",
+      "ue_asset": "/IceMoonAcousticField/Tests/Audio/Footsteps/SW_IMFootstepKenneyWood04",
+      "material": "wood",
+      "source_url": "https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip",
+      "asset_page": "https://kenney.nl/assets/impact-sounds",
+      "author": "Kenney (www.kenney.nl)",
+      "license": "CC0-1.0",
+      "license_url": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "download_date": "2026-10-21",
+      "sha256": "7a969abe727310b096b435b2a8ae51a18e096aa1d037079cccbfc0752ccb50e7",
+      "original_member": "Audio/footstep_wood_004.ogg",
+      "original_file": "E:\\BaiduSyncdisk\\project\\AgentWorkSpaceProject\\im-acoustic-v2-bake\\Plugins\\IceMoonAcousticField\\Content\\Tests\\Audio\\Footsteps\\Source\\Kenney\\Original\\footstep_wood_004.ogg",
+      "original_sha256": "b33e0854e2b3f6b6492e25c25ef8f90447a332f7c6bb25dd02edced9581d3441",
+      "sample_rate": 48000,
+      "channels": 1,
+      "bits_per_sample": 16,
+      "shared_trim_db": -13.85,
+      "analysis": {
+        "rms_dbfs": -33.365881388761196,
+        "peak_dbfs": -14.811363382770637,
+        "centroid_hz": 91.82733821258397,
+        "energy_share_20_16000": {
+          "20-60": 0.20554944374252554,
+          "60-150": 0.7431960148197931,
+          "150-400": 0.049567063550948615,
+          "400-1000": 0.0016444407232372269,
+          "1000-3000": 4.187450967716776e-05,
+          "3000-8000": 1.0189582054578287e-06,
+          "8000-16000": 1.4369561289502646e-07
+        },
+        "band_dbfs": {
+          "20-60": -40.51327074879565,
+          "60-150": -34.93140008501241,
+          "150-400": -46.69050189491529,
+          "400-1000": -61.48225157519547,
+          "1000-3000": -77.42293645937137,
+          "3000-8000": -93.56087009757505,
+          "8000-16000": -102.06799871550167
+        }
+      }
+    },
+    {
+      "file": "E:\\BaiduSyncdisk\\project\\AgentWorkSpaceProject\\im-acoustic-v2-bake\\Plugins\\IceMoonAcousticField\\Content\\Tests\\Audio\\Footsteps\\Source\\Kenney\\Prepared\\SW_IMFootstepKenneyStone00.wav",
+      "ue_asset": "/IceMoonAcousticField/Tests/Audio/Footsteps/SW_IMFootstepKenneyStone00",
+      "material": "stone",
+      "source_url": "https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip",
+      "asset_page": "https://kenney.nl/assets/impact-sounds",
+      "author": "Kenney (www.kenney.nl)",
+      "license": "CC0-1.0",
+      "license_url": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "download_date": "2026-10-21",
+      "sha256": "c9a4f89d7ca34b43bbd60fa4f3ed4fc61dbf2914f131818a83191646535a41f8",
+      "original_member": "Audio/footstep_concrete_000.ogg",
+      "original_file": "E:\\BaiduSyncdisk\\project\\AgentWorkSpaceProject\\im-acoustic-v2-bake\\Plugins\\IceMoonAcousticField\\Content\\Tests\\Audio\\Footsteps\\Source\\Kenney\\Original\\footstep_concrete_000.ogg",
+      "original_sha256": "d7267e183067757c92c169de2a379abea592cfca6b39bb2e8feea15221ad79fe",
+      "sample_rate": 48000,
+      "channels": 1,
+      "bits_per_sample": 16,
+      "shared_trim_db": -13.85,
+      "analysis": {
+        "rms_dbfs": -34.701155388895266,
+        "peak_dbfs": -14.774975019378546,
+        "centroid_hz": 219.88486132535618,
+        "energy_share_20_16000": {
+          "20-60": 0.1193223976747912,
+          "60-150": 0.1951863250137265,
+          "150-400": 0.624468942989305,
+          "400-1000": 0.06055813096555322,
+          "1000-3000": 0.0004014497225028226,
+          "3000-8000": 5.416045593136699e-05,
+          "8000-16000": 8.593178190022918e-06
+        },
+        "band_dbfs": {
+          "20-60": -44.219991813193644,
+          "60-150": -42.08271765640588,
+          "150-400": -37.03210308575339,
+          "400-1000": -47.165486899873656,
+          "1000-3000": -68.95089990797754,
+          "3000-8000": -77.65038841195692,
+          "8000-16000": -85.64567335335892
+        }
+      }
+    },
+    {
+      "file": "E:\\BaiduSyncdisk\\project\\AgentWorkSpaceProject\\im-acoustic-v2-bake\\Plugins\\IceMoonAcousticField\\Content\\Tests\\Audio\\Footsteps\\Source\\Kenney\\Prepared\\SW_IMFootstepKenneyStone01.wav",
+      "ue_asset": "/IceMoonAcousticField/Tests/Audio/Footsteps/SW_IMFootstepKenneyStone01",
+      "material": "stone",
+      "source_url": "https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip",
+      "asset_page": "https://kenney.nl/assets/impact-sounds",
+      "author": "Kenney (www.kenney.nl)",
+      "license": "CC0-1.0",
+      "license_url": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "download_date": "2026-10-21",
+      "sha256": "c93a04778a6e22fde184706083576b5f7a5f6b24f728f92685a3449593cad835",
+      "original_member": "Audio/footstep_concrete_001.ogg",
+      "original_file": "E:\\BaiduSyncdisk\\project\\AgentWorkSpaceProject\\im-acoustic-v2-bake\\Plugins\\IceMoonAcousticField\\Content\\Tests\\Audio\\Footsteps\\Source\\Kenney\\Original\\footstep_concrete_001.ogg",
+      "original_sha256": "507a75eb19b897087855a3be3cf11a12d7fa37d143ad535eeebe0b8031c7325d",
+      "sample_rate": 48000,
+      "channels": 1,
+      "bits_per_sample": 16,
+      "shared_trim_db": -13.85,
+      "analysis": {
+        "rms_dbfs": -36.20971925769838,
+        "peak_dbfs": -14.911117982902631,
+        "centroid_hz": 263.1520438108586,
+        "energy_share_20_16000": {
+          "20-60": 0.1533512229427624,
+          "60-150": 0.242346449586984,
+          "150-400": 0.4215135311775017,
+          "400-1000": 0.17140234728686124,
+          "1000-3000": 0.007010391815320637,
+          "3000-8000": 0.003891641810993216,
+          "8000-16000": 0.0004844153795767427
+        },
+        "band_dbfs": {
+          "20-60": -44.688796378101394,
+          "60-150": -42.7013021992284,
+          "150-400": -40.297553608982675,
+          "400-1000": -44.20550116428993,
+          "1000-3000": -58.08824589903068,
+          "3000-8000": -60.64434020831219,
+          "8000-16000": -69.69348958555351
+        }
+      }
+    },
+    {
+      "file": "E:\\BaiduSyncdisk\\project\\AgentWorkSpaceProject\\im-acoustic-v2-bake\\Plugins\\IceMoonAcousticField\\Content\\Tests\\Audio\\Footsteps\\Source\\Kenney\\Prepared\\SW_IMFootstepKenneyStone02.wav",
+      "ue_asset": "/IceMoonAcousticField/Tests/Audio/Footsteps/SW_IMFootstepKenneyStone02",
+      "material": "stone",
+      "source_url": "https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip",
+      "asset_page": "https://kenney.nl/assets/impact-sounds",
+      "author": "Kenney (www.kenney.nl)",
+      "license": "CC0-1.0",
+      "license_url": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "download_date": "2026-10-21",
+      "sha256": "88db7094a74129cda709bd611dd0579861a3cebdd82b04900a34f8a2ab108a33",
+      "original_member": "Audio/footstep_concrete_002.ogg",
+      "original_file": "E:\\BaiduSyncdisk\\project\\AgentWorkSpaceProject\\im-acoustic-v2-bake\\Plugins\\IceMoonAcousticField\\Content\\Tests\\Audio\\Footsteps\\Source\\Kenney\\Original\\footstep_concrete_002.ogg",
+      "original_sha256": "b21fa546d74941196b25da8a20b7010abd8c05c4fcf93545d1f344e66a664e13",
+      "sample_rate": 48000,
+      "channels": 1,
+      "bits_per_sample": 16,
+      "shared_trim_db": -13.85,
+      "analysis": {
+        "rms_dbfs": -36.51410982476647,
+        "peak_dbfs": -14.839120853726996,
+        "centroid_hz": 278.3250175006495,
+        "energy_share_20_16000": {
+          "20-60": 0.13497514376486255,
+          "60-150": 0.21920773199004417,
+          "150-400": 0.3936544518537892,
+          "400-1000": 0.23937092229998777,
+          "1000-3000": 0.008655635211437257,
+          "3000-8000": 0.0037222667929929505,
+          "8000-16000": 0.00041384808688602255
+        },
+        "band_dbfs": {
+          "20-60": -45.51189824327638,
+          "60-150": -43.4058775434182,
+          "150-400": -40.863284557880355,
+          "400-1000": -43.023722299077974,
+          "1000-3000": -57.4414467808039,
+          "3000-8000": -61.10636125135939,
+          "8000-16000": -70.64602671140226
+        }
+      }
+    },
+    {
+      "file": "E:\\BaiduSyncdisk\\project\\AgentWorkSpaceProject\\im-acoustic-v2-bake\\Plugins\\IceMoonAcousticField\\Content\\Tests\\Audio\\Footsteps\\Source\\Kenney\\Prepared\\SW_IMFootstepKenneyStone03.wav",
+      "ue_asset": "/IceMoonAcousticField/Tests/Audio/Footsteps/SW_IMFootstepKenneyStone03",
+      "material": "stone",
+      "source_url": "https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip",
+      "asset_page": "https://kenney.nl/assets/impact-sounds",
+      "author": "Kenney (www.kenney.nl)",
+      "license": "CC0-1.0",
+      "license_url": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "download_date": "2026-10-21",
+      "sha256": "5cc55282f54961617b9ffe7e1ad76ec895bfa82b7c8b1db50d860db81d1264a0",
+      "original_member": "Audio/footstep_concrete_003.ogg",
+      "original_file": "E:\\BaiduSyncdisk\\project\\AgentWorkSpaceProject\\im-acoustic-v2-bake\\Plugins\\IceMoonAcousticField\\Content\\Tests\\Audio\\Footsteps\\Source\\Kenney\\Original\\footstep_concrete_003.ogg",
+      "original_sha256": "8b513c2f0316324060b9174b8f28df6c2147418c506e6a53b77f18e149a5547b",
+      "sample_rate": 48000,
+      "channels": 1,
+      "bits_per_sample": 16,
+      "shared_trim_db": -13.85,
+      "analysis": {
+        "rms_dbfs": -35.50517619609646,
+        "peak_dbfs": -14.951046378783976,
+        "centroid_hz": 232.8254337162235,
+        "energy_share_20_16000": {
+          "20-60": 0.13267806337218044,
+          "60-150": 0.20573868644338805,
+          "150-400": 0.526840953101969,
+          "400-1000": 0.1334835856276046,
+          "1000-3000": 0.0009584240114976258,
+          "3000-8000": 0.0002554721352490373,
+          "8000-16000": 4.481530811111638e-05
+        },
+        "band_dbfs": {
+          "20-60": -44.59245567022077,
+          "60-150": -42.68728728044647,
+          "150-400": -38.60365164002587,
+          "400-1000": -44.56616826630786,
+          "1000-3000": -66.00487005154126,
+          "3000-8000": -71.74701152895031,
+          "8000-16000": -79.30618304159873
+        }
+      }
+    },
+    {
+      "file": "E:\\BaiduSyncdisk\\project\\AgentWorkSpaceProject\\im-acoustic-v2-bake\\Plugins\\IceMoonAcousticField\\Content\\Tests\\Audio\\Footsteps\\Source\\Kenney\\Prepared\\SW_IMFootstepKenneyStone04.wav",
+      "ue_asset": "/IceMoonAcousticField/Tests/Audio/Footsteps/SW_IMFootstepKenneyStone04",
+      "material": "stone",
+      "source_url": "https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip",
+      "asset_page": "https://kenney.nl/assets/impact-sounds",
+      "author": "Kenney (www.kenney.nl)",
+      "license": "CC0-1.0",
+      "license_url": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "download_date": "2026-10-21",
+      "sha256": "a52ba3dea4bb1ca91f61e6ba9c4846bb4fec9d308e79c436e9d74268fe5822bf",
+      "original_member": "Audio/footstep_concrete_004.ogg",
+      "original_file": "E:\\BaiduSyncdisk\\project\\AgentWorkSpaceProject\\im-acoustic-v2-bake\\Plugins\\IceMoonAcousticField\\Content\\Tests\\Audio\\Footsteps\\Source\\Kenney\\Original\\footstep_concrete_004.ogg",
+      "original_sha256": "24dd8db2413e5b81ad181e1205c12a1c7801da5f85715d471b92a4b2f632e45e",
+      "sample_rate": 48000,
+      "channels": 1,
+      "bits_per_sample": 16,
+      "shared_trim_db": -13.85,
+      "analysis": {
+        "rms_dbfs": -35.01003046156871,
+        "peak_dbfs": -14.844975852019491,
+        "centroid_hz": 232.39657688945698,
+        "energy_share_20_16000": {
+          "20-60": 0.11573250446706763,
+          "60-150": 0.17856291161205692,
+          "150-400": 0.6156465660768548,
+          "400-1000": 0.08960820793293638,
+          "1000-3000": 0.00036319369852114386,
+          "3000-8000": 7.680146894640703e-05,
+          "8000-16000": 9.814743616566602e-06
+        },
+        "band_dbfs": {
+          "20-60": -44.65500411962033,
+          "60-150": -42.77164504541699,
+          "150-400": -37.39624301950066,
+          "400-1000": -45.76607971386571,
+          "1000-3000": -69.68817458554493,
+          "3000-8000": -76.43586236716007,
+          "8000-16000": -85.37076804052415
+        }
+      }
+    }
+  ]
+}

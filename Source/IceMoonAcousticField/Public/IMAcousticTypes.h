@@ -69,9 +69,9 @@ struct FIMGridAudioCell
     
 	UPROPERTY(BlueprintReadOnly, Category = "IM|Cell")
 	FIMAudioMaterialResponse MatRes;
-    
+	
 	float LastUpdateTime = 0.0f;
-    
+	
 	// ========================================================================================================
 	// TODO: [高优先级] GPU SDF空间连续性检测系统 - 完整架构方案
 	// ========================================================================================================
@@ -259,7 +259,7 @@ struct FIM_AudioReverbParameters
 	Diffusion(0.4f),
 	Dampening(0.6f)
 	{}
-    
+	
 	// 场空间查询混合强度
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "IM|Reverb Parameters", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float Wet = 0.0f;

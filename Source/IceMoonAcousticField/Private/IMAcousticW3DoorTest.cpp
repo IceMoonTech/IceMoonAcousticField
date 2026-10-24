@@ -47,6 +47,10 @@ uint64 H1ExportComplete(const std::atomic<uint64>* Done, uint32 Capacity, uint64
 	}
 	return Limit;
 }
+namespace IMAcousticW3DoorTestPrivate
+{
+
+}
 double H1TimingP99Us(const FIMAcousticTiming& Timing)
 {
 	const uint64 Count=Timing.Count.load(std::memory_order_acquire);
@@ -59,6 +63,10 @@ double H1TimingP99Us(const FIMAcousticTiming& Timing)
 		if(Seen>=Target)return double(I)*FIMAcousticTiming::BinMicroseconds;
 	}
 	return double(FIMAcousticTiming::BinCount-1)*FIMAcousticTiming::BinMicroseconds;
+}
+namespace IMAcousticW3DoorTestPrivate
+{
+
 }
 void H1ExportProbeTrace(FIMAcousticDeviceBridge* Bridge, const TArray<FString>& StateWindows, const FString& EvidenceDir,
 	const FString& RunContextJson = TEXT("{}"))
@@ -148,6 +156,10 @@ void H1ExportProbeTrace(FIMAcousticDeviceBridge* Bridge, const TArray<FString>& 
 		ProbeComplete ? 1 : 0, BlockComplete, BlockPushes, BlockOverflow, SnapComplete, SnapPushes, SnapOverflow, WorkerComplete, WorkerPushes, WorkerOverflow, *EvidenceDir);
 }
 
+}
+
+namespace IMAcousticW3DoorTestPrivate
+{
 void H1ExportMetaSoundTrace(const FIMAcousticMetaSoundContextPtr& Context, const FString& EvidenceDir)
 {
 	if (!Context.IsValid())
@@ -159,20 +171,24 @@ void H1ExportMetaSoundTrace(const FIMAcousticMetaSoundContextPtr& Context, const
 	const uint32 Pushes = Context->CapturedSourceBlockCount.load(std::memory_order_acquire);
 	const uint32 Capacity = uint32(Context->CapturedSourceBlocks.Num());
 	const uint32 Limit = Pushes < Capacity ? Pushes : Capacity;
-	FString Rows = TEXT("block,reject,routes,listener_x,listener_y,listener_z,distance_gain,callback_distance_cm,degraded_gain,input_e,output_e,direct_valid,path_valid,result_seq\n");
+	FString Rows = TEXT("block,voice,input_spatial_version,output_spatial_version,input_delay_priming,callback_audio_id,result_audio_id,result_world_generation,result_voice_generation,result_spatial_version,reject,routes,listener_x,listener_y,listener_z,distance_gain,callback_distance_cm,degraded_gain,input_e,output_e,direct_valid,path_valid,result_seq\n");
 	Rows.Reserve(256 * 1024);
 	for (uint32 I = 0; I < Limit; ++I)
 	{
 		const FIMAcousticBlockProbe& E = Context->CapturedSourceBlocks[int32(I)];
-		Rows += FString::Printf(TEXT("%llu,%u,%u,%.6f,%.6f,%.6f,%.6f,%.3f,%.6f,%.9g,%.9g,%u,%u,%llu\n"),
-			E.Block, uint32(E.Reject), E.Routes, E.ListenerX, E.ListenerY, E.ListenerZ, E.DistanceGain,
+		Rows += FString::Printf(TEXT("%llu,%u,%llu,%llu,%u,%llu,%llu,%llu,%llu,%llu,%u,%u,%.6f,%.6f,%.6f,%.6f,%.3f,%.6f,%.9g,%.9g,%u,%u,%llu\n"),
+			E.Block, E.Voice, E.InputSpatialVersion, E.OutputSpatialVersion, uint32(E.InputDelayPriming),
+			E.CallbackAudioComponentId, E.ResultAudioComponentId, E.ResultWorldGeneration, E.ResultVoiceGeneration,
+			E.ResultSpatialVersion, uint32(E.Reject), E.Routes, E.ListenerX, E.ListenerY, E.ListenerZ, E.DistanceGain,
 			E.CallbackDistanceCm, E.DegradedGain, E.InputEnergy, E.OutputEnergy, uint32(E.DirectValid), uint32(E.PathValid), E.ResultSequence);
 	}
 	FFileHelper::SaveStringToFile(Rows, *FPaths::Combine(EvidenceDir, TEXT("IM_metasound_source_blocks.csv")), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
 	const uint64 Rejected = Context->Device.IsValid() ? Context->Device->RejectedBlocks.load(std::memory_order_relaxed) : 0;
+	const uint64 PrimingMissing = Context->Device.IsValid() ? Context->Device->PrimingMissingBlocks.load(std::memory_order_relaxed) : 0;
+	const uint64 SourceDelayPriming = Context->SourceDelayPrimingBlocks.load(std::memory_order_relaxed);
 	const uint64 Rendered = Context->Device.IsValid() ? Context->Device->RenderedBlocks.load(std::memory_order_relaxed) : 0;
-	const FString Summary = FString::Printf(TEXT("{\"available\":true,\"telemetry\":\"MetaSound.CapturedSourceBlocks\",\"blocks\":%u,\"capacity\":%u,\"device_rendered\":%llu,\"device_rejected\":%llu}"),
-		Limit, Capacity, Rendered, Rejected);
+	const FString Summary = FString::Printf(TEXT("{\"available\":true,\"telemetry\":\"MetaSound.CapturedSourceBlocks\",\"blocks\":%u,\"capacity\":%u,\"source_input_delay_frames\":%u,\"source_delay_priming_blocks\":%llu,\"device_rendered\":%llu,\"device_rejected\":%llu,\"device_priming_missing\":%llu}"),
+		Limit, Capacity, FIMAcousticMetaSoundContext::SourceInputDelayFrames, SourceDelayPriming, Rendered, Rejected, PrimingMissing);
 	FFileHelper::SaveStringToFile(Summary, *FPaths::Combine(EvidenceDir, TEXT("IM_metasound_trace_summary.json")), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
 }
 }
@@ -225,6 +241,7 @@ bool BuildH1DoorMap(FString& Error)
 	Box({-4,0,-3.1},{4,3,-3});Box({-4,0,3},{4,3,3.1});
 	Box({-.05,0,-3},{.05,3,.5});Box({-.05,0,2.5},{.05,3,3});Box({-.05,2.5,.5},{.05,3,2.5});
 	auto* Volume=World->SpawnActor<AIMAcousticBakeVolume>();
+	Volume->MaterialDrive=EIMAcousticMaterialDrive::LegacyRenderMaterial;
 	Volume->SetActorLocation(FVector(0,0,150));Volume->BakeBounds->SetBoxExtent(FVector(320,420,170));
 	FIMAcousticMaterialMapping Material;Material.Material=Cube->GetMaterial(0);Material.Absorption=FVector(.25);Volume->Materials.Add(Material);
 	// Door panel: movable (never baked), registered for per-tick sync.
@@ -308,8 +325,13 @@ public:
 			if(Volume->Status.Contains(TEXT("failed"),ESearchCase::IgnoreCase)||Volume->Status.Contains(TEXT("discarded")))return Finish(false,Volume->Status);
 			if(!Volume->BakedField||Volume->BakedField.Get()==PreviousAsset.Get())return false;
 			IFileManager::Get().MakeDirectory(*H1DoorEvidence(),true);
-			FFileHelper::SaveArrayToFile(Volume->BakedField->SceneData,*FPaths::Combine(H1DoorEvidence(),TEXT("scene.bin")));
-			FFileHelper::SaveArrayToFile(Volume->BakedField->ProbeData,*FPaths::Combine(H1DoorEvidence(),TEXT("probes.bin")));
+			UIMAcousticBakeAsset* BakeAsset=Volume->BakedField.Get();
+			TArray<uint8> RawScene,RawProbes;FString PayloadError;
+			if(!BakeAsset->ReadPayload(BakeAsset->WorldPackage,BakeAsset->SceneFingerprint,RawScene,RawProbes,PayloadError))
+				return Finish(false,TEXT("Cannot read raw SDK payload for evidence: ")+PayloadError);
+			if(!FFileHelper::SaveArrayToFile(RawScene,*FPaths::Combine(H1DoorEvidence(),TEXT("scene.bin")))
+				||!FFileHelper::SaveArrayToFile(RawProbes,*FPaths::Combine(H1DoorEvidence(),TEXT("probes.bin"))))
+				return Finish(false,TEXT("Cannot save raw SDK bake evidence."));
 			UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticH1DoorBake triangles=%d probes=%d evidence=%s"),Volume->ExportedTriangles,Volume->GeneratedProbes,*H1DoorEvidence());
 			const FString File=FPackageName::LongPackageNameToFilename(H1DoorMap,FPackageName::GetMapPackageExtension());
 			if(!FEditorFileUtils::SaveLevel(Volume->GetWorld()->PersistentLevel,File))return Finish(false,TEXT("Cannot persist H1 bake binding."));
@@ -406,7 +428,7 @@ public:
 				}
 				if(OffPhase==1)
 				{
-					const int Applied=Volume.IsValid()?Volume->ReadAppliedPathingValidationForTest():-2;
+					const int Applied=Volume.IsValid()?Volume->GetAppliedPathingValidationForTest():-2;
 					if(Applied!=0){ if(Now-OffRequestStart>5)return Finish(false,TEXT("OFF control not applied.")); return false; }
 					OffPhase=2;SettleUntil=Now+1.0;return false;
 				}
@@ -483,7 +505,7 @@ public:
 		}
 		if(Stage==5)
 		{
-			const int Applied=Volume.IsValid()?Volume->ReadAppliedPathingValidationForTest():-2;
+			const int Applied=Volume.IsValid()?Volume->GetAppliedPathingValidationForTest():-2;
 			if(Applied!=1){ if(Now-OnRequestStart>5)return Finish(false,TEXT("Validation restore not applied.")); return false; }
 			Stage=6;return false;
 		}
@@ -520,6 +542,7 @@ public:
 		for(uint32 I=First;I<Limit;++I)
 		{
 			const FIMAcousticBlockProbe& E=MetaContext->CapturedSourceBlocks[int32(I)];
+			if(E.InputDelayPriming)continue;
 			if(E.ResultSequence>MaxSequence)MaxSequence=E.ResultSequence;
 			if(E.Reject!=EIMAcousticProbeReject::Accepted){++Rejected;continue;}
 			++Accepted;
@@ -657,9 +680,12 @@ bool FIMAcousticStaticOcclusionTest::RunTest(const FString&)
 	if(!Volume->ValidateCurrentBake(BakeError)){AddError(BakeError);return false;}
 	UIMAcousticBakeAsset* Bake=Volume->BakedField.Get();
 	if(!Bake||Bake->SceneData.Num()==0||Bake->ProbeData.Num()==0){AddError(TEXT("Bound bake payload empty."));return false;}
+	TArray<uint8> RawScene,RawProbes;FString PayloadError;
+	if(!Bake->ReadPayload(Bake->WorldPackage,Bake->SceneFingerprint,RawScene,RawProbes,PayloadError))
+	{AddError(TEXT("Bound raw SDK payload could not be read: ")+PayloadError);return false;}
 	FIMAcousticBakeData Data;
-	Data.Scene.assign(Bake->SceneData.GetData(),Bake->SceneData.GetData()+Bake->SceneData.Num());
-	Data.ProbeBatch.assign(Bake->ProbeData.GetData(),Bake->ProbeData.GetData()+Bake->ProbeData.Num());
+	Data.Scene.assign(RawScene.GetData(),RawScene.GetData()+RawScene.Num());
+	Data.ProbeBatch.assign(RawProbes.GetData(),RawProbes.GetData()+RawProbes.Num());
 	FIMAcousticSimulation Sim;
 	std::string SetError;
 	if(!Sim.SetPathingOptions(FIMAcousticPathingOptions::DefaultHybrid(),SetError)){AddError(TEXT("SetPathingOptions failed."));return false;}

@@ -6,6 +6,7 @@
 #include "IMAcousticSimulation.h"
 
 class FRunnableThread;
+class FEvent;
 
 struct FIMAcousticSourceSnapshot
 {
@@ -32,6 +33,7 @@ struct FIMAcousticWorldSnapshot
 {
 	uint64 WorldGeneration = 0;
 	double CapturedSeconds = 0.0;
+	uint64 SpatialVersion = 0; // monotonically changes when the listener pose moves
 	IPLCoordinateSpace3 Listener{};
 	TArray<FIMAcousticSourceSnapshot> Sources;
 	TArray<FIMAcousticDynamicMeshSnapshot> DynamicMeshes;
@@ -64,10 +66,11 @@ private:
 	uint32 Run() override;
 	void Stop() override;
 	TSharedPtr<FIMAcousticDeviceBridge, ESPMode::ThreadSafe> Bridge;
-	FIMAcousticSpscRing<TSharedPtr<const FIMAcousticWorldSnapshot, ESPMode::ThreadSafe>> Snapshots;
+	TIMAcousticSpscRing<TSharedPtr<const FIMAcousticWorldSnapshot, ESPMode::ThreadSafe>> Snapshots;
 	FIMAcousticBakeData Bake;
 	TSharedPtr<FIMAcousticReverbPool,ESPMode::ThreadSafe> Reverb;
 	TUniquePtr<FRunnableThread> Thread;
+	FEvent* SnapshotEvent = nullptr;
 	uint64 WorldGeneration = 0;
 	std::atomic<bool> StopRequested{false};
 	std::atomic<EIMWorkerState> WorkerState{EIMWorkerState::Stopped};

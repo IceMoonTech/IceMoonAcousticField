@@ -20,7 +20,7 @@ constexpr double AZ[2] = {0.0, 250.0};
 struct FIMOBox { double C[3]; double H[3]; };
 struct FIMOSeg { double A[3]; double B[3]; };
 
-static bool OSegBox(const FIMOSeg& S, const FIMOBox& B, double& T)
+bool OSegBox(const FIMOSeg& S, const FIMOBox& B, double& T)
 {
 	double T0 = 0.0, T1 = 1.0;
 	for (int I = 0; I < 3; ++I)
@@ -46,7 +46,7 @@ static bool OSegBox(const FIMOSeg& S, const FIMOBox& B, double& T)
 	return true;
 }
 
-static FString OClass(const FIMOSeg& S, const FIMOBox& Door)
+FString OClass(const FIMOSeg& S, const FIMOBox& Door)
 {
 	double L2 = 0.0;
 	for (int I = 0; I < 3; ++I)
@@ -66,14 +66,14 @@ static FString OClass(const FIMOSeg& S, const FIMOBox& Door)
 	return TEXT("WALL");
 }
 
-static void OMakeBox(FIMOBox& B, double x, double y, double z,
+void OMakeBox(FIMOBox& B, double x, double y, double z,
 	double hx, double hy, double hz)
 {
 	B.C[0] = x; B.C[1] = y; B.C[2] = z;
 	B.H[0] = hx; B.H[1] = hy; B.H[2] = hz;
 }
 
-static void OMakeSeg(FIMOSeg& S,
+void OMakeSeg(FIMOSeg& S,
 	double ax, double ay, double az,
 	double bx, double by, double bz)
 {
@@ -83,7 +83,7 @@ static void OMakeSeg(FIMOSeg& S,
 
 constexpr double ApC[3] = {-150.0, 0.0, 125.0};
 
-static FString OAp(const double Sx[3], const double Lx[3], const FIMOBox& Door)
+FString OAp(const double Sx[3], const double Lx[3], const FIMOBox& Door)
 {
 	FIMOSeg T1, T2;
 	OMakeSeg(T1, Sx[0], Sx[1], Sx[2], ApC[0], ApC[1], ApC[2]);

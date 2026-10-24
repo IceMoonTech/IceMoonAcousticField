@@ -8,9 +8,9 @@
 #include "IMMaterialMap.generated.h"
 
 /**
- * 数据资产，用于将物理材质映射到具体的音频响应参数。
- * 音效设计师可以在编辑器中创建和配置此资产。
- */
+	* 数据资产，用于将物理材质映射到具体的音频响应参数。
+	* 音效设计师可以在编辑器中创建和配置此资产。
+	*/
 UCLASS(BlueprintType)
 class ICEMOONACOUSTICFIELD_API UIMMaterialMap : public UPrimaryDataAsset
 {

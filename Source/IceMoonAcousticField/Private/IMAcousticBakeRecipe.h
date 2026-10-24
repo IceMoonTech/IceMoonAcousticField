@@ -20,19 +20,24 @@ inline constexpr IPLint32 ReverbNumDiffuse=32;
 inline constexpr IPLint32 ReverbNumBounces=64;
 inline constexpr IPLfloat32 ReverbSimDurationS=2;
 inline constexpr IPLfloat32 ReverbSavedDurationS=2;
-// Runtime room-send policy, intentionally independent from the SDK direct
-// inverse-distance model and from pathing coverage. The send is full inside
-// the near distance, then fades smoothly through the wider room tail.
+// The listener-centred IR does not encode source-to-listener distance.
+// Apply the SDK direct model's 1 m reference to raw source input once on the
+// independent wet route, then retain the existing smooth far-boundary taper.
+// This is a runtime transport approximation, not a source-position IR or a
+// bake-quality change. Direct/path still receive the unattenuated raw input.
+inline constexpr float ReverbSendReferenceDistanceM=1.0f;
 inline constexpr float ReverbSendNearDistanceM=2.0f;
 inline constexpr float ReverbSendFarDistanceM=32.0f;
 inline float ReverbSendDistanceGain(float DistanceM)
 {
 	if (!FMath::IsFinite(DistanceM)) return 0.0f;
-	if (DistanceM <= ReverbSendNearDistanceM) return 1.0f;
 	if (DistanceM >= ReverbSendFarDistanceM) return 0.0f;
+	const float DistanceGain = ReverbSendReferenceDistanceM
+		/ FMath::Max(ReverbSendReferenceDistanceM, DistanceM);
+	if (DistanceM <= ReverbSendNearDistanceM) return DistanceGain;
 	const float T = (DistanceM - ReverbSendNearDistanceM)
 		/ (ReverbSendFarDistanceM - ReverbSendNearDistanceM);
-	return 1.0f - T * T * (3.0f - 2.0f * T);
+	return DistanceGain * (1.0f - T * T * (3.0f - 2.0f * T));
 }
 inline constexpr IPLint32 BakeThreads=1;
 inline constexpr IPLfloat32 IrradianceMinM=.01f;

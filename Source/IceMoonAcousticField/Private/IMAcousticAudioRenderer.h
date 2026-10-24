@@ -22,6 +22,26 @@ struct FIMAcousticAudioFrame
 	std::array<float, Coefficients> PathSH{};
 };
 
+// Optional direct-path shaping for the exaggerated presence mode. nullptr (default)
+// keeps the physical render bit-identical. Only the direct effect/HRTF direction
+// are shaped; the path effect and every other part of the frame are untouched.
+struct FIMAcousticDirectShaping
+{
+	// Replace the SDK inverse-distance gain by 1 (own footsteps stay near).
+	bool bUnitDistanceAttenuation = false;
+	// Multiplier for the source's own lateral azimuth (below); 1 keeps the HRTF direction as solved.
+	float AzimuthScale = 1.0f;
+	// The source's lateral offset from its owner's body axis as an azimuth (radians, right positive), published by the GT.
+	// Only this part is scaled, so a listener swing or snapshot lag that shifts the whole direction is not amplified with it.
+	float LateralAzimuthRadians = 0.0f;
+	// Largest azimuth (radians) a scaled direction may reach.
+	float AzimuthLimitRadians = 0.0f;
+
+	// Adds (Scale - 1) * Lateral to the azimuth of a listener-local direction (x right, y up, -z ahead),
+	// keeping elevation. Sources behind the listener and invalid input stay unchanged.
+	static IPLVector3 ScaleAzimuth(const IPLVector3& Direction, float Scale, float LateralRadians, float LimitRadians);
+};
+
 enum class EIMAcousticRenderFailure : unsigned char { None, InvalidFrame, NonfiniteInput, NonfiniteDirect, NonfinitePath, Count };
 struct FIMAcousticAudioMetrics
 {
@@ -51,7 +71,8 @@ public:
 	// Optional stems are for capturing the production signal, not a separate oracle.
 	bool Render(const float* DryMono, int Frames, const FIMAcousticAudioFrame& Frame,
 		float* Stereo, float* DirectStereo = nullptr, float* PathStereo = nullptr,
-		FIMAcousticAudioMetrics* Metrics = nullptr, std::uint32_t AudibleRoutes = 3);
+		FIMAcousticAudioMetrics* Metrics = nullptr, std::uint32_t AudibleRoutes = 3,
+		const FIMAcousticDirectShaping* Shaping = nullptr);
 
 private:
 	IPLContext Context = nullptr;

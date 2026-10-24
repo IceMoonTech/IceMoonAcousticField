@@ -37,6 +37,24 @@ void ClearStereoOutputs(float* Stereo, int Frames, float* DirectStereo, float* P
 }
 }
 
+IPLVector3 FIMAcousticDirectShaping::ScaleAzimuth(const IPLVector3& Direction, float Scale, float LateralRadians, float LimitRadians)
+{
+	using namespace IMAcousticAudioRendererPrivate;
+	const float Length = std::sqrt(Direction.x * Direction.x + Direction.y * Direction.y + Direction.z * Direction.z);
+	const float Ahead = -Direction.z;
+	if (!Finite(Direction) || !Finite(Scale) || !Finite(LateralRadians) || !Finite(LimitRadians) || Length < 1.e-6f || Ahead <= 0.0f) { return Direction; }
+	// Scale 1 (strength 0) or no lateral offset adds nothing: return the solved direction itself so the physical-range azimuth is neither
+	// recomputed through trigonometry nor touched by the limit.
+	if ((Scale - 1.0f) * LateralRadians == 0.0f) { return Direction; }
+	const float Elevation = std::asin(std::fmax(-1.0f, std::fmin(1.0f, Direction.y / Length)));
+	const float Azimuth = std::atan2(Direction.x, Ahead);
+	// The limit never pulls an already wider direction back toward the front.
+	const float Reach = std::fmax(LimitRadians, std::fabs(Azimuth));
+	const float NewAzimuth = std::fmax(-Reach, std::fmin(Reach, Azimuth + (Scale - 1.0f) * LateralRadians));
+	const float Horizontal = std::cos(Elevation);
+	return IPLVector3{Horizontal * std::sin(NewAzimuth), std::sin(Elevation), -Horizontal * std::cos(NewAzimuth)};
+}
+
 FIMAcousticAudioRenderer::~FIMAcousticAudioRenderer() { Shutdown(); }
 
 bool FIMAcousticAudioRenderer::Initialize(IPLContext InContext, IPLHRTF InHRTF,
@@ -95,7 +113,7 @@ void FIMAcousticAudioRenderer::Shutdown()
 
 bool FIMAcousticAudioRenderer::Render(const float* DryMono, int Frames,
 	const FIMAcousticAudioFrame& Frame, float* Stereo, float* DirectStereo, float* PathStereo,
-	FIMAcousticAudioMetrics* Metrics, std::uint32_t AudibleRoutes)
+	FIMAcousticAudioMetrics* Metrics, std::uint32_t AudibleRoutes, const FIMAcousticDirectShaping* Shaping)
 {
 	if (Metrics) { *Metrics = {}; }
 	if (!Stereo || Frames <= 0) { return false; }
@@ -134,9 +152,15 @@ bool FIMAcousticAudioRenderer::Render(const float* DryMono, int Frames,
 	if (Frame.DirectValid)
 	{
 		auto Params = Frame.Direct;
+		IPLVector3 BinauralDirection = Frame.ListenerLocalDirection;
+		if (Shaping)
+		{
+			if (Shaping->bUnitDistanceAttenuation) { Params.distanceAttenuation = 1.0f; }
+			BinauralDirection = FIMAcousticDirectShaping::ScaleAzimuth(BinauralDirection, Shaping->AzimuthScale, Shaping->LateralAzimuthRadians, Shaping->AzimuthLimitRadians);
+		}
 		iplDirectEffectApply(DirectEffect, &Params, &Dry, &Direct);
 		IPLBinauralEffectParams Binaural{};
-		Binaural.direction = Frame.ListenerLocalDirection;
+		Binaural.direction = BinauralDirection;
 		Binaural.interpolation = IPL_HRTFINTERPOLATION_BILINEAR;
 		Binaural.spatialBlend = 1.0f;
 		Binaural.hrtf = HRTF;

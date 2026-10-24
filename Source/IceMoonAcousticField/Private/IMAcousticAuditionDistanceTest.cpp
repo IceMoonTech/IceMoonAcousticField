@@ -355,7 +355,7 @@ private:
 		const uint32 Capacity=uint32(MetaContext->CapturedSourceBlocks.Num());
 		const uint64 Limit=Pushes<Capacity?Pushes:Capacity;
 		const double GeomCm=Distances[PointIndex]*100.0;
-		double SumDistGain=0,SumOcc=0,SumAge=0,SumIn=0,SumOut=0;
+		double SumDistGain=0,SumOcc=0,SumAge=0,SumIn=0,SumDir=0,SumPath=0,SumOut=0;
 		double SumDegIn=0,SumDegOut=0;
 		double DegIn=0,DegOut=0,DegPred=0;
 		int32 BlockRowSeq=0;
@@ -402,7 +402,7 @@ private:
 			else ++Out.AccDistOther;
 			Out.DirectValid+=E.DirectValid?1:0;Out.PathValid+=E.PathValid?1:0;
 			SumDistGain+=E.DistanceGain;SumOcc+=E.Occlusion;SumAge+=E.AgeMs;
-			SumIn+=E.InputEnergy;SumOut+=E.OutputEnergy;
+			SumIn+=E.InputEnergy;SumDir+=E.DirectEnergy;SumPath+=E.PathEnergy;SumOut+=E.OutputEnergy;
 		}
 		if(Out.DegDistBlocks>0){Out.DegDistM/=Out.DegDistBlocks;Out.DegGainAvg/=Out.DegDistBlocks;}
 		if(DegIn>0){Out.DegRatio=DegOut/DegIn;Out.DegRatioPred=DegPred/DegIn;}
@@ -412,7 +412,7 @@ private:
 		{
 			const double N=Out.Accepted;
 			Out.DistGain=SumDistGain/N;Out.Occlusion=SumOcc/N;Out.AgeMs=SumAge/N;
-			Out.InputE=SumIn/N;Out.OutputE=SumOut/N;
+			Out.InputE=SumIn/N;Out.DirectE=SumDir/N;Out.PathE=SumPath/N;Out.OutputE=SumOut/N;
 		}
 		Out.RejectedDelta=MetaContext->Device->RejectedBlocks.load(std::memory_order_relaxed)-RejectedBefore;
 		Out.RevProcessed=MetaContext->EnvironmentBlocks.load(std::memory_order_relaxed);

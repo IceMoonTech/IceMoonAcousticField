@@ -1,0 +1,28 @@
+{
+  "compensation_gain": 0.22157913793497858,
+  "compensation_db": -13.089422632141757,
+  "method": "Same canonical contacts, 400ms stereo mean-square windows starting at each footfall onset in the master (silence/sound edge search, not whole-pass correlation), equal event weighting, both windows nonzero. compensation_gain = sqrt(E_physical / E_other).",
+  "contacts": 21,
+  "window_frames": 19200,
+  "sample_rate": 48000,
+  "sample_set": "recorded SW_IMFootstep_stone01/wood01/wood03 for both passes",
+  "raw_effective_rms_dbfs": {
+    "physical_raw": -50.9202551844121,
+    "exaggerated_raw": -37.830832552270344
+  },
+  "master_alignment_frames": {
+    "physical_raw": 1060,
+    "exaggerated_raw": 1068
+  },
+  "raw_WAV_sha256": {
+    "physical_raw": "6a1bd173af1021125886f26626087851e478655be869c2086cc75ea70c3b17cc",
+    "exaggerated_raw": "5bcac8f64df9ae43c8caefc11d2bf5aef0ad30cc5351884e78765d2ad0c20440"
+  },
+  "compensation_gain_synthesized": 0.7858897438652324,
+  "compensation_synthesized_db": -2.0927675776769155,
+  "synthesized_sample_set": "SW_IMFootstepPresence* synthesized waves, same global processing",
+  "synthesized_raw_effective_rms_dbfs": -48.82748760673518,
+  "synthesized_raw_WAV_sha256": {
+    "synth_raw": "aa9b921f02688faddb21ae2757e32f37ae479f3d75d6e84e19f27982778b3060"
+  }
+}

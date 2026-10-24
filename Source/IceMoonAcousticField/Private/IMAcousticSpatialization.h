@@ -4,6 +4,7 @@
 #include "IMAcousticAudioRenderer.h"
 #include "IMAcousticTiming.h"
 #include <atomic>
+#include <memory>
 
 class FAudioDevice;
 
@@ -35,6 +36,7 @@ struct FIMAcousticSnapshotProbe
 {
 	uint64 Block = 0; // log index; publication order key (write-once, never overwritten)
 	uint64 WorldGeneration = 0;
+	uint64 SpatialVersion = 0; // listener-pose version carried into the worker snapshot
 	double CapturedSeconds = 0.0; // GT capture time (FPlatformTime::Seconds, s)
 	double SubmitSeconds = 0.0;   // GT time just after Worker->Submit returns (FPlatformTime::Seconds, s; 0 if no submit attempted)
 	float ListenerUEX = 0.0f, ListenerUEY = 0.0f, ListenerUEZ = 0.0f; // cm, actual AudioDevice listener
@@ -56,9 +58,12 @@ struct FIMAcousticBlockProbe
 {
 	uint64 Block = 0; // audio-side monotonic claim index; PCM-window order key
 	uint32 Voice = 0;
+	uint64 InputSpatialVersion = 0;  // listener version sampled with the incoming mono block
+	uint64 OutputSpatialVersion = 0; // listener version paired with the delayed mono block
 	uint64 CallbackAudioComponentId = 0; // identity seen by the audio callback
 	uint64 ResultAudioComponentId = 0;   // identity carried by the worker result
 	uint64 ResultWorldGeneration = 0;
+	uint64 ResultSpatialVersion = 0; // listener-pose version carried by the worker result
 	uint64 ResultVoiceGeneration = 0; // Frame.Generation
 	uint64 ResultSequence = 0;        // Frame.Sequence (per-voice publication order)
 	double SnapshotCaptured = 0.0;    // PublishedSeconds == GT CapturedSeconds
@@ -73,15 +78,17 @@ struct FIMAcousticBlockProbe
 	EIMAcousticProbeReject Reject = EIMAcousticProbeReject::Accepted;
 	uint8 RenderFailure = 0; // EIMAcousticRenderFailure code when Reject==RendererFailed
 	uint8 Fallback = 0;      // dry fallback output taken
+	uint8 InputDelayPriming = 0; // output block contains the fixed-delay line's initial silence
 	uint8 ResetReason = 0;   // renderer Reset cause: 0 none,1 invalid-result,2 world-change,3 bypass,4 render-fail
 	uint8 Pad = 0;
 	// RejectDetail records every failed accept conjunct (0 when accepted/bypassed).
 	// Bitmask: 1 no-renderer,2 bad-channels,4 bad-input-frames,8 bad-output-frames,
 	// 16 no-world,32 world-mismatch,64 voice-gen-mismatch,128 audio-id-mismatch,
-	// 256 no-valid-stems,512 published-in-future,1024 stale-age.
+	// 256 no-valid-stems,512 published-in-future,1024 stale-age,2048 spatial-version-mismatch.
 	uint32 RejectDetail = 0;
 	uint32 DirectFlags = 0;  // IPLDirectEffectFlags numeric of the consumed frame
 	double InputEnergy = -1.0;  // mono input sum-of-squares, unset (-1) when no input buffer
+	double ReverbSendEnergy = -1.0; // graph Send pin sum-of-squares; trace-enabled diagnostic only
 	double DirectEnergy = -1.0; // Metrics on accepted blocks, else unset
 	double PathEnergy = -1.0;
 	double OutputEnergy = -1.0; // stereo output sum-of-squares after render/fallback, else unset
@@ -200,6 +207,11 @@ struct FIMAcousticWorkerProbe
 	double ReverbStartSeconds = 0.0, ReverbEndSeconds = 0.0; // 0 when not attempted
 	uint64 ReverbSequence = 0;
 	double ReverbCaptured = 0.0; // slot CapturedSeconds on success, else 0
+	uint64 ReverbSpatialVersion = 0;
+	uint32 ReverbSlot = MAX_uint32;
+	// These profiling timestamps bracket the release publication of Ready;
+	// ReverbEndSeconds alone precedes sequence/version writes and is insufficient.
+	double ReverbReadyBeforeSeconds = 0.0, ReverbReadyAfterSeconds = 0.0;
 	double PushSeconds = 0.0;    // time just after the result Push loop, s (0 when nothing pushed)
 	uint8 PushOk = 0;            // 1 all pushes ok, 0 at least one push failed, 2 no result to push
 	uint8 Pad1[7] = {};
@@ -217,12 +229,18 @@ struct FIMAcousticWorkerProbe
 	uint8 NumDynamicSynced = 0;   // DynamicInputs passed to SyncDynamicMeshes
 	int8 AppliedValidationSnap = -1; // worker AppliedValidation this loop
 	uint8 Pad2[5] = {};
+	// IMDEBUG-AC0848: explicit worker diagnostic, cumulative CPU clocks only.
+	double ReverbCpuWallBeforeSeconds = 0.0, ReverbCpuWallAfterSeconds = 0.0;
+	uint64 ReverbCpu100nsBefore = 0, ReverbCpu100nsAfter = 0;
+	uint64 ReverbCpuCyclesBefore = 0, ReverbCpuCyclesAfter = 0;
+	uint32 ReverbCpuThreadIdBefore = 0, ReverbCpuThreadIdAfter = 0;
+	uint8 ReverbCpuValidBefore = 0, ReverbCpuValidAfter = 0;
 };
 
 // Fixed SPSC ring: one producer and one consumer per voice. Neither side can
 // overwrite a slot the other owns. Queue-full drops a publication, never blocks.
 template<typename T, uint32 Capacity = 8>
-class FIMAcousticSpscRing final
+class TIMAcousticSpscRing final
 {
 public:
 	bool Push(const T& Value)
@@ -261,13 +279,14 @@ struct FIMAcousticVoiceResult
 	FIMAcousticAudioFrame Frame;
 	uint64 AudioComponentId = 0;
 	uint64 WorldGeneration = 0;
+	uint64 SpatialVersion = 0;
 	double PublishedSeconds = 0.0;
 };
 
 struct FIMAcousticVoiceBridge
 {
-	FIMAcousticSpscRing<FIMAcousticVoiceRequest> Requests;
-	FIMAcousticSpscRing<FIMAcousticVoiceResult> Results;
+	TIMAcousticSpscRing<FIMAcousticVoiceRequest> Requests;
+	TIMAcousticSpscRing<FIMAcousticVoiceResult> Results;
 	// One outstanding dry block per voice. Source jobs finish before UE submix
 	// processing, but this ownership ring also makes skipped submix blocks safe.
 	// Buffers allocate at device init, never in either callback.
@@ -275,6 +294,10 @@ struct FIMAcousticVoiceBridge
 	std::array<FIMDrySlot,2> Dry;
 	std::atomic<uint32> DryWrite{0},DryRead{0};
 	std::atomic<uint64> LiveGeneration{0};
+	// Opt-in, monotonic whole-Execute measurements. The pressure test uses a
+	// fresh device/window and sums each participating voice's maximum; one
+	// global per-source maximum cannot bound a sixteen-source graph block.
+	std::atomic<uint64> SourceExecuteCount{0}, SourceExecuteMaxCycles{0};
 	void InitDry(uint32 Frames){for(auto& Slot:Dry)Slot.Samples.SetNumZeroed(Frames);}
 	bool PushDry(const float* Samples,uint32 Frames,uint64 Epoch,uint64 Generation,double Captured,float ReverbSendGain)
 	{
@@ -301,6 +324,36 @@ struct FIMAcousticVoiceBridge
 	}
 };
 
+// Test-only, single-producer write-once storage. GT allocates once before the
+// device's capture flag publishes it. Disabling capture does not resize/free it;
+// the device lease keeps it alive until the worker has joined at shutdown.
+template<typename EntryType, uint32 Capacity>
+struct TIMAcousticWindowProbeLog
+{
+	std::unique_ptr<EntryType[]> Entries;
+	std::unique_ptr<std::atomic<uint64>[]> Done;
+	std::atomic<uint64> Pushes{0}, Overflows{0};
+	static constexpr uint32 MaxEntries = Capacity;
+	static constexpr uint64 StorageBytes = uint64(Capacity) * (sizeof(EntryType) + sizeof(std::atomic<uint64>));
+
+	bool AllocateOnce()
+	{
+		if (!IsInGameThread() || Entries || Done) return false;
+		Entries = std::make_unique<EntryType[]>(Capacity);
+		Done = std::make_unique<std::atomic<uint64>[]>(Capacity);
+		for (uint32 I = 0; I < Capacity; ++I) Done[I].store(0, std::memory_order_relaxed);
+		return true;
+	}
+	void Publish(const EntryType& Entry)
+	{
+		const uint64 N = Pushes.fetch_add(1, std::memory_order_relaxed);
+		if (N >= Capacity) { Overflows.fetch_add(1, std::memory_order_relaxed); return; }
+		Entries[N] = Entry;
+		Entries[N].Block = N;
+		Done[N].store(N + 1, std::memory_order_release);
+	}
+};
+
 // Created once at device initialization. Worker leases keep queues alive after
 // device shutdown; Alive closes publication before audio resources are released.
 struct FIMAcousticDeviceBridge
@@ -308,7 +361,23 @@ struct FIMAcousticDeviceBridge
 	// W3 pressure attribution is bounded, preallocated telemetry. It is
 	// reset at the start of each measured window and exported by the test on
 	// the game thread; audio callbacks only perform atomic increments/CAS.
-	static constexpr uint32 PressureRejectDetailCapacity = 2048;
+	// Buckets 0..2047 retain the legacy callback reject bitmask (bits 1..1024,
+	// with every failed conjunct combined). Graph identity diagnostics may
+	// include bit 2048 and therefore reach raw mask 2288. Buckets 3072..3581
+	// are reserved for graph-source attribution: 3072 + slot*8 + ProbeReject
+	// (slot 0..63, enum 0..5). A graph rejection with a nonzero identity mask
+	// writes both its encoded attribution bucket and its raw mask bucket, so
+	// the exported map is diagnostic data rather than a rejection total.
+	static constexpr uint32 PressureRejectDetailCapacity = 4096;
+	static constexpr uint32 PressureRejectGraphSourceBase = 3072;
+	static constexpr uint32 PressureRejectGraphSourceSlotStride = 8;
+	static constexpr uint32 PressureRejectGraphSourceMaxSlot = 63;
+	static constexpr uint32 PressureRejectGraphSourceMaxReason = 5;
+	static_assert(
+		PressureRejectGraphSourceBase
+			+ PressureRejectGraphSourceMaxSlot * PressureRejectGraphSourceSlotStride
+			+ PressureRejectGraphSourceMaxReason < PressureRejectDetailCapacity,
+		"Graph source pressure attribution codes must remain within the detail map");
 	static constexpr uint32 PressureReverbRejectReasonCapacity = 4;
 	static constexpr uint32 CallbackBlockProbeCapacity = 2048; // >30 s at 48 kHz / 1024 frames
 	static constexpr uint32 RareTailProbeCapacity = 512;
@@ -343,6 +412,27 @@ struct FIMAcousticDeviceBridge
 		}
 	}
 
+	static constexpr uint32 EncodeGraphSourceRejectDetail(uint32 Slot, EIMAcousticProbeReject Reject)
+	{
+		const uint32 SafeSlot = Slot <= PressureRejectGraphSourceMaxSlot ? Slot : PressureRejectGraphSourceMaxSlot;
+		const uint32 Reason = static_cast<uint32>(Reject);
+		const uint32 SafeReason = Reason <= PressureRejectGraphSourceMaxReason ? Reason : PressureRejectGraphSourceMaxReason;
+		return PressureRejectGraphSourceBase + SafeSlot * PressureRejectGraphSourceSlotStride + SafeReason;
+	}
+
+	void RecordGraphSourceReject(uint32 Slot, EIMAcousticProbeReject Reject, uint32 IdentityRejectDetail, double Now)
+	{
+		const uint32 EncodedDetail = EncodeGraphSourceRejectDetail(Slot, Reject);
+		RecordPressureReject(EncodedDetail, Slot, Now);
+		if (IdentityRejectDetail != 0)
+		{
+			// Keep the raw identity bitmask independently queryable. This is
+			// intentionally a second diagnostic bucket, not a second block
+			// rejection or a change to RejectedBlocks.
+			RecordPressureReject(IdentityRejectDetail, Slot, Now);
+		}
+	}
+
 	void RecordPressureReverbReject(uint32 Reason, double Now)
 	{
 		const uint32 Index = Reason < PressureReverbRejectReasonCapacity ? Reason : PressureReverbRejectReasonCapacity - 1;
@@ -362,7 +452,12 @@ struct FIMAcousticDeviceBridge
 	// GT acquires one world lease per device. Worker shutdown joins before release;
 	// this is also the audio consumer's authority when discarding old-world packets.
 	std::atomic<uint64> WorldGeneration{0};
+	// A graph block can arrive before the first worker result exists. Keep
+	// that bounded startup warm-up visible without mixing it with a runtime
+	// reject: RejectedBlocks is reserved for identity/stale/renderer-failure
+	// degradation after the consumer has a usable device context.
 	std::atomic<uint64> RejectedBlocks{0};
+	std::atomic<uint64> PrimingMissingBlocks{0};
 	std::atomic<uint64> InvalidResultBlocks{0},RendererFailedBlocks{0};
 	std::array<std::atomic<uint64>,size_t(EIMAcousticRenderFailure::Count)> RenderFailures{};
 	std::atomic<uint64> RenderedBlocks{0};
@@ -375,6 +470,7 @@ struct FIMAcousticDeviceBridge
 	// Whole V2 bypass is a dry, constant-power mono reference. Route mute above
 	// preserves convolution history; bypass explicitly resets indirect history.
 	std::atomic<bool> Enabled{true},ProfilingEnabled{false};
+	std::atomic<bool> StallTimingEnabled{false}; // explicit stall cause window; never audio RT
 	std::atomic<uint64> BypassedBlocks{0};
 	// W1 causal-probe stores. Preallocated with the bridge at device init;
 	// never grown, never freed, never touched by file I/O on audio threads.
@@ -409,6 +505,53 @@ struct FIMAcousticDeviceBridge
 	std::atomic<uint64> SnapshotProbePushes{0}, SnapshotProbeOverflows{0};
 	std::atomic<uint64> BlockProbePushes{0}, BlockProbeOverflows{0};
 	std::atomic<uint64> WorkerProbePushes{0}, WorkerProbeOverflows{0};
+	// Optional full pressure window. Capacities exceed the observed 600-second
+	// GT/worker populations (11215/17572) with headroom, without expanding the
+	// default resident probe arrays. Any overflow remains an evidence failure.
+	TIMAcousticWindowProbeLog<FIMAcousticSnapshotProbe, 16384> PressureSnapshots;
+	TIMAcousticWindowProbeLog<FIMAcousticWorkerProbe, 32768> PressureWorkers;
+	// One atomic orders admission and closure. Removing the open bit stops new
+	// publishers; a closed zero state proves all previously admitted writes left.
+	// A bool plus a delay cannot establish that publication barrier.
+	static constexpr uint32 PressureWindowOpenBit = 1u << 31;
+	std::atomic<uint32> PressureWindowPublicationState{0};
+	bool PressureWindowWasOpened = false; // GT only; fresh device, single window.
+	bool PreparePressureWindowProbes() // GT only, exactly once per fresh device
+	{
+		if (PressureWindowPublicationState.load(std::memory_order_acquire) != 0
+			|| PressureSnapshots.Entries || PressureWorkers.Entries) return false;
+		return PressureSnapshots.AllocateOnce() && PressureWorkers.AllocateOnce();
+	}
+	bool OpenPressureWindowProbes() // GT only, after both logs are allocated.
+	{
+		if (PressureWindowWasOpened || !PressureSnapshots.Entries || !PressureWorkers.Entries
+			|| PressureWindowPublicationState.load(std::memory_order_acquire) != 0) return false;
+		PressureWindowWasOpened = true;
+		PressureWindowPublicationState.store(PressureWindowOpenBit, std::memory_order_release);
+		return true;
+	}
+	bool TryBeginPressureWindowPublication() // GT/worker; claim before Publish.
+	{
+		uint32 State = PressureWindowPublicationState.load(std::memory_order_acquire);
+		while (State & PressureWindowOpenBit)
+		{
+			if (PressureWindowPublicationState.compare_exchange_weak(
+				State, State + 1u, std::memory_order_acq_rel, std::memory_order_acquire)) return true;
+		}
+		return false;
+	}
+	void EndPressureWindowPublication()
+	{
+		PressureWindowPublicationState.fetch_sub(1u, std::memory_order_acq_rel);
+	}
+	void ClosePressureWindowProbes() // GT only; admitted publishers may still run.
+	{
+		PressureWindowPublicationState.fetch_and(~PressureWindowOpenBit, std::memory_order_acq_rel);
+	}
+	bool PressureWindowPublicationsQuiescent() const
+	{
+		return PressureWindowPublicationState.load(std::memory_order_acquire) == 0;
+	}
 	std::atomic<uint64> CallbackProbePushes{0}, CallbackProbeOverflows{0};
 	std::atomic<uint64> SourceBlockProbePushes{0}, SourceBlockProbeOverflows{0};
 	std::atomic<uint64> ReverbBlockProbePushes{0}, ReverbBlockProbeOverflows{0};
@@ -469,6 +612,11 @@ struct FIMAcousticDeviceBridge
 	}
 	void TraceSnapshot(FIMAcousticSnapshotProbe& Entry) // GT Tick only
 	{
+		if (TryBeginPressureWindowPublication())
+		{
+			PressureSnapshots.Publish(Entry);
+			EndPressureWindowPublication();
+		}
 		const uint64 N = SnapshotProbePushes.fetch_add(1, std::memory_order_relaxed);
 		if (N >= ProbeSnapshotCapacity) { SnapshotProbeOverflows.fetch_add(1, std::memory_order_relaxed); return; }
 		Entry.Block = N;
@@ -487,6 +635,11 @@ struct FIMAcousticDeviceBridge
 	}
 	void TraceWorker(FIMAcousticWorkerProbe& Entry) // worker thread only
 	{
+		if (TryBeginPressureWindowPublication())
+		{
+			PressureWorkers.Publish(Entry);
+			EndPressureWindowPublication();
+		}
 		const uint64 N = WorkerProbePushes.fetch_add(1, std::memory_order_relaxed);
 		if (N >= ProbeWorkerCapacity) { WorkerProbeOverflows.fetch_add(1, std::memory_order_relaxed); return; }
 		Entry.Block = N;
@@ -683,6 +836,9 @@ struct FIMAcousticDeviceBridge
 	std::atomic<uint64> RenderInputNonzero{0};
 	std::atomic<uint64> ReverbDryNonzeroBlocks{0},ReverbAmbisonicsNonzeroBlocks{0};
 	std::atomic<int32> ReverbEffectInstances{0};
+	// A successful source renderer owns one Direct, Binaural, and Path effect
+	// plus one retained HRTF. Count completed bundles until Shutdown releases them.
+	std::atomic<int32> SourceRendererInstances{0};
 };
 
 // GT-only registry lookup. Never call this from an audio callback.

@@ -238,8 +238,11 @@ public:
 			Report->SetNumberField(TEXT("bake_wall_seconds"), Now - StageStarted);
 			// Bake() owns package naming under the plugin's Bakes mount. Do not
 			// redirect mounts or rename production output just for this shell.
-			if (!FFileHelper::SaveArrayToFile(Asset->SceneData, *CaseFile(TEXT("scene.bin")))
-				|| !FFileHelper::SaveArrayToFile(Asset->ProbeData, *CaseFile(TEXT("probes.bin")))
+			TArray<uint8> RawScene, RawProbes;
+			if (!Asset->ReadPayload(Asset->WorldPackage, Asset->SceneFingerprint, RawScene, RawProbes, Error))
+				return Finish(false, TEXT("Cannot read raw SDK payload for evidence: ") + Error);
+			if (!FFileHelper::SaveArrayToFile(RawScene, *CaseFile(TEXT("scene.bin")))
+				|| !FFileHelper::SaveArrayToFile(RawProbes, *CaseFile(TEXT("probes.bin")))
 				|| !FFileHelper::SaveStringToFile(Asset->MetadataJson, *CaseFile(TEXT("bake-metadata.json")), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM)
 				|| !SaveMap() || !SaveReport()) return Finish(false, TEXT("Cannot persist real bake evidence/binding."));
 			GUnrealEd->AutomationLoadMap(*MapPath, false, &Error);
@@ -422,6 +425,7 @@ private:
 		{ Error = TEXT("Low/high actual geometry differs."); return false; }
 		Volume = World->SpawnActor<AIMAcousticBakeVolume>();
 		if (!Volume.IsValid()) { Error = TEXT("Cannot spawn production BakeVolume."); return false; }
+		Volume->MaterialDrive = EIMAcousticMaterialDrive::LegacyRenderMaterial;
 		Volume->SetActorLocation(FVector(0, 0, 150));
 		Volume->BakeBounds->SetBoxExtent(FVector(Z * 100, X * 100, 150));
 		Volume->ProbeSpacingCm = 100; Volume->ProbeHeightCm = 150;

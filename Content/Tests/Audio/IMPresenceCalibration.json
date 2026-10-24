@@ -1,0 +1,46 @@
+{
+  "compensation_gain": 0.35114446054664356,
+  "compensation_db": -9.090283567479947,
+  "method": "Equal-weight mean stereo energy in the same canonical contact-indexed 400ms windows; every window has nonzero Wave/Gain PCM in both modes; no per-mode loudness threshold; native pre-spatial and native spatial-to-master correlations only locate current event windows.",
+  "window_frames": 19200,
+  "sample_rate": 48000,
+  "event_indices": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20
+  ],
+  "physical_effective_rms_dbfs": -50.959066792434065,
+  "exaggerated_effective_rms_dbfs": -41.86878322495413,
+  "raw_wav_sha256": {
+    "physical_raw": "f045d7e4380c733f1efaf61b8d4beb36ac696feefc389a247ae94f951229b7fd",
+    "exaggerated_raw": "e2c7f3c8bc330d16d9524c9c6e12a3ce381d23dc92df11de7dcd997afe48c71b"
+  },
+  "alignment_frames": {
+    "physical_raw": {
+      "presence_to_spatial": -1326,
+      "spatial_to_master": 1024
+    },
+    "exaggerated_raw": {
+      "presence_to_spatial": -208,
+      "spatial_to_master": 0
+    }
+  }
+}
