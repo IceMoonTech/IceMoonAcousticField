@@ -169,16 +169,18 @@ bool SelectComponents(UWorld* World, const FBox& Region, const FIMAcousticGrassB
 	{
 		const FIMProducer* Match = nullptr;
 		if (const auto* Choices = Candidates.Find(Component->InstancingRandomSeed))
+		{
 			for (const FIMProducer& Choice : *Choices)
-				if (Choice.Proxy == Component->GetOwner())
+			{
+				if (Choice.Proxy != Component->GetOwner()) continue;
+				if (Match)
 				{
-					if (Match)
-					{
-						Error = TEXT("Grass producer seed is ambiguous in its owning proxy: ") + Component->GetPathName();
-						return false;
-					}
-					Match = &Choice;
+					Error = TEXT("Grass producer seed is ambiguous in its owning proxy: ") + Component->GetPathName();
+					return false;
 				}
+				Match = &Choice;
+			}
+		}
 		if (!Match)
 		{
 			// Selected producers are read regardless of cached component bounds.
