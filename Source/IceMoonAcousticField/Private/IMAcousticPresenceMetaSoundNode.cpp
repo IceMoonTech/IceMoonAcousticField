@@ -120,9 +120,10 @@ private:
 	void ProcessRange(int32 StartFrame, int32 EndFrame)
 	{
 		const float TargetGain = *Enabled > .5f && *EqualLoudness > .5f && FMath::IsFinite(*Compensation) && *Compensation > 0.f ? *Compensation : 1.f;
+		constexpr float SecondsPerUnitGain = .04f;
 		for (int32 Frame = StartFrame; Frame < EndFrame; ++Frame)
 		{
-			CurrentGain += FMath::Clamp(TargetGain - CurrentGain, -1.f / (.04f * SampleRate), 1.f / (.04f * SampleRate));
+			CurrentGain += FMath::Clamp(TargetGain - CurrentGain, -1.f / (SecondsPerUnitGain * SampleRate), 1.f / (SecondsPerUnitGain * SampleRate));
 			// Sample character comes from the recorded wave. The node's only job is the equal-loudness gain,
 			// so the exaggerated and physical paths feed the same shared spatial/convolution chain.
 			const float Input = FMath::IsFinite(Mono->GetData()[Frame]) ? Mono->GetData()[Frame] : 0.f;
