@@ -837,15 +837,13 @@ void AIMAcousticFootstepCharacter::AdvanceWalking(float DeltaSeconds)
 	const int32 NewHalfStep = FMath::FloorToInt(GaitPhase * 2.);
 	UpdateVisiblePose();
 	// 一个实际画面最多一次可见落脚；卡顿不补播一串没有对应画面的历史脚步。
-	if (NewHalfStep != PreviousHalfStep)
-	{
-		const int32 Foot = (NewHalfStep & 1) ? 0 : 1;
-		// 接触后让落地瞬态完整发出，避免同帧的普通步伐重触发切掉它。
-		if (GetWorld()->GetTimeSeconds() - LastLandingSeconds >= IMLandingContactGuardSeconds)
-			EmitSoleContact(Foot);
-		if (NewHalfStep - PreviousHalfStep > 1)
-			UE_LOG(LogTemp, Warning, TEXT("IMLogs FootstepDemo skipped_hitch_contacts=%d"), NewHalfStep-PreviousHalfStep-1);
-	}
+	if (NewHalfStep == PreviousHalfStep) return;
+	const int32 Foot = (NewHalfStep & 1) ? 0 : 1;
+	// 接触后让落地瞬态完整发出，避免同帧的普通步伐重触发切掉它。
+	if (GetWorld()->GetTimeSeconds() - LastLandingSeconds >= IMLandingContactGuardSeconds)
+		EmitSoleContact(Foot);
+	if (NewHalfStep - PreviousHalfStep > 1)
+		UE_LOG(LogTemp, Warning, TEXT("IMLogs FootstepDemo skipped_hitch_contacts=%d"), NewHalfStep-PreviousHalfStep-1);
 }
 
 bool AIMAcousticFootstepCharacter::TraceSole(int32 Foot, FHitResult& Hit) const
