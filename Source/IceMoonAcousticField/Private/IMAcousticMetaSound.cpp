@@ -479,19 +479,17 @@ int32 IMAcousticMetaSound::RegisterAcousticMetaSoundSource(const FIMAcousticMeta
 	// consume a new component's result. World shutdown releases the bounded set.
 	for (uint32 I = 0; I < FIMAcousticMetaSoundContext::MaxVoices; ++I)
 	{
-		if (Context->AudioIds[I].load(std::memory_order_acquire) == 0)
+		if (Context->AudioIds[I].load(std::memory_order_acquire) != 0) continue;
+		if (Context->SourceSendTransportEnabled)
 		{
-			if (Context->SourceSendTransportEnabled)
-			{
-				Context->SourceSendPatches[I] = MakeShared<Audio::FPatchOutput, ESPMode::ThreadSafe>(
-					Context->SourceSendCapacityFrames);
-				Context->SourceSendInputs[I] = MakeUnique<Audio::FPatchInput>(Context->SourceSendPatches[I]);
-			}
-			// Operators and the environment reader acquire this identity before
-			// reading the immutable queue handles above. Slots are never reused.
-			Context->AudioIds[I].store(AudioId, std::memory_order_release);
-			return I;
+			Context->SourceSendPatches[I] = MakeShared<Audio::FPatchOutput, ESPMode::ThreadSafe>(
+				Context->SourceSendCapacityFrames);
+			Context->SourceSendInputs[I] = MakeUnique<Audio::FPatchInput>(Context->SourceSendPatches[I]);
 		}
+		// Operators and the environment reader acquire this identity before
+		// reading the immutable queue handles above. Slots are never reused.
+		Context->AudioIds[I].store(AudioId, std::memory_order_release);
+		return I;
 	}
 	return INDEX_NONE;
 }
