@@ -693,34 +693,34 @@ bool PointStrictlyInTri(const FVector2D& Q, const FVector2D& A, const FVector2D&
 }
 bool EarClip(const TArray<FVector2D>& P, TArray<int32>& OutFlat)
 {
-	TArray<int32> V;
-	for (int32 I = 0; I < P.Num(); ++I) { V.Add(I); }
-	int32 Guard = V.Num() * V.Num() + 1;
-	while (V.Num() > 3 && Guard-- > 0)
+	TArray<int32> RemainingVertexIndices;
+	for (int32 I = 0; I < P.Num(); ++I) { RemainingVertexIndices.Add(I); }
+	int32 Guard = RemainingVertexIndices.Num() * RemainingVertexIndices.Num() + 1;
+	while (RemainingVertexIndices.Num() > 3 && Guard-- > 0)
 	{
 		bool bClipped = false;
-		for (int32 I = 0; I < V.Num(); ++I)
+		for (int32 I = 0; I < RemainingVertexIndices.Num(); ++I)
 		{
-			const int32 Ip = (I + V.Num() - 1) % V.Num();
-			const int32 In = (I + 1) % V.Num();
-			const FVector2D& A = P[V[Ip]];
-			const FVector2D& B = P[V[I]];
-			const FVector2D& C = P[V[In]];
+			const int32 PreviousSlot = (I + RemainingVertexIndices.Num() - 1) % RemainingVertexIndices.Num();
+			const int32 NextSlot = (I + 1) % RemainingVertexIndices.Num();
+			const FVector2D& A = P[RemainingVertexIndices[PreviousSlot]];
+			const FVector2D& B = P[RemainingVertexIndices[I]];
+			const FVector2D& C = P[RemainingVertexIndices[NextSlot]];
 			if (PolyArea2(A, B, C) <= 1e-9) { continue; }
 			bool bInside = false;
-			for (int32 J = 0; J < V.Num(); ++J)
+			for (int32 J = 0; J < RemainingVertexIndices.Num(); ++J)
 			{
-				if (J == I || J == Ip || J == In) { continue; }
-				if (PointStrictlyInTri(P[V[J]], A, B, C)) { bInside = true; break; }
+				if (J == I || J == PreviousSlot || J == NextSlot) { continue; }
+				if (PointStrictlyInTri(P[RemainingVertexIndices[J]], A, B, C)) { bInside = true; break; }
 			}
 			if (bInside) { continue; }
-			OutFlat.Add(V[Ip]); OutFlat.Add(V[I]); OutFlat.Add(V[In]);
-			V.RemoveAt(I); bClipped = true; break;
+			OutFlat.Add(RemainingVertexIndices[PreviousSlot]); OutFlat.Add(RemainingVertexIndices[I]); OutFlat.Add(RemainingVertexIndices[NextSlot]);
+			RemainingVertexIndices.RemoveAt(I); bClipped = true; break;
 		}
 		if (!bClipped) { return false; }
 	}
-	if (V.Num() != 3) { return false; }
-	OutFlat.Add(V[0]); OutFlat.Add(V[1]); OutFlat.Add(V[2]);
+	if (RemainingVertexIndices.Num() != 3) { return false; }
+	OutFlat.Add(RemainingVertexIndices[0]); OutFlat.Add(RemainingVertexIndices[1]); OutFlat.Add(RemainingVertexIndices[2]);
 	return true;
 }
 void MergeCoplanarDynamicTris(TArray<IPLVector3>& Verts, TArray<IPLTriangle>& Tris, TArray<int32>& MatIds)
