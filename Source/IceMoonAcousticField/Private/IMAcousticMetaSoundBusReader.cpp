@@ -163,7 +163,7 @@ bool ReadAcousticBus(FIMAcousticMetaSoundContext& C, float* Out, int32 Frames, b
 	{ C.BusUnderruns.fetch_add(1, std::memory_order_relaxed); return Observation.Finish(EIMAcousticBusReadResult::LatchedFault, false); }
 	std::array<Audio::FPatchOutput*, FIMAcousticMetaSoundContext::MaxVoices> Inputs{};
 	int32 InputCount = 0;
-	int32 Available = MAX_int32;
+	int32 MinimumQueuedSamples = MAX_int32;
 	for (uint32 Slot = 0; Slot < FIMAcousticMetaSoundContext::MaxVoices; ++Slot)
 	{
 		// AudioId publishes the immutable queue handle. An empty stopped voice
@@ -193,7 +193,7 @@ bool ReadAcousticBus(FIMAcousticMetaSoundContext& C, float* Out, int32 Frames, b
 		if (!Active && Queued == 0) continue;
 		Observation.NoteInput(Slot, AudioId, Queued, Active);
 		Inputs[InputCount++] = Patch;
-		Available = FMath::Min(Available, Queued);
+		MinimumQueuedSamples = FMath::Min(MinimumQueuedSamples, Queued);
 	}
 	if (InputCount == 0)
 	{
@@ -207,15 +207,15 @@ bool ReadAcousticBus(FIMAcousticMetaSoundContext& C, float* Out, int32 Frames, b
 	}
 	if (!Primed)
 	{
-		if (Available < C.BusPrimeFrames)
+		if (MinimumQueuedSamples < C.BusPrimeFrames)
 		{ C.BusPrimingBlocks.fetch_add(1, std::memory_order_relaxed); return Observation.Finish(EIMAcousticBusReadResult::ReservePriming, false); }
 		Primed = true;
 	}
-	C.BusMinAvailable.store(FMath::Min(C.BusMinAvailable.load(), Available), std::memory_order_relaxed);
-	C.BusMaxAvailable.store(FMath::Max(C.BusMaxAvailable.load(), Available), std::memory_order_relaxed);
+	C.BusMinAvailable.store(FMath::Min(C.BusMinAvailable.load(), MinimumQueuedSamples), std::memory_order_relaxed);
+	C.BusMaxAvailable.store(FMath::Max(C.BusMaxAvailable.load(), MinimumQueuedSamples), std::memory_order_relaxed);
 	// Check every producer before consuming any source. No partial pop, latest
 	// seek, blocking wait or omitted active voice is used to hide a short block.
-	if (Available < Frames)
+	if (MinimumQueuedSamples < Frames)
 	{
 		FMemory::Memzero(Out, Frames * sizeof(float));
 		C.BusUnderruns.fetch_add(1, std::memory_order_relaxed);
