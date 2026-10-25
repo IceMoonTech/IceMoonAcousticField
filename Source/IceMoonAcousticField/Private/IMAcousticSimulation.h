@@ -98,7 +98,9 @@ struct FIMAcousticPathingOptions
 	{
 		std::string M;
 		if (!HasEnableValidation) { M += "enableValidation"; }
-		if (!HasFindAlternatePaths) { if (!M.empty()) { M += ", "; } M += "findAlternatePaths"; }
+		if (HasFindAlternatePaths) { return M; }
+		if (!M.empty()) { M += ", "; }
+		M += "findAlternatePaths";
 		return M;
 	}
 };
