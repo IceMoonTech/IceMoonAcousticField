@@ -1,8 +1,9 @@
 #pragma once
 
 // Standard-C++ Steam Audio SDK 4.8.1 bake/simulate adapter.
-// No UE, no UObject, no worker threads, no file I/O. Every SDK object is
+// No UObject, no worker threads, no file I/O. Every SDK object is
 // owned by one serial caller. Detached reverb sources are retained in IR slots.
+// SDK stage telemetry uses UE HAL/logging.
 // Coordinate contract: all positions in FIMAcousticSceneInput and Evaluate
 // are already SDK meters (GT converted); this adapter never rescales.
 //
