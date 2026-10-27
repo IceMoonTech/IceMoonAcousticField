@@ -25,6 +25,7 @@
 #include "Misc/SecureHash.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Materials/MaterialInterface.h"
+#include "PhysicalMaterials/PhysicalMaterial.h"
 #include "MeshDescription.h"
 #include "StaticMeshResources.h"
 #include "Dom/JsonObject.h"
@@ -228,6 +229,9 @@ struct FIMG2BakeScaleSource
 	TWeakObjectPtr<AIMAcousticBakeVolume> Volume;
 	TWeakObjectPtr<UStaticMesh> Mesh;
 	TWeakObjectPtr<UMaterialInterface> Material;
+	// The whitebox cubes get their acoustic surface from this component-level override (the W2 bake is PhysicalMaterial-driven and the Cube
+	// render material carries no physical material), so transient placements must carry the same override or the scene check rejects them.
+	TWeakObjectPtr<UPhysicalMaterial> PhysicalMaterialOverride;
 };
 
 static bool IMG2BakeScaleHashFile(const FString& PackageName, FString& OutFilename,
@@ -267,6 +271,7 @@ static bool IMG2BakeScaleReadSource(UWorld* World, FIMG2BakeScaleSource& Out, FS
 	UMaterialInterface* CubeMaterial = nullptr;
 	bool bUniformMesh = true;
 	bool bUniformMaterial = true;
+	UPhysicalMaterial* CubePhysicalOverride = nullptr;
 	for (TActorIterator<AIMAcousticBakeVolume> It(World); It; ++It)
 	{
 		if (Out.Volume.IsValid())
@@ -300,6 +305,8 @@ static bool IMG2BakeScaleReadSource(UWorld* World, FIMG2BakeScaleSource& Out, FS
 			else bUniformMesh &= CubeMesh == Component->GetStaticMesh();
 			if (!CubeMaterial) CubeMaterial = Component->GetMaterial(0);
 			else bUniformMaterial &= CubeMaterial == Component->GetMaterial(0);
+			// Transient placements copy the first whitebox cube's override; the saved cubes keep their own, so the baseline mapping set is preserved.
+			if (Out.WhiteboxPlacements == 1) CubePhysicalOverride = Component->BodyInstance.GetPhysMaterialOverride();
 		}
 	}
 	if (Out.WorldPackage != IMG2BakeScaleMap || Out.WhiteboxPlacements != IMG2BakeScaleBaselinePlacements
@@ -327,6 +334,7 @@ static bool IMG2BakeScaleReadSource(UWorld* World, FIMG2BakeScaleSource& Out, FS
 	Out.MaterialPath = CubeMaterial->GetPathName();
 	Out.Mesh = CubeMesh;
 	Out.Material = CubeMaterial;
+	Out.PhysicalMaterialOverride = CubePhysicalOverride;
 
 	AIMAcousticBakeVolume* Volume = Out.Volume.Get();
 	Out.ProbeSpacingCm = Volume->ProbeSpacingCm;
@@ -1243,6 +1251,7 @@ public:
 	{
 		if (bFinished) return true;
 		if (Stage == 0) return StartCase();
+		if (Stage == 3) return GenerateAndStartBake();
 		if (Stage == 1) return PollBake();
 		if (Stage == 2) return PollEditorTicker();
 		return Finish(TEXT("FAIL"), TEXT("Internal G2 BakeScale stage was invalid."));
@@ -1385,6 +1394,8 @@ private:
 					? UniqueMeshes[UniqueMeshIndex].Get() : Source.Mesh.Get();
 				Component->SetStaticMesh(PlacementMesh);
 				Component->SetMaterial(0, Source.Material.Get());
+				if (UPhysicalMaterial* PhysicalOverride = Source.PhysicalMaterialOverride.Get())
+					Component->BodyInstance.SetPhysMaterialOverride(PhysicalOverride);
 				if (Component->Mobility != EComponentMobility::Static
 					|| Component->GetStaticMesh() != PlacementMesh
 					|| Component->GetMaterial(0) != Source.Material.Get())
@@ -1435,9 +1446,21 @@ private:
 			UniqueMeshesPlacedTwice = TwoPlacementMeshes;
 		}
 		SampleMemory(TEXT("placements_built"), true);
+		Stage = 3;
+		return false;
+	}
 
+	// Runs on a later Editor tick than the placement construction: the product defers the scene check ("retry validation after the Editor
+	// tick") while freshly registered components still report empty cached bounds, so the same call is repeated until it stops deferring.
+	bool GenerateAndStartBake()
+	{
+		AIMAcousticBakeVolume* Volume = Source.Volume.Get();
+		FString Error;
 		const double ProbeStartedAt = FPlatformTime::Seconds();
 		Volume->GenerateProbes();
+		if (Volume->ExportedTriangles == 0 && Volume->Status.StartsWith(TEXT("Scene components are still updating bounds"))
+			&& FPlatformTime::Seconds() - StartedAt < IMG2BakeScaleMaxSeconds)
+			return false;
 		GenerateProbesSeconds = FPlatformTime::Seconds() - ProbeStartedAt;
 		SampleMemory(TEXT("after_generate_probes"), true);
 		ExpectedTriangles = TargetPlacements * Source.CubeLOD0Triangles;
@@ -1445,9 +1468,24 @@ private:
 		ProbeCount = Volume->GeneratedProbes;
 		if (Volume->ExportedTriangles != ExpectedTriangles)
 		{
+			// Name the product's own explanation (status and the first scene issues) so a short capture is diagnosable.
+			// Group the issues by their text before the first object path so hundreds of per-component lines collapse into kinds,
+			// then keep the last issue verbatim (the first ones are the map's own editor-only helpers).
+			TMap<FString, int32> IssueKinds;
+			for (const FString& Issue : Volume->SceneIssues)
+			{
+				int32 PathStart = INDEX_NONE;
+				Issue.FindChar(TEXT('/'), PathStart);
+				IssueKinds.FindOrAdd(PathStart > 0 ? Issue.Left(PathStart) : Issue) += 1;
+			}
+			FString Issues;
+			for (const TPair<FString, int32>& Kind : IssueKinds)
+				Issues += FString::Printf(TEXT(" | %s x%d"), *Kind.Key, Kind.Value);
+			if (Volume->SceneIssues.Num() > 0)
+				Issues += TEXT(" | last: ") + Volume->SceneIssues.Last();
 			return Finish(TEXT("FAIL"), FString::Printf(
-				TEXT("Production scene capture exported %d triangles; expected %d for %d Cube placements."),
-				Volume->ExportedTriangles, ExpectedTriangles, TargetPlacements));
+				TEXT("Production scene capture exported %d triangles; expected %d for %d Cube placements. Volume status: %s; scene issues (%d):%s"),
+				Volume->ExportedTriangles, ExpectedTriangles, TargetPlacements, *Volume->Status, Volume->SceneIssues.Num(), *Issues));
 		}
 		if (bInstancedMeshScenario && !ValidateInstancedCapturePhase(Error))
 			return Finish(TEXT("FAIL"), Error);
@@ -1594,6 +1632,8 @@ private:
 			Component->SetMobility(EComponentMobility::Static);
 			Component->SetStaticMesh(PlacementMesh);
 			Component->SetMaterial(0, Source.Material.Get());
+			if (UPhysicalMaterial* PhysicalOverride = Source.PhysicalMaterialOverride.Get())
+				Component->BodyInstance.SetPhysMaterialOverride(PhysicalOverride);
 			Actor->AddInstanceComponent(Component);
 			// Use the instanced mesh itself as root so each clone contributes exactly one primitive component.
 			Actor->SetRootComponent(Component);

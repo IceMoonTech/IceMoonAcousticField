@@ -306,6 +306,7 @@ public:
 			if (bPressureScope) Context->Device->EndPressureWindowPublication();
 		};
 		const uint64 ExecuteStart = (!bMaximumWindow || bPressureScope) ? ExecuteCandidateStart : 0;
+		const uint64 ExecuteStartCpu = ExecuteStart ? Context->BlockCosts.BeginCpuCycles() : 0;
 		const bool bCaptureMaximum = ExecuteStart
 			&& Context->CaptureExecuteMaximums.load(std::memory_order_relaxed);
 		FIMAcousticExecuteMaximumSample MaximumSample;
@@ -331,6 +332,7 @@ public:
 					MaximumSample.WholeCycles = Cycles;
 					Context->BusExecuteMaximum.RecordMaximum(MaximumSample);
 				}
+				Context->BlockCosts.Record(Context->BlockCosts.BusParticipant(), ExecuteStart, Cycles, ExecuteStartCpu);
 			}
 		};
 		Output->Zero();

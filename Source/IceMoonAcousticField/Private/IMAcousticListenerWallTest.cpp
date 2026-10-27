@@ -103,6 +103,19 @@ public:
 		{
 			// Wait longer than the 250 ms IR freshness lease. Any wet blocks
 			// after this point must come from a newly accepted wall position.
+			// IR and wet produced from the last pre-wall snapshot are legitimate until that lease ends: the wall position is first
+			// captured up to one 50 ms snapshot interval after the move, its IR can be published one more 50 ms worker cycle
+			// later, and the environment reads the version through a 2-block (21 ms) input delay. So the zero-growth baseline is
+			// taken at 250 + 50 + 50 + 21 ms (rounded up to 0.4 s) after the move, not at the move itself.
+			constexpr double LeaseEndSeconds = 0.4;
+			if (Now - StageStarted < LeaseEndSeconds) return false;
+			if (!bLeaseEndSampled)
+			{
+				LeaseEndIR = Context->LastIRSequence.load(std::memory_order_acquire);
+				LeaseEndWet = Context->Device->ReverbNonzeroBlocks.load(std::memory_order_acquire);
+				bLeaseEndSampled = true;
+				return false;
+			}
 			if (Now - StageStarted < 1.25) return false;
 			WallIR = Context->LastIRSequence.load(std::memory_order_acquire);
 			WallWet = Context->Device->ReverbNonzeroBlocks.load(std::memory_order_acquire);
@@ -117,15 +130,15 @@ public:
 
 		if (Stage == 2 && Now - StageStarted >= 0.75)
 		{
-			const uint64 WetDelta = WallWet - ValidWet;
-			const uint64 IRDelta = WallIR - ValidIR;
+			const uint64 WetDelta = WallWet - LeaseEndWet;
+			const uint64 IRDelta = WallIR - LeaseEndIR;
 			const uint64 RejectDelta = WallReject - BaselineReject;
 			const uint64 NoIRDelta = WallNoIR - BaselineNoIR;
 			const bool Safe = WetDelta == 0 && IRDelta == 0 && NoIRDelta > 0
 				&& WallStatus.Contains(TEXT("listener inside baked acoustic geometry"));
 			FString Message = FString::Printf(
-				TEXT("wall_listener safe=%d valid_ir=%llu wall_ir=%llu valid_wet=%llu wall_wet=%llu wall_reject=%llu wall_no_ir=%llu status=%s"),
-				Safe ? 1 : 0, ValidIR, WallIR, ValidWet, WallWet, RejectDelta, NoIRDelta, *WallStatus);
+				TEXT("wall_listener safe=%d valid_ir=%llu wall_ir=%llu valid_wet=%llu wall_wet=%llu wall_reject=%llu wall_no_ir=%llu lease_end_ir=%llu lease_end_wet=%llu status=%s"),
+				Safe ? 1 : 0, ValidIR, WallIR, ValidWet, WallWet, RejectDelta, NoIRDelta, LeaseEndIR, LeaseEndWet, *WallStatus);
 			WriteEvidence(Safe, Message);
 			return Finish(Safe, Message);
 		}
@@ -188,6 +201,8 @@ private:
 	FIMAcousticMetaSoundContextPtr Context;
 	uint64 BaselineIR = 0, BaselineWet = 0, BaselineReject = 0, BaselineNoIR = 0;
 	uint64 ValidIR = 0, ValidWet = 0, WallIR = 0, WallWet = 0, WallReject = 0, WallNoIR = 0;
+	uint64 LeaseEndIR = 0, LeaseEndWet = 0;
+	bool bLeaseEndSampled = false;
 	FString WallStatus;
 };
 }

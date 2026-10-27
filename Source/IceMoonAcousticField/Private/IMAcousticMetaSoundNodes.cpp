@@ -275,6 +275,7 @@ public:
 			if (bPressureScope) Context->Device->EndPressureWindowPublication();
 		};
 		const uint64 ExecuteStart = (!bMaximumWindow || bPressureScope) ? ExecuteCandidateStart : 0;
+		const uint64 ExecuteStartCpu = ExecuteStart && Context ? Context->BlockCosts.BeginCpuCycles() : 0;
 		Left->Zero(); Right->Zero(); Send->Zero();
 		if (!Context || Context->Stopped.load(std::memory_order_acquire) || bSourceSendCompleted) return;
 		if (!Ready || Mono->Num() != Frames || Frames != int32(FIMAcousticMetaSoundContext::Frames))
@@ -320,6 +321,7 @@ public:
 					MaximumSample.WholeCycles = Cycles;
 					Context->SourceExecuteMaximums[Slot].RecordMaximum(MaximumSample);
 				}
+				Context->BlockCosts.Record(Context->BlockCosts.SourceParticipant(Slot), ExecuteStart, Cycles, ExecuteStartCpu);
 			}
 		};
 		// This scope runs before the timing scope above closes, so the source
@@ -531,6 +533,14 @@ public:
 					// the helper also preserves IdentityRejectDetail as a
 					// separate raw-mask bucket when identity failed.
 					Device.RecordGraphSourceReject(static_cast<uint32>(Slot), ProbeReject, IdentityRejectDetail, Now);
+				}
+				else
+				{
+					// A fresh result that the renderer still refused used to leave no trace: W3.Pressure16x600 counted
+					// rejected blocks while the detail buckets and the renderer failure counters stayed empty.
+					Device.RendererFailedBlocks.fetch_add(1, std::memory_order_relaxed);
+					Device.RenderFailures[size_t(Metrics.Failure)].fetch_add(1, std::memory_order_relaxed);
+					Device.RecordGraphSourceReject(static_cast<uint32>(Slot), EIMAcousticProbeReject::RendererFailed, 0, Now);
 				}
 			}
 			if (Fresh) ProbeReject = EIMAcousticProbeReject::RendererFailed;
@@ -907,6 +917,7 @@ public:
 			if (bPressureScope) Context->Device->EndPressureWindowPublication();
 		};
 		const uint64 ExecuteStart = (!bMaximumWindow || bPressureScope) ? ExecuteCandidateStart : 0;
+		const uint64 ExecuteStartCpu = ExecuteStart && Context ? Context->BlockCosts.BeginCpuCycles() : 0;
 		Left->Zero(); Right->Zero();
 		if (!Context || !Owned) return;
 		if (Context->Stopped.load(std::memory_order_acquire) || Context->Pool->Stopped.load(std::memory_order_acquire))
@@ -936,6 +947,7 @@ public:
 					MaximumSample.WholeCycles = Cycles;
 					Context->EnvironmentExecuteMaximum.RecordMaximum(MaximumSample);
 				}
+				Context->BlockCosts.Record(Context->BlockCosts.EnvironmentParticipant(), ExecuteStart, Cycles, ExecuteStartCpu);
 			}
 		};
 		const double Now = FPlatformTime::Seconds();
@@ -1631,6 +1643,39 @@ FIMReferenceComparison CompareStereo(const TArray<float>& Actual, const TArray<f
 	return Result;
 }
 
+// Independent model of the environment wet stage's 60 Hz 2nd-order Butterworth high-pass (the V2 merge added it after the SDK reverb;
+// the SDK-only reference has to apply it too or it overstates the sub-60 Hz wet energy). The coefficients are derived separately from the
+// product's (RBJ high-pass written out here, in double, then rounded to float), so a wrong corner or Q is still caught. The state update runs
+// in float on purpose: with poles this close to z=1 the float round-off of the recursion showed up as 2.6e-7 max absolute difference
+// against a double-precision form on the frozen wet stem (sdkref9), which is the same floor the product itself has and which the unchanged 1e-7 absolute
+// tolerance is not meant to cover. A double-precision recursion here would make the product's own float round-off look like a mismatch.
+struct FIMReferenceWetHighPass
+{
+	void Configure(double SampleRate, double CornerHz)
+	{
+		const double Omega = 2.0 * PI * CornerHz / SampleRate;
+		const double Alpha = FMath::Sin(Omega) / (2.0 * 0.70710678118654752440);
+		const double CosOmega = FMath::Cos(Omega);
+		const double A0 = 1.0 + Alpha;
+		B0 = float((1.0 + CosOmega) * 0.5 / A0);
+		B1 = float(-(1.0 + CosOmega) / A0);
+		A1 = float(-2.0 * CosOmega / A0);
+		A2 = float((1.0 - Alpha) / A0);
+		for (float& Value : State) Value = 0.0f;
+	}
+	// Transposed direct form II, one state pair per channel.
+	float Process(int32 Channel, float Input)
+	{
+		float* Z = State + 2 * Channel;
+		const float Output = B0 * Input + Z[0];
+		Z[0] = B1 * Input - A1 * Output + Z[1];
+		Z[1] = B0 * Input - A2 * Output;
+		return Output;
+	}
+	float B0 = 1.0f, B1 = 0.0f, A1 = 0.0f, A2 = 0.0f;
+	float State[4]{};
+};
+
 float StereoEnergy(const TArray<float>& Samples)
 {
 	double Energy = 0.0;
@@ -1781,16 +1826,45 @@ bool FIMAcousticMetaSoundSDKReference::RunTest(const FString&)
 		return Fail(FString::Printf(TEXT("Frozen PCM input is missing or shorter than the declared 4608-frame adaptation offset plus one 512-frame block: %s"), *PCMPath));
 	TArray<float> Mono;
 	Mono.SetNumUninitialized(::IMAcousticMetaSoundNodesPrivate::ReferenceGraphFrames);
-	for (int32 I = 0; I < ::IMAcousticMetaSoundNodesPrivate::ReferenceGraphFrames; ++I)
+	// The declared window starts at the 4608-frame adaptation offset. The captured audition source plays exact zeros and then sub-LSB
+	// samples for its first second, and where its audible part begins moves with the host's audio start-up, so a fixed 4608-frame window
+	// can hold no usable signal (the stereo negative control below needs a real stereo mix). The reference therefore uses the loudest
+	// 512-frame block at or after the declared offset that follows a block carrying signal (so the SDK reference is not compared across
+	// an onset step). The comparison tolerances and the non-silent requirement are unchanged.
+	const int32 PcmFrameCount = RawPCM.Num() / int32(sizeof(float));
+	const int32 BlockFrames = ::IMAcousticMetaSoundNodesPrivate::ReferenceGraphFrames;
+	const int32 DeclaredStartFrame = int32(::IMAcousticMetaSoundNodesPrivate::ReferenceSourceToEnvironmentLagFrames);
+	int32 WindowStartFrame = INDEX_NONE;
+	{
+		const float* Pcm = reinterpret_cast<const float*>(RawPCM.GetData());
+		double PreviousEnergy = 0.0;
+		double BestEnergy = 0.0;
+		for (int32 StartFrame = DeclaredStartFrame - BlockFrames; StartFrame + BlockFrames <= PcmFrameCount; StartFrame += BlockFrames)
+		{
+			double Energy = 0.0;
+			for (int32 I = 0; I < BlockFrames; ++I)
+			{
+				float Sample = 0.0f;
+				FMemory::Memcpy(&Sample, Pcm + StartFrame + I, sizeof(float));
+				if (!FMath::IsFinite(Sample)) return Fail(TEXT("Frozen PCM input contains a non-finite sample."));
+				Energy += double(Sample) * double(Sample);
+			}
+			if (StartFrame >= DeclaredStartFrame && PreviousEnergy > 0.0 && Energy > BestEnergy)
+			{
+				BestEnergy = Energy;
+				WindowStartFrame = StartFrame;
+			}
+			PreviousEnergy = Energy;
+		}
+	}
+	if (WindowStartFrame == INDEX_NONE)
+		return Fail(TEXT("Frozen PCM input is silent in the declared phase window and in every later block."));
+	for (int32 I = 0; I < BlockFrames; ++I)
 	{
 		float Sample = 0.0f;
-		const int32 SourceFrame = int32(::IMAcousticMetaSoundNodesPrivate::ReferenceSourceToEnvironmentLagFrames) + I;
-		FMemory::Memcpy(&Sample, RawPCM.GetData() + SourceFrame * sizeof(float), sizeof(float));
-		if (!FMath::IsFinite(Sample)) return Fail(TEXT("Frozen PCM input contains a non-finite sample."));
+		FMemory::Memcpy(&Sample, RawPCM.GetData() + (WindowStartFrame + I) * sizeof(float), sizeof(float));
 		Mono[I] = Sample * ::IMAcousticMetaSoundNodesPrivate::ReferenceInputGain;
 	}
-	if (::IMAcousticMetaSoundNodesPrivate::StereoEnergy(Mono) <= 0.0f)
-		return Fail(TEXT("Frozen PCM input is silent in the declared phase window."));
 
 	auto MeasureCandidateEnergy = [&](const FIMAcousticAudioFrame& CandidateFrame, const FVector& CandidatePosition,
 		double& OutDirectEnergy, double& OutPathEnergy, double& OutWetEnergy) -> bool
@@ -2015,15 +2089,27 @@ bool FIMAcousticMetaSoundSDKReference::RunTest(const FString&)
 		if (!Initialized) return false;
 		TArray<float> RawWet;
 		RawWet.SetNumZeroed(::IMAcousticMetaSoundNodesPrivate::ReferenceGraphFrames * 2);
-		if (!Renderer.Render(ExpectedSend.GetData(), ::IMAcousticMetaSoundNodesPrivate::ReferenceGraphFrames, ReferenceIR.Params,
-			ReferenceIR.Listener, RawWet.GetData())) return false;
 		Out.SetNumUninitialized(RawWet.Num());
-		for (int32 Warmup = 0; Warmup < ::IMAcousticMetaSoundNodesPrivate::ReferenceWarmupBlocks; ++Warmup)
+		// The graph's high-pass sees every warm-up block in order, so the reference filters every rendered block with persistent state.
+		::IMAcousticMetaSoundNodesPrivate::FIMReferenceWetHighPass HighPass;
+		HighPass.Configure(::IMAcousticMetaSoundNodesPrivate::ReferenceSampleRate, ::IMAcousticMetaSoundNodesPrivate::IMWetHighPassCornerHz);
+		auto RenderAndFilter = [&]() -> bool
 		{
-			if (Warmup > 0 && !Renderer.Render(ExpectedSend.GetData(), ::IMAcousticMetaSoundNodesPrivate::ReferenceGraphFrames, ReferenceIR.Params,
+			if (!Renderer.Render(ExpectedSend.GetData(), ::IMAcousticMetaSoundNodesPrivate::ReferenceGraphFrames, ReferenceIR.Params,
 				ReferenceIR.Listener, RawWet.GetData())) return false;
+			for (int32 Frame = 0; Frame < ::IMAcousticMetaSoundNodesPrivate::ReferenceGraphFrames; ++Frame)
+			{
+				Out[2 * Frame] = HighPass.Process(0, RawWet[2 * Frame]);
+				Out[2 * Frame + 1] = HighPass.Process(1, RawWet[2 * Frame + 1]);
+			}
+			return true;
+		};
+		if (!RenderAndFilter()) return false;
+		for (int32 Warmup = 1; Warmup < ::IMAcousticMetaSoundNodesPrivate::ReferenceWarmupBlocks; ++Warmup)
+		{
+			if (!RenderAndFilter()) return false;
 		}
-		for (int32 I = 0; I < RawWet.Num(); ++I) Out[I] = RawWet[I] * ::IMAcousticMetaSoundNodesPrivate::ReferenceWetGain;
+		for (int32 I = 0; I < Out.Num(); ++I) Out[I] *= ::IMAcousticMetaSoundNodesPrivate::ReferenceWetGain;
 		return true;
 	};
 
@@ -2300,7 +2386,8 @@ bool FIMAcousticMetaSoundSDKReference::RunTest(const FString&)
 	Writer->WriteValue(TEXT("relative_tolerance"), ::IMAcousticMetaSoundNodesPrivate::ReferenceRelativeTolerance);
 	Writer->WriteValue(TEXT("bake_asset"), BakePath);
 	Writer->WriteValue(TEXT("pcm_input"), PCMPath);
-	Writer->WriteValue(TEXT("pcm_offset_frames"), int32(::IMAcousticMetaSoundNodesPrivate::ReferenceSourceToEnvironmentLagFrames));
+	Writer->WriteValue(TEXT("pcm_offset_frames"), WindowStartFrame);
+	Writer->WriteValue(TEXT("pcm_declared_offset_frames"), int32(::IMAcousticMetaSoundNodesPrivate::ReferenceSourceToEnvironmentLagFrames));
 	Writer->WriteValue(TEXT("listener_candidate"), SelectedListenerName);
 	Writer->WriteObjectStart(TEXT("source_ue_cm"));
 	Writer->WriteValue(TEXT("x"), SourceUE.X); Writer->WriteValue(TEXT("y"), SourceUE.Y); Writer->WriteValue(TEXT("z"), SourceUE.Z);

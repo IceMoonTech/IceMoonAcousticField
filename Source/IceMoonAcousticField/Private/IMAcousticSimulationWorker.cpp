@@ -49,7 +49,10 @@ bool FIMAcousticSimulationWorker::Start(TSharedPtr<FIMAcousticDeviceBridge, ESPM
 	if (!SnapshotEvent) { StopAndJoin(); return false; }
 	StopRequested.store(false, std::memory_order_release);
 	WorkerState.store(EIMWorkerState::Loading, std::memory_order_release);
-	Thread.Reset(FRunnableThread::Create(this, TEXT("IMAcousticSimulation"), 0, TPri_Normal));
+	// The worker feeds the audio callback deadline: a snapshot must become a result within the 2-block (about 21 ms) source input delay.
+	// Measured on Pressure16x600 (copy im-acoustic-v2-bake, 2026-10-27): snapshot wake lag is 0.02 ms median but up to 12-15 ms when other
+	// processes load the CPU, which is what consumed the margin. AboveNormal makes the scheduler wake it ahead of ordinary threads.
+	Thread.Reset(FRunnableThread::Create(this, TEXT("IMAcousticSimulation"), 0, TPri_AboveNormal));
 	if (!Thread) { StopAndJoin(); return false; }
 	return true;
 }
@@ -143,6 +146,14 @@ uint32 FIMAcousticSimulationWorker::Run()
 	// waiting after a listener or dynamic-geometry change.
 	constexpr double UpdateSeconds = 0.050;
 	UE::Tasks::FTask ReverbTask;
+	// The reverb IR depends only on the snapshot (listener pose, dynamic meshes, transit policy), so solving the same
+	// snapshot object again cannot change the IR or refresh its age: Target.CapturedSeconds is the snapshot's capture time.
+	// The worker wakes twice per GT snapshot (50 ms timeout, then the snapshot event ~2 ms later). The timeout wake used to
+	// start a redundant solve of the old snapshot; the single in-flight task was then still busy when the new snapshot's
+	// wake arrived, so that version got no IR for ~50 ms and the environment operator counted it as not fresh
+	// (W3.Pressure16x600: 24414 not-fresh blocks, 56 ms median from capture to IR ready). Cleared when a solve fails or is
+	// cancelled so the same snapshot can be retried.
+	TSharedPtr<const FIMAcousticWorldSnapshot, ESPMode::ThreadSafe> LastReverbSnapshot;
 	std::string LastReverbError;
 	std::string LastDynamicError;
 	std::string LastTransitError;
@@ -152,6 +163,7 @@ uint32 FIMAcousticSimulationWorker::Run()
 		if (!ReverbTask.IsValid() || !ReverbTask.IsCompleted()) return Completed;
 		ReverbTask.Wait();
 		Completed = ReverbWork->Probe;
+		if (ReverbWork->Cancelled || !Completed.ReverbOk) LastReverbSnapshot.Reset();
 		if (!ReverbWork->Cancelled && Completed.ReverbAttempt)
 		{
 			if (Completed.ReverbOk)
@@ -401,13 +413,14 @@ uint32 FIMAcousticSimulationWorker::Run()
 		else if(SolveStart)Bridge->WorkerSolveTiming.Record(SolveStart);
 		const bool bReverbRouteEnabled = (Bridge->RenderRoutes.load(std::memory_order_relaxed) & 4u) != 0;
 		if (GeometrySnapshotValid && bReverbRouteEnabled && ReverbWork && !ReverbTask.IsValid()
-			&& !Reverb->Stopped.load(std::memory_order_acquire))
+			&& Latest != LastReverbSnapshot && !Reverb->Stopped.load(std::memory_order_acquire))
 		{
 			for (auto& Slot : Reverb->Slots)
 			{
 				auto Expected = EIMAcousticIRState::Free;
 				if (!Slot.State.compare_exchange_strong(Expected, EIMAcousticIRState::Writing, std::memory_order_acq_rel)) continue;
 				const uint32 SlotIndex = uint32(&Slot - &Reverb->Slots[0]);
+				LastReverbSnapshot = Latest;
 				ReverbTask = UE::Tasks::Launch(UE_SOURCE_LOCATION,
 					[Work = ReverbWork, Pool = Reverb, Device = Bridge, Snapshot = Latest,
 						Meshes = MoveTemp(DynamicInputs), TransitPolicy, SlotIndex, bStallTiming,
@@ -472,7 +485,10 @@ uint32 FIMAcousticSimulationWorker::Run()
 							if (bProfile) Probe.ReverbReadyAfterSeconds = FPlatformTime::Seconds();
 						}
 						else Target.State.store(EIMAcousticIRState::Free, std::memory_order_release);
-					});
+					},
+					// High: capture-to-IR-ready is 7 ms median but must stay under the 21.3 ms input delay (2 blocks of 512 frames at 48 kHz); the
+					// measured tail was one solve descheduled for up to 22 ms behind normal-priority work (p3 run, two not-fresh environment blocks).
+					LowLevelTasks::ETaskPriority::High);
 				break;
 			}
 		}

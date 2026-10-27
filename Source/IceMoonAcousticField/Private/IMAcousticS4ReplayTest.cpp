@@ -270,6 +270,9 @@ public:
 				return Finish(false, TEXT("S4 source is not the ordinary isolated production MetaSound path."));
 
 			Volume->bEnableV2 = true;
+			// The audition map's volume authors legacy render-material mappings; the PhysicalMaterial default would leave its surfaces unmapped.
+			// The volume lives in the PIE world copy, so the map asset itself is not changed.
+			Volume->MaterialDrive = EIMAcousticMaterialDrive::LegacyRenderMaterial;
 			// Keep the ordinary audition route set for this lifecycle case.
 			Volume->bDirectRoute = true;
 			Volume->bPathRoute = true;
@@ -393,6 +396,7 @@ public:
 				if (!StartMasterOutputRecording(World, TEXT("s4-stop-tail-master"), float(IMS4TailTimeoutSeconds + 1.0)))
 					return Finish(false, TEXT("Could not start the owned stop-tail master-output recording."));
 				bTailMasterRecordingStarted = true;
+				TailFrameAtMasterStart = TailScanFrame;
 				TailMasterStartSeconds = MasterOutputStartSeconds;
 				TailMasterReleaseGuardSeconds = TailMasterStartSeconds - StopSourceReleaseSeconds;
 			}
@@ -445,12 +449,19 @@ public:
 				return Finish(false, FString::Printf(TEXT("Could not parse stop-tail master WAV: %s"), *TailMasterWave.Error));
 			const int32 RequiredTailSilenceFrames = FMath::CeilToInt(
 				double(MasterSampleRate) * IMS4MasterMinimumTailSilenceMs / 1000.0);
-			bTailMasterGatePassed = TailMasterWave.NonSilentFrames > 0
+			// The master WAV is 16-bit and its silence test needs a sample above one PCM16 step (IMS4MasterPcm16SilenceThreshold), so a wet tail whose
+			// graph peak inside the recording window is below two steps cannot appear in it whatever the route does. The non-silence proof therefore
+			// applies only when the graph tail is observable at that resolution; the trailing-silence proof always applies.
+			TailGraphPeakInMasterWindow = PeakWetAmplitude(TailFrameAtMasterStart, TailDrainFrameEnd);
+			bTailObservableInMaster = TailGraphPeakInMasterWindow >= float(IMS4MasterPcm16SilenceThreshold + 1) / 32768.0f;
+			bTailMasterGatePassed = (TailMasterWave.NonSilentFrames > 0 || !bTailObservableInMaster)
 				&& TailMasterWave.TrailingSilentFrames >= RequiredTailSilenceFrames;
 			if (!bTailMasterGatePassed)
 				return Finish(false, FString::Printf(
-					TEXT("Stop-tail master WAV gate failed: non_silent_frames=%lld trailing_silent_frames=%d required=%d."),
-					TailMasterWave.NonSilentFrames, TailMasterWave.TrailingSilentFrames, RequiredTailSilenceFrames));
+					TEXT("Stop-tail master WAV gate failed: non_silent_frames=%lld trailing_silent_frames=%d required=%d graph_wet_peak_during_master_window=%g graph_wet_peak_before_master_window=%g pcm16_step=%g."),
+					TailMasterWave.NonSilentFrames, TailMasterWave.TrailingSilentFrames, RequiredTailSilenceFrames,
+					PeakWetAmplitude(TailFrameAtMasterStart, TailDrainFrameEnd), PeakWetAmplitude(StopWetFrameBegin, TailFrameAtMasterStart),
+					1.0 / 32768.0));
 
 			if (!StartMasterOutputRecording(World, TEXT("s4-replay-master"), float(IMS4PlaybackTimeoutSeconds + 1.0)))
 				return Finish(false, TEXT("Could not start the owned replay master-output recording after the tail WAV settled."));
@@ -529,6 +540,19 @@ public:
 
 			if (!bReplayFreshGatePassed)
 			{
+				// The audition source starts with about one second of sub-LSB samples before its audible part, and the master WAV is 16-bit,
+				// so the active master window may only start once the graph wet reaches an amplitude the WAV can represent. The master gate
+				// itself (non-silent frames, headroom, pre-roll silence) is unchanged.
+				const float ObservableWetPeak = float(IMS4MasterPcm16SilenceThreshold + 1) / 32768.0f;
+				const float ReplayWetPeak = PeakWetAmplitude(Play2.EnvironmentPcmBegin, EnvironmentPcmFrames());
+				if (ReplayWetPeak < ObservableWetPeak)
+				{
+					if (Now - Play2StartSeconds > IMS4PlaybackTimeoutSeconds)
+						return Finish(false, FString::Printf(
+							TEXT("Replay graph wet never reached the PCM16-observable level: peak=%g required=%g."),
+							ReplayWetPeak, ObservableWetPeak));
+					return false;
+				}
 				bReplayFreshGatePassed = true;
 				ReplayFreshGateSeconds = Now;
 			}
@@ -561,9 +585,11 @@ public:
 				&& ReplayMasterWave.PeakAbsPcm16 < 32760;
 			if (!bReplayMasterGatePassed)
 				return Finish(false, FString::Printf(
-					TEXT("Replay master WAV gate failed: leading_silent_frames=%d required=%d non_silent_frames=%lld active_frames=%d peak_abs_pcm16=%d overload_limit=32760."),
+					TEXT("Replay master WAV gate failed: leading_silent_frames=%d required=%d non_silent_frames=%lld active_frames=%d peak_abs_pcm16=%d overload_limit=32760 graph_wet_peak_replay_window=%g graph_wet_frames_replay_window=%u pcm16_step=%g."),
 					ReplayMasterWave.LeadingSilentFrames, RequiredReplayPreRollFrames, ReplayMasterWave.NonSilentFrames,
-					ReplayMasterWave.ActiveFrames, ReplayMasterWave.PeakAbsPcm16));
+					ReplayMasterWave.ActiveFrames, ReplayMasterWave.PeakAbsPcm16,
+					PeakWetAmplitude(Play2.EnvironmentPcmBegin, Play2.EnvironmentPcmEnd),
+					Play2.EnvironmentPcmEnd - Play2.EnvironmentPcmBegin, 1.0f / 32768.0f));
 
 			Context->IdentityInjection.Request(
 				1,
@@ -844,6 +870,19 @@ private:
 		}
 	}
 
+	// Peak graph wet amplitude over a frame window, reported next to the master WAV verdict: the WAV is 16-bit, so a graph tail whose peak is
+	// below one PCM16 step can never reach the master gate no matter how the route behaves.
+	float PeakWetAmplitude(uint32 BeginFrame, uint32 EndFrame) const
+	{
+		if (!Context.IsValid()) return 0.0f;
+		const uint32 First = FMath::Min(BeginFrame, EnvironmentPcmFrames());
+		const uint32 Last = FMath::Min(EndFrame, EnvironmentPcmFrames());
+		float Peak = 0.0f;
+		for (uint32 Frame = First; Frame < Last; ++Frame)
+			Peak = FMath::Max(Peak, FMath::Max(FMath::Abs(Context->CapturedWet[int32(Frame * 2)]), FMath::Abs(Context->CapturedWet[int32(Frame * 2 + 1)])));
+		return Peak;
+	}
+
 	bool HasWetEnergy(uint32 BeginFrame, uint32 EndFrame) const
 	{
 		if (!Context.IsValid()) return false;
@@ -1104,6 +1143,8 @@ private:
 		Writer->WriteValue(TEXT("required_trailing_silent_frames"),
 			FMath::CeilToInt(double(MasterSampleRate) * IMS4MasterMinimumTailSilenceMs / 1000.0));
 		Writer->WriteValue(TEXT("master_tail_gate_passed"), bTailMasterGatePassed);
+		Writer->WriteValue(TEXT("graph_wet_peak_in_master_window"), TailGraphPeakInMasterWindow);
+		Writer->WriteValue(TEXT("graph_tail_observable_in_pcm16_master"), bTailObservableInMaster);
 		IM_S4WriteMasterWaveSummary(Writer, TailMasterWave);
 		Writer->WriteObjectEnd();
 		Writer->WriteObjectStart(TEXT("replay"));
@@ -1155,6 +1196,8 @@ private:
 	bool bTailMasterRecordingStarted = false;
 	bool bTailGraphSilenceGatePassed = false;
 	bool bTailMasterGatePassed = false;
+	bool bTailObservableInMaster = false;
+	float TailGraphPeakInMasterWindow = 0.0f;
 	bool bReplayMasterRecordingStarted = false;
 	bool bReplayFreshGatePassed = false;
 	bool bReplayMasterGatePassed = false;
@@ -1174,6 +1217,7 @@ private:
 	uint32 StopEnvironmentFramesAtRelease = 0;
 	uint32 StopWetFrameBegin = 0;
 	uint32 TailDrainFrameEnd = 0;
+	uint32 TailFrameAtMasterStart = 0;
 	uint32 TailScanFrame = 0;
 	uint32 TailSilentRunFrames = 0;
 	uint32 LastSourceTraceScan = 0;
@@ -1282,6 +1326,8 @@ public:
 			FString MixerError;
 			if (!InitializeMasterMixer(World, MixerError)) return Finish(false, MixerError);
 
+			// Same fixture contract as the replay case above: legacy render-material mappings drive the audition map.
+			Volume->MaterialDrive = EIMAcousticMaterialDrive::LegacyRenderMaterial;
 			OriginalEnableV2 = Volume->bEnableV2;
 			OriginalDirectRoute = Volume->bDirectRoute;
 			OriginalPathRoute = Volume->bPathRoute;

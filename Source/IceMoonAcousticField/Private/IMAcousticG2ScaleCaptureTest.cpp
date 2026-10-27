@@ -1139,6 +1139,7 @@ public:
 		{
 			Variable->SetWithCurrentPriority(OriginalValue);
 		}
+		LogTemp.SetVerbosity(OriginalLogVerbosity);
 	}
 
 	bool IsAvailable() const { return Variable != nullptr; }
@@ -1153,6 +1154,9 @@ public:
 			return false;
 		}
 		const int32 Expected = bEnabled ? 1 : 0;
+		// The product writes the detailed AcousticBake* lines at Verbose, below LogTemp's default Log verbosity, so an observer would see none of them
+		// unless the category is raised for the logged captures only (the cost under test includes the log serialization).
+		LogTemp.SetVerbosity(bEnabled ? ELogVerbosity::Verbose : OriginalLogVerbosity);
 		Variable->SetWithCurrentPriority(Expected);
 		if (Variable->GetInt() != Expected)
 		{
@@ -1171,6 +1175,7 @@ public:
 			return false;
 		}
 		Variable->SetWithCurrentPriority(OriginalValue);
+		LogTemp.SetVerbosity(OriginalLogVerbosity);
 		bRestored = Variable->GetInt() == OriginalValue;
 		if (!bRestored)
 		{
@@ -1183,6 +1188,7 @@ public:
 private:
 	IConsoleVariable* Variable = nullptr;
 	int32 OriginalValue = 0;
+	ELogVerbosity::Type OriginalLogVerbosity = static_cast<ELogVerbosity::Type>(LogTemp.GetVerbosity());
 	bool bRestored = false;
 };
 

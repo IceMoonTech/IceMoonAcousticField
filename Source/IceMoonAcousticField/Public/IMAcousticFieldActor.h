@@ -13,12 +13,9 @@ DECLARE_CYCLE_STAT_EXTERN(TEXT("IMAcousticField Tick"), STAT_IMAcousticField_Tic
 DECLARE_CYCLE_STAT_EXTERN(TEXT("IMAcousticField Callback"), STAT_IMAcousticField_TraceCallback, STATGROUP_IM, ICEMOONACOUSTICFIELD_API);
 DECLARE_CYCLE_STAT_EXTERN(TEXT("IMAcousticField Query"), STAT_IMAcousticField_Query, STATGROUP_IM, ICEMOONACOUSTICFIELD_API)
 
-static TAutoConsoleVariable<int32> CVar_DebugLevelStat(
-	TEXT("IM.AcousticField.Debug"),
-	0, // 默认关闭  
-	TEXT(" 1是输出事件驱动Debug 2是输出TickDebug"),
-	ECVF_RenderThreadSafe
-);
+// Defined once in IMAcousticFieldActor.cpp. A static definition here registered "IM.AcousticField.Debug" once per including
+// translation unit, and the editor logged "Console object named 'IM.AcousticField.Debug' already exists" at every start.
+extern ICEMOONACOUSTICFIELD_API TAutoConsoleVariable<int32> CVar_DebugLevelStat;
 #define ICEMOON_LOG_DEBUG_TICK(Format, ...) if (CVar_DebugLevelStat.GetValueOnAnyThread() >= 2) UE_LOG(LogTemp, Log, TEXT("[DEBUG-TICK][%s:%d] ") TEXT(Format), ANSI_TO_TCHAR(__FILE__), __LINE__, ##__VA_ARGS__);
 #define ICEMOON_LOG_DEBUG(Format, ...) if (CVar_DebugLevelStat.GetValueOnAnyThread() >= 1) UE_LOG(LogTemp, Log, TEXT("[DEBUG][%s:%d] ") TEXT(Format), ANSI_TO_TCHAR(__FILE__), __LINE__, ##__VA_ARGS__);
 #define ICEMOON_LOG_WARN(Format, ...) UE_LOG(LogTemp, Warning, TEXT("[WARN][%s:%d] ") TEXT(Format), ANSI_TO_TCHAR(__FILE__), __LINE__, ##__VA_ARGS__)

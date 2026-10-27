@@ -98,6 +98,13 @@ DEFINE_STAT(STAT_IMAcousticField_Tick);
 DEFINE_STAT(STAT_IMAcousticField_TraceCallback);
 DEFINE_STAT(STAT_IMAcousticField_Query);
 
+TAutoConsoleVariable<int32> CVar_DebugLevelStat(
+	TEXT("IM.AcousticField.Debug"),
+	0, // 默认关闭
+	TEXT(" 1是输出事件驱动Debug 2是输出TickDebug"),
+	ECVF_RenderThreadSafe
+);
+
 AIMAcousticFieldActor::AIMAcousticFieldActor()
 {
 	PrimaryActorTick.bCanEverTick = true;

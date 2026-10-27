@@ -18,6 +18,7 @@
 #include "HAL/PlatformMemory.h"
 #include "HAL/PlatformTime.h"
 #include "IMAcousticBakeVolume.h"
+#include "IMAcousticGrassCapture.h"
 #include "LandscapeComponent.h"
 #include "LandscapeHeightfieldCollisionComponent.h"
 #include "Materials/MaterialInterface.h"
@@ -208,10 +209,14 @@ static bool IsInstanceInsideRegion(const UStaticMesh* Mesh, const FTransform& Tr
 }
 
 static bool AddMeshComponentMaterialsAndCounts(UStaticMeshComponent* MeshComponent, const FBox& Region,
+	const FIMAcousticGrassCapture& GrassCapture,
 	TSet<UMaterialInterface*>& UniqueMaterials, int64& OutComponentCount, int64& OutInstanceCount,
 	int64& OutExpectedTriangles, TArray<FString>& Failures)
 {
-	if (!MeshComponent || !Region.Intersect(MeshComponent->Bounds.GetBox()))
+	// Landscape grass components are produced by the product's finite grass capture: the product ignores their cached Bounds and the
+	// component's own (lazily generated) instances, and expands exactly the captured region instances instead.
+	const FIMAcousticGrassCapturedComponent* Grass = GrassCapture.Components.Find(Cast<UInstancedStaticMeshComponent>(MeshComponent));
+	if (!MeshComponent || (!Grass && !Region.Intersect(MeshComponent->Bounds.GetBox())))
 	{
 		return true;
 	}
@@ -233,7 +238,11 @@ static bool AddMeshComponentMaterialsAndCounts(UStaticMeshComponent* MeshCompone
 
 	UInstancedStaticMeshComponent* Instances = Cast<UInstancedStaticMeshComponent>(MeshComponent);
 	int64 IncludedInstanceCount = 0;
-	if (Instances)
+	if (Grass)
+	{
+		IncludedInstanceCount = Grass->RegionInstances.Num();
+	}
+	else if (Instances)
 	{
 		for (int32 InstanceIndex = 0; InstanceIndex < Instances->GetInstanceCount(); ++InstanceIndex)
 		{
@@ -264,6 +273,13 @@ static bool AddMeshComponentMaterialsAndCounts(UStaticMeshComponent* MeshCompone
 
 	if (IncludedInstanceCount == 0)
 	{
+		// The product's scene check still demands an acoustic material for every component whose bounds touch the region (the Landscape grass
+		// ISM components overlap it with all instances outside), so the mapping must cover them even though they add no expected triangles.
+		for (const FStaticMeshSection& Section : LOD0.Sections)
+		{
+			AddMeshMaterial(MeshComponent->GetMaterial(Section.MaterialIndex), UniqueMaterials, Failures,
+				FString::Printf(TEXT("%s LOD0 section %d"), *MeshComponent->GetPathName(), Section.MaterialIndex));
+		}
 		return true;
 	}
 
@@ -460,6 +476,16 @@ static bool RunOracle(FAutomationTestBase* Test, const FString& RunId, const boo
 	Volume->SetActorTickEnabled(false);
 	Volume->BakeBounds->UpdateBounds();
 	const FBox Region = Volume->BakeBounds->Bounds.GetBox();
+	FIMAcousticGrassGenerationState GrassState;
+	FIMAcousticGrassCapture GrassCapture;
+	{
+		FString GrassError;
+		if (!IMCaptureAcousticGrassRegion(World, Region, GrassState, GrassCapture, GrassError))
+		{
+			AddFailure(Failures, FString::Printf(TEXT("Product grass region capture failed: %s"), *GrassError));
+			bEnumerationComplete = false;
+		}
+	}
 	if (!Region.GetCenter().Equals(RegionCenterCm, 0.01))
 	{
 		AddFailure(Failures, FString::Printf(TEXT("BakeBounds world center differs from Rural Camera3: actual=%s expected=%s."),
@@ -477,7 +503,8 @@ static bool RunOracle(FAutomationTestBase* Test, const FString& RunId, const boo
 		Actor->GetComponents(ActorPrimitives);
 		for (UPrimitiveComponent* Primitive : ActorPrimitives)
 		{
-			if (!IsValid(Primitive) || !Region.Intersect(Primitive->Bounds.GetBox()))
+			const bool bCapturedGrass = IsValid(Primitive) && GrassCapture.Components.Contains(Cast<UInstancedStaticMeshComponent>(Primitive));
+			if (!IsValid(Primitive) || (!bCapturedGrass && !Region.Intersect(Primitive->Bounds.GetBox())))
 			{
 				continue;
 			}
@@ -525,7 +552,7 @@ static bool RunOracle(FAutomationTestBase* Test, const FString& RunId, const boo
 			{
 				const int64 PreviousInstanceCount = StaticMeshInstanceCount;
 				const int64 PreviousTriangleCount = ExpectedStaticMeshTriangles;
-				const bool bMeshRead = AddMeshComponentMaterialsAndCounts(MeshComponent, Region, UniqueMaterials,
+				const bool bMeshRead = AddMeshComponentMaterialsAndCounts(MeshComponent, Region, GrassCapture, UniqueMaterials,
 					StaticMeshComponentCount, StaticMeshInstanceCount, ExpectedStaticMeshTriangles, Failures);
 				if (bMeshRead && StaticMeshInstanceCount > PreviousInstanceCount)
 				{
@@ -864,6 +891,14 @@ static bool RunOracle(FAutomationTestBase* Test, const FString& RunId, const boo
 	if (!bCaptureSucceeded)
 	{
 		AddFailure(Failures, FString::Printf(TEXT("Product IM_CaptureSceneGeometryForTest failed: %s."), *Volume->Status));
+		// Name the product's own blocking reasons: the REQUIRED issues are the ones that fail the scene check, the rest are exclusions.
+		for (const FString& Issue : Volume->SceneIssues)
+		{
+			if (Issue.Contains(TEXT("REQUIRED")) || Issue.Contains(TEXT("pending")))
+			{
+				AddFailure(Failures, FString::Printf(TEXT("Scene issue: %s"), *Issue.Left(400)));
+			}
+		}
 	}
 
 	TArray<FIMExpectedTriangle> ExpectedTriangles;

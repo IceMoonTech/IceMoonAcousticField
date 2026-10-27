@@ -143,8 +143,12 @@ public:
 			TArray<uint8> Scene=RawScene,Probes=RawProbes;
 			if(Corrupt->CommitCompleteBake(Asset->WorldPackage,Asset->SceneFingerprint,TEXT("{}"),MoveTemp(Scene),MoveTemp(Probes),Error)
 				||Corrupt->PayloadDigest!=OldDigest||Corrupt->MetadataJson!=OldMetadata)return Finish(false,TEXT("Invalid commit mutated previous asset."));
-			const FVector Absorption=Volume->Materials[0].Absorption;Volume->Materials[0].Absorption=FVector(.8);
-			const bool StaleAccepted=Volume->ValidateCurrentBake(Error);Volume->Materials[0].Absorption=Absorption;
+			// Only the mapping selected by MaterialDrive is part of the bake identity; changing the inactive list cannot go stale.
+			const bool bPhysicalDrive=Volume->MaterialDrive==EIMAcousticMaterialDrive::PhysicalMaterial;
+			if(bPhysicalDrive?Volume->PhysicalMaterials.IsEmpty():Volume->Materials.IsEmpty())return Finish(false,TEXT("Active material mapping is empty; stale validation has nothing to perturb."));
+			FVector& ActiveAbsorption=bPhysicalDrive?Volume->PhysicalMaterials[0].Absorption:Volume->Materials[0].Absorption;
+			const FVector Absorption=ActiveAbsorption;ActiveAbsorption=FVector(.8);
+			const bool StaleAccepted=Volume->ValidateCurrentBake(Error);ActiveAbsorption=Absorption;
 			if(StaleAccepted||!Volume->ValidateCurrentBake(Error))return Finish(false,TEXT("Material stale/restore validation failed."));
 			const FString Directory=FPaths::Combine(FPaths::ProjectSavedDir(),TEXT("AcousticV2/W2-UE"));
 			FFileHelper::SaveStringToFile(Asset->MetadataJson,*FPaths::Combine(Directory,TEXT("bake-metadata.json")));

@@ -36,6 +36,8 @@ namespace IMAcousticW3TestPrivate
 constexpr int32 W3Voices=16,W3Rate=48000;
 constexpr double W3MotionPeriod=0.05; // Match the product's 20 Hz GT snapshot cadence.
 constexpr double W3Duration=600;
+// Row capacity of the per-block cost ledger beyond the planned window; only sizes the allocation, a longer run overflows and fails the gate.
+constexpr double W3BlockLedgerSlackSeconds=60.0;
 constexpr double W3RareTailNearBudgetFraction=0.90;
 constexpr uint32 W3RareTailNearTailUs=20000;
 constexpr uint32 W3RareTailSelfTestUs=10000;
@@ -190,6 +192,131 @@ bool IMW3ReadVoiceBudgets(
 		OutSourceMaxCycles+=Budget.MaxCycles;OutBudgets.Add(Budget);
 	}
 	return OutBudgets.Num()==W3Voices;
+}
+struct FIMW3BlockCostSummary
+{
+	bool Armed=false,Overflow=false,Usable=false;
+	uint64 LastBlock=0,BlocksWithData=0,CompleteBlocks=0,InteriorIncompleteBlocks=0,OverDeadlineBlocks=0,OverMixerDeadlineCallbacks=0;
+	uint64 MaxBlock=0,MaxCallback=0;
+	double MaxBlockUs=0.0,MaxCallbackUs=0.0;
+	uint32 ExpectedExecutes=0;
+	TArray<uint64> OverDeadline;
+};
+double IMW3BlockCostUs(const FIMAcousticBlockCostLedger& Ledger,uint64 Block)
+{
+	uint64 Cycles=0;
+	for(int32 P=0;P<Ledger.ParticipantCount();++P)Cycles+=Ledger.ParticipantCycles(Block,P);
+	return FPlatformTime::ToSeconds64(Cycles)*1.e6;
+}
+// Whole-Execute cost of every participant that ran in the same graph block, summed per block (see IMAcousticBlockCostLedger.h).
+// A callback's cost is the sum of its graph blocks. Blocks with fewer participants than expected can only understate the cost, so they
+// are reported (InteriorIncompleteBlocks excludes the last, possibly truncated, callback) but still enter the maximum.
+FIMW3BlockCostSummary IMW3SummarizeBlockCosts(const FIMAcousticBlockCostLedger& Ledger,double GraphDeadlineUs,double MixerDeadlineUs)
+{
+	FIMW3BlockCostSummary S;
+	S.Armed=Ledger.IsArmed();S.Overflow=Ledger.Overflowed();
+	if(!S.Armed)return S;
+	S.ExpectedExecutes=uint32(Ledger.ParticipantCount());
+	const uint64 Capacity=Ledger.CapacityBlocks();
+	const uint32 PerCallback=Ledger.BlocksPerCallback();
+	bool Any=false;
+	for(uint64 B=0;B<Capacity;++B)if(Ledger.BlockParticipantCount(B)){S.LastBlock=B;Any=true;}
+	if(!Any)return S;
+	const uint64 InteriorEnd=S.LastBlock+1>PerCallback?S.LastBlock+1-PerCallback:0;
+	double CallbackUs=0.0;
+	for(uint64 B=0;B<=S.LastBlock;++B)
+	{
+		const uint32 Executes=Ledger.BlockParticipantCount(B);
+		const double Us=IMW3BlockCostUs(Ledger,B);
+		if(Executes)++S.BlocksWithData;
+		if(Executes==S.ExpectedExecutes)++S.CompleteBlocks;
+		else if(B<InteriorEnd)++S.InteriorIncompleteBlocks;
+		if(Us>S.MaxBlockUs){S.MaxBlockUs=Us;S.MaxBlock=B;}
+		if(Us>GraphDeadlineUs){++S.OverDeadlineBlocks;S.OverDeadline.Add(B);}
+		CallbackUs+=Us;
+		if((B+1)%PerCallback==0||B==S.LastBlock)
+		{
+			if(CallbackUs>S.MaxCallbackUs){S.MaxCallbackUs=CallbackUs;S.MaxCallback=B/PerCallback;}
+			if(MixerDeadlineUs>0.0&&CallbackUs>MixerDeadlineUs)++S.OverMixerDeadlineCallbacks;
+			CallbackUs=0.0;
+		}
+	}
+	S.Usable=!S.Overflow&&S.CompleteBlocks>0;
+	return S;
+}
+void IMW3WriteBlockCostRow(TJsonWriter<>& W,const FIMAcousticBlockCostLedger& Ledger,uint64 Block,double GraphDeadlineUs)
+{
+	const uint32 PerCallback=Ledger.BlocksPerCallback();
+	const uint64 First=Ledger.BlockFirstStartCycles(Block);
+	const double Us=IMW3BlockCostUs(Ledger,Block);
+	W.WriteObjectStart();
+	W.WriteValue(TEXT("block"),double(Block));
+	W.WriteValue(TEXT("audio_callback"),double(Ledger.FirstCallback()+Block/PerCallback));
+	W.WriteValue(TEXT("graph_block_in_callback"),double(Block%PerCallback));
+	W.WriteValue(TEXT("executes"),double(Ledger.BlockParticipantCount(Block)));
+	W.WriteValue(TEXT("sum_us"),Us);
+	W.WriteValue(TEXT("over_deadline"),Us>GraphDeadlineUs);
+	W.WriteValue(TEXT("first_execute_start_ms_after_arming"),First==MAX_uint64?-1.0:FPlatformTime::ToSeconds64(First>=Ledger.ArmedCycles()?First-Ledger.ArmedCycles():0)*1.e3);
+	W.WriteArrayStart(TEXT("participant_us"));
+	for(int32 P=0;P<Ledger.ParticipantCount();++P)W.WriteValue(FPlatformTime::ToSeconds64(Ledger.ParticipantCycles(Block,P))*1.e6);
+	W.WriteArrayEnd();
+	// Thread CPU cycles of the same Executes divided by the run-wide cycles-per-wall-microsecond: an estimate. Far below participant_us means
+	// the thread was waiting or descheduled for the difference; close to it means the Execute was computing.
+	W.WriteArrayStart(TEXT("participant_estimated_cpu_us"));
+	const double CyclesPerUs=Ledger.CpuCyclesPerWallUs();
+	for(int32 P=0;P<Ledger.ParticipantCount();++P)W.WriteValue(CyclesPerUs>0.0?double(Ledger.ParticipantCpuCycles(Block,P))/CyclesPerUs:-1.0);
+	W.WriteArrayEnd();
+	W.WriteObjectEnd();
+}
+// Over-deadline blocks are written with the two blocks on each side; the largest blocks are always written for reference.
+void IMW3WriteBlockCosts(TJsonWriter<>& W,const FIMAcousticBlockCostLedger& Ledger,const FIMW3BlockCostSummary& S,const TArray<int32>& SourceSlots,double GraphDeadlineUs,double MixerDeadlineUs)
+{
+	constexpr int32 NeighbourBlocks=2,MaxReportedOverDeadline=32,TopBlocks=5;
+	W.WriteValue(TEXT("per_block_ledger_armed"),S.Armed);
+	W.WriteValue(TEXT("per_block_ledger_overflow"),S.Overflow);
+	W.WriteValue(TEXT("per_block_ledger_usable"),S.Usable);
+	W.WriteValue(TEXT("per_block_ledger_capacity_blocks"),double(Ledger.CapacityBlocks()));
+	W.WriteValue(TEXT("per_block_ledger_first_audio_callback"),double(Ledger.FirstCallback()));
+	W.WriteValue(TEXT("per_block_graph_blocks_per_callback"),double(Ledger.BlocksPerCallback()));
+	W.WriteValue(TEXT("per_block_expected_executes"),double(S.ExpectedExecutes));
+	W.WriteValue(TEXT("per_block_blocks_with_data"),double(S.BlocksWithData));
+	W.WriteValue(TEXT("per_block_complete_blocks"),double(S.CompleteBlocks));
+	W.WriteValue(TEXT("per_block_interior_incomplete_blocks"),double(S.InteriorIncompleteBlocks));
+	W.WriteValue(TEXT("per_block_records_before_first_callback"),double(Ledger.RecordsBeforeFirstCallback()));
+	W.WriteValue(TEXT("per_block_records_beyond_callback_blocks"),double(Ledger.RecordsBeyondCallbackBlocks()));
+	W.WriteValue(TEXT("per_block_records_unmapped"),double(Ledger.RecordsUnmapped()));
+	W.WriteValue(TEXT("per_block_cpu_cycles_per_wall_us"),Ledger.CpuCyclesPerWallUs());
+	W.WriteValue(TEXT("per_block_max_sum_us"),S.MaxBlockUs);
+	W.WriteValue(TEXT("per_block_max_sum_block"),double(S.MaxBlock));
+	W.WriteValue(TEXT("per_block_max_callback_sum_us"),S.MaxCallbackUs);
+	W.WriteValue(TEXT("per_block_max_callback_sum_callback"),double(Ledger.FirstCallback()+S.MaxCallback));
+	W.WriteValue(TEXT("per_block_graph_deadline_us"),GraphDeadlineUs);
+	W.WriteValue(TEXT("per_block_mixer_deadline_us"),MixerDeadlineUs);
+	W.WriteValue(TEXT("per_block_over_graph_deadline_blocks"),double(S.OverDeadlineBlocks));
+	W.WriteValue(TEXT("per_block_over_mixer_deadline_callbacks"),double(S.OverMixerDeadlineCallbacks));
+	W.WriteValue(TEXT("per_block_semantics"),TEXT("Per graph block, the whole-Execute cycles of every participating source operator, the environment operator and the bus reader are added up; block identity is the mixer audio clock (constant for all generators of one mixer callback) plus the participant's Execute ordinal inside that callback. The gate is the largest block sum against the graph block deadline (and the largest callback sum against the mixer callback deadline). Blocks missing participants can only understate a sum; their count is reported."));
+	W.WriteArrayStart(TEXT("per_block_participants"));
+	for(const int32 Slot:SourceSlots)W.WriteValue(FString::Printf(TEXT("source_slot_%d"),Slot));
+	W.WriteValue(FString(TEXT("environment")));W.WriteValue(FString(TEXT("bus_reader")));
+	W.WriteArrayEnd();
+	W.WriteArrayStart(TEXT("per_block_top_blocks"));
+	TArray<uint64> Order;
+	if(S.Armed&&S.BlocksWithData)for(uint64 B=0;B<=S.LastBlock;++B)if(Ledger.BlockParticipantCount(B))Order.Add(B);
+	Order.Sort([&Ledger](uint64 A,uint64 B){return IMW3BlockCostUs(Ledger,A)>IMW3BlockCostUs(Ledger,B);});
+	for(int32 I=0;I<FMath::Min(TopBlocks,Order.Num());++I)IMW3WriteBlockCostRow(W,Ledger,Order[I],GraphDeadlineUs);
+	W.WriteArrayEnd();
+	W.WriteValue(TEXT("per_block_over_deadline_detail_truncated"),S.OverDeadline.Num()>MaxReportedOverDeadline);
+	W.WriteArrayStart(TEXT("per_block_over_deadline_detail"));
+	uint64 NextWritten=0;
+	for(int32 I=0;I<FMath::Min(MaxReportedOverDeadline,S.OverDeadline.Num());++I)
+	{
+		const uint64 Block=S.OverDeadline[I];
+		const uint64 From=FMath::Max<int64>(int64(Block)-NeighbourBlocks,int64(NextWritten));
+		const uint64 To=FMath::Min<uint64>(Block+NeighbourBlocks,S.LastBlock);
+		for(uint64 B=From;B<=To;++B)IMW3WriteBlockCostRow(W,Ledger,B,GraphDeadlineUs);
+		NextWritten=To+1;
+	}
+	W.WriteArrayEnd();
 }
 struct FIMW3WindowLogSummary
 {
@@ -744,6 +871,13 @@ public:
 			if(RequireNormalEvidence&&!IMW3TimingsAreFresh(*Bridge,VoiceBindings,BindingError))
 				return FailGate(TEXT("fresh_timing_preflight"),BindingError);
 			FreshTimingPreflightPassed=RequireNormalEvidence;
+			// Per-block cost ledger (all W3 variants share the callback-budget gate). Prepared before any Execute can record into it.
+			BlockCostSlots.Reset();
+			for(const FIMW3VoiceBinding& Binding:VoiceBindings)BlockCostSlots.Add(int32(Binding.Slot));
+			if(!MetaContext.IsValid()||!Mixer||!MixerGeometryGateOk
+				||!MetaContext->BlockCosts.Prepare(Mixer,double(MixerBlockFrames)/double(MixerSampleRate),uint32(GraphBlocksPerMixer),BlockCostSlots,
+					uint64(FMath::CeilToDouble((Duration+W3BlockLedgerSlackSeconds)*GraphSampleRate/GraphBlockFrames))+uint64(GraphBlocksPerMixer)))
+				return FailGate(TEXT("block_cost_ledger"),TEXT("The per-block cost ledger could not be prepared (no MetaSound context, mixer clock or valid graph/mixer geometry)."));
 			if (RequireNormalEvidence)
 			{
 				if (!MetaContext.IsValid()
@@ -957,6 +1091,12 @@ public:
 			const double ConservativeGraphBoundUs=VoiceBudgetsRead
 				?FPlatformTime::ToSeconds64(SourceMaxCycles+ReverbMaxCycles+BusMaxCycles)*1.e6:0.0;
 			const double ConservativeMixerBoundUs=ConservativeGraphBoundUs*GraphBlocksPerMixer;
+			// The gate: the largest real block, not the sum of per-participant maxima taken from different blocks.
+			const IMAcousticW3TestPrivate::FIMW3BlockCostSummary BlockCosts=MetaContext.IsValid()
+				?IMAcousticW3TestPrivate::IMW3SummarizeBlockCosts(MetaContext->BlockCosts,GraphDeadlineUs,MixerDeadlineUs)
+				:IMAcousticW3TestPrivate::FIMW3BlockCostSummary();
+			const bool PerBlockGraphBudgetOk=BlockCosts.Usable&&BlockCosts.MaxBlockUs<=GraphDeadlineUs;
+			const bool PerBlockMixerBudgetOk=MixerGeometryGateOk&&BlockCosts.Usable&&BlockCosts.MaxCallbackUs<=MixerDeadlineUs;
 			bool VoiceCountsGateOk=VoiceBudgetsRead&&VoiceBudgets.Num()==W3Voices;
 			for(const FIMW3VoiceBudget& V:VoiceBudgets)
 				VoiceCountsGateOk=VoiceCountsGateOk&&double(V.ExecuteCount)>=ExpectedPerVoice*.9;
@@ -1073,9 +1213,13 @@ public:
 			W->WriteObjectEnd();
 			W->WriteValue(TEXT("conservative_graph_feature_bound_us"),ConservativeGraphBoundUs);
 			W->WriteValue(TEXT("conservative_mixer_feature_bound_us"),ConservativeMixerBoundUs);
-			W->WriteValue(TEXT("conservative_bound_semantics"),TEXT("Graph bound = sum of the 16 participating voices' maximum whole Execute cycles + environment ReverbTiming.MaxCycles + bus-reader maximum whole Execute cycles. Mixer bound = graph bound multiplied by the integer graph-blocks-per-mixer callback ratio. A bound below its deadline with complete costs is a sufficient conservative budget pass. If a bound is at or above its deadline, only the conservative budget gate is unmet; that does not establish an actual mixer callback overrun or identify a DSP bottleneck. This is a feature CPU upper bound, not a measured whole mixer callback, whole-engine cost, or per-device epoch aggregate."));
-			W->WriteValue(TEXT("conservative_graph_bound_below_graph_deadline"),VoiceBudgetsRead&&BusExecuteBudgetComplete&&ConservativeGraphBoundUs<GraphDeadlineUs);
-			W->WriteValue(TEXT("conservative_mixer_bound_below_mixer_deadline"),MixerGeometryGateOk&&BusExecuteBudgetComplete&&ConservativeMixerBoundUs<MixerDeadlineUs);
+			W->WriteValue(TEXT("conservative_bound_semantics"),TEXT("REPORT ONLY, not a gate. Graph bound = sum of the 16 participating voices' maximum whole Execute cycles + environment ReverbTiming.MaxCycles + bus-reader maximum whole Execute cycles; mixer bound = graph bound multiplied by the integer graph-blocks-per-mixer ratio. Each maximum comes from a different block of the run, so the sum does not correspond to any real device block. Evidence: Saved/AcousticV2/W3-UE/32B574294C83499C1D449CAC5B3B6EA5/pressure.json reports a 57.18 ms bound while its largest single source Execute is 7.84 ms and its means are 0.12 ms (source) and 0.49 ms (reverb); Saved/AcousticV2/W3-UE/766021B14C874F602C61A89DDC448B8D/pressure.json shows the same gap (52.47 ms bound, 3.28 ms largest source Execute). The gate is the per_block_* fields: the largest per-device-block sum of those same whole-Execute costs against the unchanged block deadline."));
+			W->WriteValue(TEXT("conservative_graph_bound_below_graph_deadline_report_only"),VoiceBudgetsRead&&BusExecuteBudgetComplete&&ConservativeGraphBoundUs<GraphDeadlineUs);
+			W->WriteValue(TEXT("conservative_mixer_bound_below_mixer_deadline_report_only"),MixerGeometryGateOk&&BusExecuteBudgetComplete&&ConservativeMixerBoundUs<MixerDeadlineUs);
+			W->WriteValue(TEXT("per_block_graph_budget_gate"),PerBlockGraphBudgetOk);
+			W->WriteValue(TEXT("per_block_mixer_budget_gate"),PerBlockMixerBudgetOk);
+			if(MetaContext.IsValid())IMAcousticW3TestPrivate::IMW3WriteBlockCosts(*W,MetaContext->BlockCosts,BlockCosts,BlockCostSlots,GraphDeadlineUs,MixerDeadlineUs);
+			else W->WriteValue(TEXT("per_block_ledger_armed"),false);
 			W->WriteValue(TEXT("graph_source_asset"),FString(IMAcousticTestSupport::GraphSourceAssetPath));
 			W->WriteValue(TEXT("graph_source_assets_match"),GraphSourceIdentityValid);
 			W->WriteValue(TEXT("graph_source_component_count"),Sources.Num());
@@ -1229,8 +1373,8 @@ public:
 			const bool RuntimeGateOk=!HeadlessDiagnostic||Duration<W3Duration;
 			const bool SourceTimingGateOk=SourceTimingCount>=Expected*.9;
 			const bool SourceBlockTimingGateOk=SourceBlockTimingCount>0;
-			const bool CallbackBudgetGateOk=VoiceBudgetsRead&&BusExecuteBudgetComplete&&ConservativeGraphBoundUs<GraphDeadlineUs;
-			const bool MixerCallbackBudgetGateOk=!RequireNormalEvidence||(MixerGeometryGateOk&&BusExecuteBudgetComplete&&ConservativeMixerBoundUs<MixerDeadlineUs);
+			const bool CallbackBudgetGateOk=VoiceBudgetsRead&&BusExecuteBudgetComplete&&PerBlockGraphBudgetOk;
+			const bool MixerCallbackBudgetGateOk=!RequireNormalEvidence||(BusExecuteBudgetComplete&&PerBlockMixerBudgetOk);
 			const bool DiagnosticTraceGateOk=!RequireNormalEvidence||(DiagnosticMetaContextAtMeasurementStart&&DiagnosticTrace.TraceComplete
 				&&DiagnosticTrace.FormalWindowValid&&DiagnosticTrace.ExpectedSourcesPresent
 				&&DiagnosticTrace.UniqueVoices==W3Voices&&DiagnosticTrace.UniqueAudioIds==W3Voices
@@ -1354,7 +1498,7 @@ private:
 	TArray<TWeakObjectPtr<UAudioComponent>> Sources;TArray<TWeakObjectPtr<USoundBase>> Sounds;TArray<int16> PCM;
 	TSharedPtr<FIMAcousticDeviceBridge,ESPMode::ThreadSafe> Bridge;FIMAcousticMetaSoundContextPtr MetaContext;FIMAcousticUnderrunObserver Underruns;
 	TWeakObjectPtr<USoundBase> GraphSourceAsset;TSet<uint64> ExpectedAudioComponentIds;TArray<uint64> ExpectedAudioComponentIdOrder;
-	TArray<FIMW3VoiceBinding> VoiceBindings;TArray<FIMW3VoiceBudget> VoiceBudgets;FString VoiceIdentityFailure;
+	TArray<FIMW3VoiceBinding> VoiceBindings;TArray<int32> BlockCostSlots;TArray<FIMW3VoiceBudget> VoiceBudgets;FString VoiceIdentityFailure;
 	FIMW3PressureWindowSummary PressureWindowSummary;bool PressureWindowRawSaved=false;
 	FString Directory,CSV,WavPath;FIMW3WavSummary WavSummary;bool WavExportResolved=false,GraphSourceIdentityValid=false,DiagnosticMetaContextAtMeasurementStart=false;
 	bool MixerDeadlineAvailable=false,MixerGeometryGateOk=false,ObserverRegistered=false,SettingsChanged=false,Recording=false,RecordingPaused=false,PreviousThrottle=false,bAllowBackgroundAudioOrig=false;

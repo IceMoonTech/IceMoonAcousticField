@@ -65,7 +65,10 @@ public:
 		}
 		if (Now - Started > 20 && Context->LastIRSequence.load() == 0)
 			return Finish(false, TEXT("Ordinary graph has not consumed any IR: ") + Volume->Status);
-		if (Volume->ReverbSubmix) return Finish(false, TEXT("Ordinary graph entry created legacy convolution submix."));
+		// The graph route hosts its environment wet in a MetaSound submix (IM_MetaSoundEnvironmentWet); only the legacy convolution
+		// submix (IM_EnvironmentReverb) means the ordinary entry fell back to the old reverb path.
+		if (Volume->ReverbSubmix && !Volume->ReverbSubmix->GetName().StartsWith(TEXT("IM_MetaSoundEnvironmentWet")))
+			return Finish(false, TEXT("Ordinary graph entry created legacy convolution submix."));
 		if (!IMAcousticMetaSound::IsAcousticMetaSound(Source->Sound) || Source->bAllowSpatialization) return Finish(false, TEXT("Ordinary source is not the isolated graph DSP path."));
 		const uint64 Frames = Context->SourceFrames.load(std::memory_order_acquire);
 		if (Stage == 0 && Frames >= IMWaterDropLoopFrames)
@@ -325,7 +328,7 @@ private:
 			W->WriteValue(TEXT("bus_read_blocks"), double(Context->BusReadBlocks.load()));
 			W->WriteValue(TEXT("bus_min_available"), Context->BusMinAvailable.load());
 			W->WriteValue(TEXT("bus_max_available"), Context->BusMaxAvailable.load());
-			W->WriteValue(TEXT("legacy_submix_created"), Volume.IsValid() && Volume->ReverbSubmix != nullptr);
+			W->WriteValue(TEXT("legacy_submix_created"), Volume.IsValid() && Volume->ReverbSubmix != nullptr && !Volume->ReverbSubmix->GetName().StartsWith(TEXT("IM_MetaSoundEnvironmentWet")));
 			W->WriteValue(TEXT("dry_capture_component_gain_not_applied"), 0.7);
 			W->WriteObjectStart(TEXT("identity_negative"));
 			W->WriteValue(TEXT("status"), IdentityPass ? TEXT("PASS_FOCUSED_FAIL_CLOSED") : TEXT("FAIL_FOCUSED_FAIL_CLOSED"));

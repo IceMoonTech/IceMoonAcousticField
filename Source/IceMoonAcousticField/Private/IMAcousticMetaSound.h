@@ -6,6 +6,7 @@
 #include "IMAcousticSpatialization.h"
 #include "IMAcousticReverbData.h"
 #include "IMAcousticExecuteTimingProbe.h"
+#include "IMAcousticBlockCostLedger.h"
 #include "DSP/MultithreadedPatching.h"
 
 class UAudioComponent;
@@ -207,6 +208,9 @@ struct FIMAcousticMetaSoundContext
 	FIMAcousticExecuteMaximumProbe EnvironmentExecuteMaximum;
 	std::atomic<uint64> BusExecuteMaxCycles{0}, BusExecuteCount{0};
 	FIMAcousticExecuteMaximumProbe BusExecuteMaximum;
+	// Same opt-in window: whole-Execute cost summed per device block (see IMAcousticBlockCostLedger.h). Prepared on GT before
+	// CaptureExecuteMaximums is raised; the audio side only records while bCaptureMaximum is true.
+	FIMAcousticBlockCostLedger BlockCosts;
 	// Optional bounded diagnostics allocated on GT before generator construction.
 	TArray<float> CapturedSource, CapturedDry, CapturedWet, CapturedBus;
 	// Graph-native source-block telemetry. This deliberately reuses the POD

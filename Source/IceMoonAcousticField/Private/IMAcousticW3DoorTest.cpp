@@ -220,7 +220,15 @@ const FVector H1DoorParked(0,0,600);
 bool BuildH1DoorMap(FString& Error)
 {
 	if(FPackageName::DoesPackageExist(H1DoorMap))
-		return FEditorFileUtils::LoadMap(H1DoorMap,false,true);
+	{
+		if(!FEditorFileUtils::LoadMap(H1DoorMap,false,true))return false;
+		// The saved fixture predates AIMAcousticBakeVolume::MaterialDrive (default PhysicalMaterial), so it loads as a
+		// physical-material volume with an empty mapping. The fixture is driven by its render material (see the builder below).
+		UWorld* Loaded=GEditor?GEditor->GetEditorWorldContext().World():nullptr;
+		if(!Loaded){Error=TEXT("H1 fixture map loaded without an editor world.");return false;}
+		for(TActorIterator<AIMAcousticBakeVolume> It(Loaded);It;++It)It->MaterialDrive=EIMAcousticMaterialDrive::LegacyRenderMaterial;
+		return true;
+	}
 	UWorld* World=FAutomationEditorCommonUtils::CreateNewMap();
 	auto* Cube=LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Cube.Cube"));
 	auto* Plane=LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Plane.Plane"));
@@ -372,6 +380,10 @@ public:
 				return Finish(false,TEXT("Cannot enable aperture-transit validation."));
 			APlayerController* Listener=PIE->GetFirstPlayerController();if(!Listener)return false;
 			Listener->SetAudioListenerOverride(nullptr,FVector(100,200,150),FRotator(0,-90,0));
+			// The bake volume starts its device worker and snapshot ring only once an acoustic source exists, so the source is
+			// spawned first; the listener-convergence wait then runs against the live ring and the graph gate baseline is taken
+			// after it, so no block rendered before the override converged counts toward the gate.
+			if(!bSourceSpawned){ if(!SpawnH1Source(PIE))return Finish(false,TEXT("H1 source spawn failed.")); bSourceSpawned=true; }
 			auto InitBridge=IMAcousticTestSupport::FindBridge(PIE);
 			if(!InitBridge.IsValid())return false;
 			if(!ProbeBridge.IsValid())ProbeBridge=InitBridge;
@@ -380,7 +392,7 @@ public:
 				if(Now-LastDiagnostic>5){LastDiagnostic=Now;UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticH1DoorListenerWait snaps=%llu"),InitBridge->SnapshotProbePushes.load(std::memory_order_acquire));}
 				return false;
 			}
-			if(!bSourceSpawned){ if(!SpawnH1Source(PIE))return Finish(false,TEXT("H1 source spawn failed.")); bSourceSpawned=true; GraphGateBefore=GraphSourceBlocks(); }
+			if(!bGateBaselined){ GraphGateBefore=GraphSourceBlocks(); bGateBaselined=true; }
 			if(!MetaContext.IsValid())
 			{
 				if(FAudioDevice* AudioDevice=PIE->GetAudioDeviceRaw())
@@ -630,6 +642,7 @@ public:
 	double Started,WinStart=0,SettleUntil=0,LastDiagnostic=0,OffRequestStart=0,OnRequestStart=0,StopTime=0,GateT0=0,GateDead0=0;
 	bool bMapLoaded=false;
 	bool bSourceSpawned=false;
+	bool bGateBaselined=false;
 	bool WavStopped=false;
 	int32 Stage=0,StateIndex=0,OffPhase=0;
 	TArray<int16> FeedPCM;int32 FeedCursor=0;

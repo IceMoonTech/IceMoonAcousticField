@@ -750,26 +750,12 @@ public:
 			if(!Volume.IsValid())return Finish(false,TEXT("PIE bake volume missing."));
 			APlayerController* Listener=PIE->GetFirstPlayerController();if(!Listener)return false;
 			MovingListener=Listener;
-			// Branch A init order: set the Route0 override first, then wait for
-			// the actual device-side listener (GT snapshot ring) to converge
-			// BEFORE the source exists. Position-only convergence is enough:
-			// override position+rotation are one call/one struct picked up by
-			// the device in the same frame, so converged position implies the
-			// -90deg rotation was picked up too (no independent rotation race).
+			// The bake volume starts its device worker and snapshot ring only once an acoustic source exists (an empty world no
+			// longer starts a legacy worker), so the Route0 override is set first and the source is spawned right after; waiting for
+			// listener convergence before the source existed can never finish. Stage 6 still waits for ListenerConverged before any
+			// route0 baseline is taken, which is what excluded the pre-override direct-leak race.
 			Listener->SetAudioListenerOverride(nullptr,FVector(0,200,150),FRotator(0,-90,0));
-			auto InitBridge=IMAcousticTestSupport::FindBridge(PIE);
-			if(!InitBridge.IsValid())return false; // device not up yet; the 120s total cap bounds this wait.
-			if(!ProbeBridge.IsValid())ProbeBridge=InitBridge;
-			if(!ListenerConverged(InitBridge))
-			{
-				if(Now-LastDiagnostic>5)
-				{
-					LastDiagnostic=Now;
-					UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticW1ListenerWait pre-spawn snaps=%llu"),InitBridge->SnapshotProbePushes.load(std::memory_order_acquire));
-				}
-				return false;
-			}
-			UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticW1InitReady t=%.3f snaps=%llu"),Now-Started,InitBridge->SnapshotProbePushes.load(std::memory_order_acquire));
+			UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticW1InitReady t=%.3f snaps=0"),Now-Started);
 			if(!SpawnW1Source(PIE))return Finish(false,TEXT("W1 source spawn failed."));
 			if(FAudioDevice* AudioDevice=PIE->GetAudioDeviceRaw())
 				MetaContext=IMAcousticMetaSound::FindAcousticMetaSoundContext(AudioDevice->DeviceID);
@@ -779,7 +765,7 @@ public:
 			Stage=3;return false;
 		}
 		auto Bridge=IMAcousticTestSupport::FindBridge(PIE);
-		if(!Bridge)return Finish(false,TEXT("W1 has no IceMoon audio device bridge; configure plugin before launching."));
+		if(!Bridge)return false; // the device bridge appears after the source is spawned; the 120s total cap bounds this wait.
 		if(!ProbeBridge.IsValid() || ProbeBridge != Bridge)ProbeBridge=Bridge; // Rebind from the pre-spawn legacy bridge to the graph owner when delayed binding completes.
 		if(!MetaContext.IsValid())
 		{

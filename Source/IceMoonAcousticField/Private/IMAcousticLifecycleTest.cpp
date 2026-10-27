@@ -59,16 +59,24 @@ public:
 			// Yield the current command, allowing the queued PIE startup to run.
 			ADD_LATENT_AUTOMATION_COMMAND(FIMAcousticLifecycleCommand(State));return true;
 		}
-		if(!World)return Stage==0?false:Finish(false,TEXT("PIE ended before lifecycle evidence."));
+		if(!World)return (Stage==0||Stage==15)?false:Finish(false,TEXT("PIE ended before lifecycle evidence."));
 		if(Stage==0)
 		{
+			// The bake volume starts its worker and world generation only once an acoustic source exists (it no longer
+			// starts a legacy worker in an empty world), so the source is spawned first and the generation is awaited after.
 			for(TActorIterator<AIMAcousticBakeVolume> It(World);It;++It)Volume=*It;
-			Listener=World->GetFirstPlayerController();Bridge=IMAcousticTestSupport::FindBridge(World);
-			if(!Volume.IsValid()||!Listener.IsValid()||!Bridge||!Bridge->WorldGeneration.load())return false;
+			Listener=World->GetFirstPlayerController();
+			if(!Volume.IsValid()||!Listener.IsValid())return false;
+			Volume->bEnableV2=true;Volume->bDirectRoute=false;Volume->bPathRoute=true;Volume->bReverbRoute=true;
+			RestoreListener();SpawnSource(World,233);Stage=15;Stamp=Now;return false;
+		}
+		if(Stage==15)
+		{
+			Bridge=IMAcousticTestSupport::FindBridge(World);
+			if(!Bridge||!Bridge->WorldGeneration.load())
+			{if(Now-Stamp>30)return Finish(false,TEXT("No world generation appeared within 30 seconds after the acoustic source was spawned."));return false;}
 			if(State->PreviousEpoch==Bridge->WorldGeneration.load())return Finish(false,TEXT("PIE reused a world generation."));
 			if(State->PreviousBridge&&State->PreviousBridge->WorldGeneration.load()==State->PreviousEpoch)return Finish(false,TEXT("Old device still publishes the previous world."));
-			Volume->bEnableV2=true;Volume->bDirectRoute=false;Volume->bPathRoute=true;Volume->bReverbRoute=true;
-			RestoreListener();SpawnSource(World,233);Bridge=IMAcousticTestSupport::FindBridge(World);
 			if(FAudioDevice* AudioDevice=World->GetAudioDeviceRaw())
 				MetaContext=IMAcousticMetaSound::FindAcousticMetaSoundContext(AudioDevice->DeviceID);
 			GraphWindowSourceStart=GraphSourceBlocks();
@@ -245,7 +253,10 @@ public:
 				GraphContextRecreated=PreviousMetaContext.IsValid()&&MetaContext.Get()!=PreviousMetaContext.Get();
 				UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticLifecycleSourceRecreate graph_context_recreated=%d source_slot0=%llu"),
 					int(GraphContextRecreated),MetaContext->AudioIds[0].load(std::memory_order_acquire));
-				if(!GraphContextRecreated)return Finish(false,TEXT("New graph source did not acquire a fresh MetaSound context after the old context stopped."));
+				// The bake volume keeps an existing graph pipeline when the last source is destroyed (the graph owns the convolution
+				// tail; absence alone must not stop or switch it), so the new source normally reuses the live context. It must either
+				// get a fresh context after a stop, or be served by a context that is still running; GraphPath>0 above shows it was.
+				if(!GraphContextRecreated&&MetaContext->Stopped.load(std::memory_order_acquire))return Finish(false,TEXT("New graph source is bound to a stopped MetaSound context that was not recreated."));
 			}
 			else if(!Reused)return Finish(false,TEXT("No actual SourceId generation reuse was observed on the legacy route."));
 			const FString Data=FString::Printf(TEXT("{\"cycle\":%d,\"world_generation\":%llu,\"source_id_reused\":%s,\"graph_context_recreated\":%s,\"destroyed_pcm16_energy\":0}"),

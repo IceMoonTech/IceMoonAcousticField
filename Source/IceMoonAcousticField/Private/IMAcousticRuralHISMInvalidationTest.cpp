@@ -37,6 +37,13 @@ struct FIMProvenInstance
 	TWeakObjectPtr<UHierarchicalInstancedStaticMeshComponent> Component;
 	int32 InstanceIndex = INDEX_NONE;
 	FTransform OriginalWorldTransform = FTransform::Identity;
+	// The bake fingerprint hashes the instance transform bit for bit, so the restore does not round-trip the world transform (it drifts
+	// by one ulp in the rotation/scale and would never reproduce the baseline fingerprint). The local pose drives the engine update; the
+	// stored matrix below is then written back verbatim.
+	FTransform OriginalLocalTransform = FTransform::Identity;
+	// ISM stores a double FMatrix; FTransform(Matrix) -> UpdateInstanceTransform -> FMatrix does not return the same bits, and the product
+	// fingerprint hashes the instance pose bit for bit, so the exact stored matrix is what a faithful restore has to put back.
+	FMatrix OriginalStoredMatrix = FMatrix::Identity;
 	FTransform MovedWorldTransform = FTransform::Identity;
 	int32 CapturedVertexStart = INDEX_NONE;
 	int32 CapturedTriangleStart = INDEX_NONE;
@@ -399,6 +406,12 @@ static bool ProveInstanceInCapture(
 	OutProof.Component = Component;
 	OutProof.InstanceIndex = InstanceIndex;
 	OutProof.OriginalWorldTransform = WorldTransform;
+	if (!Component->GetInstanceTransform(InstanceIndex, OutProof.OriginalLocalTransform, false)
+		|| !Component->PerInstanceSMData.IsValidIndex(InstanceIndex))
+	{
+		return false;
+	}
+	OutProof.OriginalStoredMatrix = Component->PerInstanceSMData[InstanceIndex].Transform;
 	OutProof.CapturedVertexStart = VertexStart;
 	OutProof.CapturedTriangleStart = TriangleStart;
 	OutProof.CapturedVertexCount = ExpectedVertices.Num();
@@ -887,7 +900,11 @@ static bool RunTest(FAutomationTestBase* Test)
 		else
 		{
 			bRestoreUpdateReturned = Component->UpdateInstanceTransform(
-				Selected.InstanceIndex, Selected.OriginalWorldTransform, true, true, true);
+				Selected.InstanceIndex, Selected.OriginalLocalTransform, false, true, true);
+			if (bRestoreUpdateReturned && Component->PerInstanceSMData.IsValidIndex(Selected.InstanceIndex))
+			{
+				Component->PerInstanceSMData[Selected.InstanceIndex].Transform = Selected.OriginalStoredMatrix;
+			}
 			const bool bRestoredReadback = Component->GetInstanceTransform(
 				Selected.InstanceIndex, ActualRestoredWorldTransform, true);
 			bRestoredTransformMatchesOriginal = bRestoredReadback

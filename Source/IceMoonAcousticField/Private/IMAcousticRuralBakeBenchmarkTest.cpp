@@ -5,6 +5,7 @@
 #include "Misc/CommandLine.h"
 #include "IMAcousticBakeAsset.h"
 #include "IMAcousticBakeVolume.h"
+#include "IMAcousticGrassCapture.h"
 #include "Components/BoxComponent.h"
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
 #include "Components/InstancedStaticMeshComponent.h"
@@ -497,6 +498,14 @@ private:
 
 	bool AuditSceneCoverage(UWorld* World, const FBox& RegionBounds, FString& Error)
 	{
+		// Landscape grass components are produced by the product's finite grass capture: the product ignores their cached Bounds and
+		// their lazily generated own instances, and expands exactly the captured region instances.
+		FString GrassError;
+		if (!IMCaptureAcousticGrassRegion(World, RegionBounds, GrassState, GrassCapture, GrassError))
+		{
+			Error = TEXT("Product grass region capture failed: ") + GrassError;
+			return false;
+		}
 		for (TActorIterator<AActor> ActorIt(World); ActorIt; ++ActorIt)
 		{
 			AActor* Actor = *ActorIt;
@@ -504,7 +513,9 @@ private:
 			Actor->GetComponents(Primitives);
 			for (UPrimitiveComponent* Primitive : Primitives)
 			{
-				if (!IsValid(Primitive) || !RegionBounds.Intersect(Primitive->Bounds.GetBox())) continue;
+				const FIMAcousticGrassCapturedComponent* CapturedGrass = IsValid(Primitive)
+					? GrassCapture.Components.Find(Cast<UInstancedStaticMeshComponent>(Primitive)) : nullptr;
+				if (!IsValid(Primitive) || (!CapturedGrass && !RegionBounds.Intersect(Primitive->Bounds.GetBox()))) continue;
 				if (Actor == World->GetDefaultBrush() || Actor == World->GetDefaultPhysicsVolume())
 				{
 					KnownExcludedComponents.Add(Primitive->GetPathName());
@@ -615,7 +626,14 @@ private:
 				UHierarchicalInstancedStaticMeshComponent* HISM =
 					Cast<UHierarchicalInstancedStaticMeshComponent>(MeshComponent);
 				int32 ComponentPlacements = 0;
-				if (ISM)
+				if (CapturedGrass)
+				{
+					ComponentPlacements = CapturedGrass->RegionInstances.Num();
+					InRegionISMInstances += ComponentPlacements;
+					if (HISM) InRegionHISMInstances += ComponentPlacements;
+					ExpectedTriangles += MeshTriangles * ComponentPlacements;
+				}
+				else if (ISM)
 				{
 					for (int32 InstanceIndex = 0; InstanceIndex < ISM->GetInstanceCount(); ++InstanceIndex)
 					{
@@ -892,10 +910,18 @@ private:
 		if (!Volume->Status.StartsWith(TEXT("Scene check passed"))
 			|| Volume->ExportedTriangles != ExpectedTriangles)
 		{
+			// Name the product's own blocking reasons: only REQUIRED/pending issues fail the scene check, the rest are exclusions.
+			FString BlockingIssues;
+			int32 BlockingCount = 0;
+			for (const FString& Issue : Volume->SceneIssues)
+			{
+				if (!Issue.Contains(TEXT("REQUIRED")) && !Issue.Contains(TEXT("pending"))) continue;
+				if (++BlockingCount <= 6) BlockingIssues += TEXT(" | ") + Issue.Left(300);
+			}
 			return Finish(TEXT("FAIL"), FString::Printf(
-				TEXT("Product InspectScene did not match the local-region coverage oracle: status='%s', actual_triangles=%d, expected_local_triangles=%lld (full Landscape tiles=%lld)."),
+				TEXT("Product InspectScene did not match the local-region coverage oracle: status='%s', actual_triangles=%d, expected_local_triangles=%lld (full Landscape tiles=%lld); blocking scene issues (%d):%s"),
 				*Volume->Status, Volume->ExportedTriangles, static_cast<long long>(ExpectedTriangles),
-				static_cast<long long>(LandscapeFullTileTriangles)));
+				static_cast<long long>(LandscapeFullTileTriangles), BlockingCount, *BlockingIssues));
 		}
 
 		const double ProbeStarted = FPlatformTime::Seconds();
@@ -1555,6 +1581,8 @@ private:
 	TSet<FString> BackdropExcludedPaths;
 	TSet<FString> UniqueMeshPaths;
 	TMap<UMaterialInterface*, FIMRuralMaterialUse> MaterialUses;
+	FIMAcousticGrassGenerationState GrassState;
+	FIMAcousticGrassCapture GrassCapture;
 	TArray<FString> CoverageIssues;
 	FVector CameraLocation = FVector::ZeroVector;
 	FVector GroundCenter = FVector::ZeroVector;
