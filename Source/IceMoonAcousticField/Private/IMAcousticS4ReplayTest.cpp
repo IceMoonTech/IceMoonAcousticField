@@ -1482,7 +1482,23 @@ public:
 					return Finish(false, TEXT("Reverb-on did not reacquire a newer fresh IR with matching spatial identity, wet PCM, and stable dry voice output."));
 				return false;
 			}
-			if (!OnFreshGateSeconds) OnFreshGateSeconds = Now;
+			if (!OnFreshGateSeconds)
+			{
+				// The audition source is a repeating water drop whose decay tail stays below one PCM16 step, and the master WAV is 16-bit,
+				// so a capture window that lands in the tail records all zeros however the route behaves. As in the replay case, the active
+				// master window starts only once the reacquired graph wet reaches an amplitude the WAV can represent (more than one step).
+				const float ObservableWetPeak = float(IMS4MasterPcm16SilenceThreshold + 1) / 32768.0f;
+				OnWetPeak = PeakWetAmplitude(OnWetBegin, WetFrames());
+				if (OnWetPeak < ObservableWetPeak)
+				{
+					if (Now - OnRequestSeconds > 30.0)
+						return Finish(false, FString::Printf(
+							TEXT("Reacquired graph wet never reached the PCM16-observable level: peak=%g required=%g."),
+							OnWetPeak, ObservableWetPeak));
+					return false;
+				}
+				OnFreshGateSeconds = Now;
+			}
 			if (Now - OnFreshGateSeconds < IMS4MasterReplayActiveCaptureSeconds) return false;
 
 			OnSourceEnd = SourceTraceCount();
@@ -1542,6 +1558,19 @@ private:
 				|| FMath::Abs(Context->CapturedWet[int32(Sample + 1)]) > IMS4WetSilenceThreshold) return true;
 		}
 		return false;
+	}
+	float PeakWetAmplitude(uint32 Begin, uint32 End) const
+	{
+		if (!Context.IsValid()) return 0.0f;
+		float Peak = 0.0f;
+		const uint32 Limit = FMath::Min(End, WetFrames());
+		for (uint32 Frame = FMath::Min(Begin, Limit); Frame < Limit; ++Frame)
+		{
+			const uint32 Sample = Frame * 2;
+			Peak = FMath::Max(Peak, FMath::Max(FMath::Abs(Context->CapturedWet[int32(Sample)]),
+				FMath::Abs(Context->CapturedWet[int32(Sample + 1)])));
+		}
+		return Peak;
 	}
 	uint64 CountWetNonzero(uint32 Begin, uint32 End) const
 	{
@@ -1774,6 +1803,8 @@ private:
 		Writer->WriteValue(TEXT("on_ir_expected_spatial_version"), double(OnExpectedSpatialVersion));
 		Writer->WriteValue(TEXT("on_sequence_advanced"), OnSequence > BaselineSequence);
 		Writer->WriteValue(TEXT("on_wet_pcm_nonzero"), HasWetEnergy(OnWetBegin, OnWetEnd));
+		Writer->WriteValue(TEXT("on_graph_wet_peak_at_master_gate"), OnWetPeak);
+		Writer->WriteValue(TEXT("on_graph_wet_peak_master_window"), PeakWetAmplitude(OnWetBegin, OnWetEnd));
 		Writer->WriteValue(TEXT("on_dry_accepted_blocks"), double(OnAccepted));
 		Writer->WriteValue(TEXT("on_dry_output_blocks"), double(OnOutput));
 		Writer->WriteValue(TEXT("master_wav_path"), MasterWavPath);
@@ -1876,7 +1907,7 @@ private:
 	uint64 OnAccepted = 0, OnOutput = 0, OnVoice = 0, OnSequence = 0, OnSpatialVersion = 0, OnExpectedSpatialVersion = 0;
 	uint64 OffWetNonzeroSamples = 0;
 	int64 MasterLastBytes = -1;
-	float OriginalVolumeWetGain = 0.0f, OriginalContextWetGain = 0.0f, MasterMixerSampleRateHz = 0.0f;
+	float OriginalVolumeWetGain = 0.0f, OriginalContextWetGain = 0.0f, MasterMixerSampleRateHz = 0.0f, OnWetPeak = 0.0f;
 	double BaselineGateSeconds = 0.0, OffRequestSeconds = 0.0, OffRouteObservedSeconds = 0.0;
 	double OnRequestSeconds = 0.0, OnFreshGateSeconds = 0.0, MasterStartSeconds = 0.0, MasterStopSeconds = 0.0;
 	FString MasterStem, MasterWavPath, IncompleteWavPath;
