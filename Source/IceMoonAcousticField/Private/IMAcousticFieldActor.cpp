@@ -561,41 +561,40 @@ void AIMAcousticFieldActor::InvalidateAcousticRegion(const FBox& ChangedBounds)
 				(GridCoord.Y + 0.5f) * CellSize,
 				(GridCoord.Z + 0.5f) * CellSizeZ
 			);
-			if (ChangedBounds.IsInside(CellCenter))
+			if (!ChangedBounds.IsInside(CellCenter))
 			{
-				// --- 开始修改 ---
-				const FIntVector RemovedGridCoord = It.Key();
-				
-				// 1. 移除Cell
-				It.RemoveCurrent();
-
-				// 2. 更新父级的Mask (如果这不是最顶层LOD，分轴比 + 上界)
-				if (LodIndex < CellSubBitMaskArray.Num())
-				{
-					FIntVector ParentGridCoord;
-					int32 RatioXY = 0;
-					int32 RatioZ = 0;
-					uint64 ParentBound = 0;
-					if (ResolveLodParent(LodIndex, RemovedGridCoord, ParentGridCoord, RatioXY, RatioZ, ParentBound))
-					{
-						if (uint64* Mask = CellSubBitMaskArray[LodIndex].Find(ParentGridCoord))
-						{
-							uint64 LocalIndex = 0;
-							if (IMAcousticFieldActorPrivate::TryGetLodChildBitIndex(RemovedGridCoord, ParentGridCoord, RatioXY, RatioZ, ParentBound, LocalIndex))
-							{
-								// 将对应的bit清零
-								*Mask &= ~(1ULL << LocalIndex);
-							}
-
-							if (*Mask == 0u)
-							{
-								CellSubBitMaskArray[LodIndex].Remove(ParentGridCoord);
-							}
-						}
-					}
-				}
-				// --- 结束修改 ---
+				continue;
 			}
+			// --- 开始修改 ---
+			const FIntVector RemovedGridCoord = It.Key();
+
+			// 1. 移除Cell
+			It.RemoveCurrent();
+
+			// 2. 更新父级的Mask (如果这不是最顶层LOD，分轴比 + 上界)
+			if (LodIndex >= CellSubBitMaskArray.Num()) continue;
+			FIntVector ParentGridCoord;
+			int32 RatioXY = 0;
+			int32 RatioZ = 0;
+			uint64 ParentBound = 0;
+			if (!ResolveLodParent(LodIndex, RemovedGridCoord, ParentGridCoord, RatioXY, RatioZ, ParentBound))
+			{
+				continue;
+			}
+			uint64* Mask = CellSubBitMaskArray[LodIndex].Find(ParentGridCoord);
+			if (!Mask) continue;
+			uint64 LocalIndex = 0;
+			if (IMAcousticFieldActorPrivate::TryGetLodChildBitIndex(RemovedGridCoord, ParentGridCoord, RatioXY, RatioZ, ParentBound, LocalIndex))
+			{
+				// 将对应的bit清零
+				*Mask &= ~(1ULL << LocalIndex);
+			}
+
+			if (*Mask == 0u)
+			{
+				CellSubBitMaskArray[LodIndex].Remove(ParentGridCoord);
+			}
+			// --- 结束修改 ---
 		}
 	}
 }
