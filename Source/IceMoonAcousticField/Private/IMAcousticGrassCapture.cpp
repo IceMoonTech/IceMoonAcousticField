@@ -108,7 +108,7 @@ bool PrepareGeneration(UWorld* World, const FIMAcousticGrassBakePlan& Plan,
 }
 
 void BuildProducerCandidates(const FIMAcousticGrassBakePlan& Plan,
-	const TSet<int32>& ObservedSeeds, TMap<int32, TArray<FIMProducer>>& Candidates)
+	const TSet<int32>& ObservedSeeds, TMap<int32, TArray<FIMProducer>>& ProducersBySeed)
 {
 	// UE clamps the builder subsection domain to 16. Match only observed seeds;
 	// include proxy ownership so repeated Landscapes with the same section/type
@@ -116,30 +116,30 @@ void BuildProducerCandidates(const FIMAcousticGrassBakePlan& Plan,
 	for (const auto& Source : Plan.Sources)
 	{
 		ULandscapeComponent* Component = Source.Component;
-		const FIntPoint Section = Component->GetSectionBase();
-		const auto& Types = Component->GetNamedGrassTypes();
-		TArray<FName> Names;
-		Types.GetKeys(Names);
-		Names.Sort(FNameLexicalLess());
-		for (FName Name : Names)
+		const FIntPoint ComponentSectionBase = Component->GetSectionBase();
+		const auto& NamedGrassTypes = Component->GetNamedGrassTypes();
+		TArray<FName> GrassTypeNames;
+		NamedGrassTypes.GetKeys(GrassTypeNames);
+		GrassTypeNames.Sort(FNameLexicalLess());
+		for (FName GrassTypeName : GrassTypeNames)
 		{
-			ULandscapeGrassType* Type = Types.FindChecked(Name);
-			for (int32 Variety = 0; Variety < Type->GrassVarieties.Num(); ++Variety)
+			ULandscapeGrassType* GrassType = NamedGrassTypes.FindChecked(GrassTypeName);
+			for (int32 VarietyIndex = 0; VarietyIndex < GrassType->GrassVarieties.Num(); ++VarietyIndex)
 				for (int32 X = 0; X < 16; ++X)
 					for (int32 Y = 0; Y < 16; ++Y)
 					{
-						const FString SeedText = FString::Printf(TEXT("%s_%s_%d_%d_%d_%d_%d"),
-							*Name.ToString().ToLower(), *Type->GetName().ToLower(),
-							Section.X, Section.Y, X, Y, Variety);
-						int32 Seed = FCrc::StrCrc32(StringCast<ANSICHAR>(*SeedText).Get());
-						if (Seed == 0) ++Seed;
-						if (!ObservedSeeds.Contains(Seed)) continue;
-						FIMProducer& Producer = Candidates.FindOrAdd(Seed).AddDefaulted_GetRef();
+						const FString ProducerSeedText = FString::Printf(TEXT("%s_%s_%d_%d_%d_%d_%d"),
+							*GrassTypeName.ToString().ToLower(), *GrassType->GetName().ToLower(),
+							ComponentSectionBase.X, ComponentSectionBase.Y, X, Y, VarietyIndex);
+						int32 ProducerSeed = FCrc::StrCrc32(StringCast<ANSICHAR>(*ProducerSeedText).Get());
+						if (ProducerSeed == 0) ++ProducerSeed;
+						if (!ObservedSeeds.Contains(ProducerSeed)) continue;
+						FIMProducer& Producer = ProducersBySeed.FindOrAdd(ProducerSeed).AddDefaulted_GetRef();
 						Producer.Proxy = Component->GetLandscapeProxy();
-						Producer.Mesh = Type->GrassVarieties[Variety].GrassMesh;
+						Producer.Mesh = GrassType->GrassVarieties[VarietyIndex].GrassMesh;
 						Producer.Identity = IMStableBakeObjectPath(Component) + TEXT("|Grass|")
-							+ Name.ToString() + TEXT("|") + IMStableBakeObjectPath(Type)
-							+ FString::Printf(TEXT("|%d|%d|%d|%d"), Variety, X, Y, Seed);
+							+ GrassTypeName.ToString() + TEXT("|") + IMStableBakeObjectPath(GrassType)
+							+ FString::Printf(TEXT("|%d|%d|%d|%d"), VarietyIndex, X, Y, ProducerSeed);
 					}
 		}
 	}
