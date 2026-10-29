@@ -930,7 +930,7 @@ void MergeCoplanarDynamicTris(TArray<IPLVector3>& Verts, TArray<IPLTriangle>& Tr
 }
 bool BuildDynamicMeshSnapshot(UStaticMeshComponent* Component, int32 InstanceIndex,
 	const FVector& Origin, const FIMAcousticMaterialTable& MaterialTable,
-	FIMAcousticDynamicMeshSnapshot& Out, FString& Failure)
+	FIMAcousticDynamicMeshSnapshot& OutSnapshot, FString& Failure)
 {
 	// Dynamic spline deformation needs its own geometry-change hash. Reject an
 	// explicitly supplied blocker until that contract exists; raw LOD0 would
@@ -948,14 +948,14 @@ bool BuildDynamicMeshSnapshot(UStaticMeshComponent* Component, int32 InstanceInd
 	}
 	UStaticMesh* Mesh = Component->GetStaticMesh();
 	const FStaticMeshLODResources& LOD = Mesh->GetRenderData()->LODResources[0];
-	const FPositionVertexBuffer& Positions = LOD.VertexBuffers.PositionVertexBuffer;
+	const FPositionVertexBuffer& MeshPositions = LOD.VertexBuffers.PositionVertexBuffer;
 	const auto IndexView = LOD.IndexBuffer.GetArrayView();
-	if (Positions.GetNumVertices() == 0 || !Positions.GetVertexData() || IndexView.Num() == 0)
+	if (MeshPositions.GetNumVertices() == 0 || !MeshPositions.GetVertexData() || IndexView.Num() == 0)
 	{
 		Failure = FString::Printf(TEXT("Dynamic mesh CPU geometry unavailable: %s"), *Mesh->GetPathName());
 		return false;
 	}
-	FTransform Transform = Component->GetComponentTransform();
+	FTransform InstanceWorldTransform = Component->GetComponentTransform();
 	if (UInstancedStaticMeshComponent* Instances = Cast<UInstancedStaticMeshComponent>(Component))
 	{
 		// This registration owns one rigid obstacle, not a component-wide
@@ -965,27 +965,27 @@ bool BuildDynamicMeshSnapshot(UStaticMeshComponent* Component, int32 InstanceInd
 			Failure = TEXT("Registered dynamic ISM/HISM requires exactly one instance; component-wide dynamic instances are unsupported.");
 			return false;
 		}
-		if (!Instances->GetInstanceTransform(InstanceIndex, Transform, true))
+		if (!Instances->GetInstanceTransform(InstanceIndex, InstanceWorldTransform, true))
 		{
 			Failure = TEXT("Dynamic instance transform unavailable.");
 			return false;
 		}
 	}
-	if (Transform.ContainsNaN() || FMath::IsNearlyZero(Transform.GetDeterminant()))
+	if (InstanceWorldTransform.ContainsNaN() || FMath::IsNearlyZero(InstanceWorldTransform.GetDeterminant()))
 	{
 		Failure = TEXT("Dynamic instance has invalid or singular transform.");
 		return false;
 	}
-	Out = {};
-	Out.Key = (static_cast<uint64>(Component->GetUniqueID()) << 32)
+	OutSnapshot = {};
+	OutSnapshot.Key = (static_cast<uint64>(Component->GetUniqueID()) << 32)
 		| static_cast<uint64>(InstanceIndex + 1);
 	// World scale lives in the vertices (meters), not in the instance basis:
 	// visibility raycasts treat instances as rigid, so a scaled basis would
 	// silently shrink the obstacle (W3 closed-door leak). Scale edits change
 	// the hash so the simulator recreates instead of reusing stale geometry.
-	const FVector MeshScale = Transform.GetScale3D();
-	Out.Transform = ToSDKDynamicTransform(Transform, Origin);
-	Out.Materials.Append(MaterialTable.Native);
+	const FVector InstanceWorldScale = InstanceWorldTransform.GetScale3D();
+	OutSnapshot.Transform = ToSDKDynamicTransform(InstanceWorldTransform, Origin);
+	OutSnapshot.Materials.Append(MaterialTable.Native);
 	FSHA1 GeometryIdentity;
 	IMHashMaterialIdentity(GeometryIdentity,IMStableBakeObjectPath(Mesh));
 	for(int32 Index=0;Index<MaterialTable.Identities.Num();++Index)
@@ -994,19 +994,22 @@ bool BuildDynamicMeshSnapshot(UStaticMeshComponent* Component, int32 InstanceInd
 		const uint8 Roles=(MaterialTable.Solid[Index]?1:0)|(MaterialTable.SupportsProbes[Index]?2:0);
 		GeometryIdentity.Update(&Roles,sizeof(Roles));
 	}
-	Out.Vertices.Reserve(Positions.GetNumVertices());
-	for (uint32 VertexIndex = 0; VertexIndex < Positions.GetNumVertices(); ++VertexIndex)
+	OutSnapshot.Vertices.Reserve(MeshPositions.GetNumVertices());
+	for (uint32 VertexIndex = 0; VertexIndex < MeshPositions.GetNumVertices(); ++VertexIndex)
 	{
-		const FVector RawVertex(Positions.VertexPosition(VertexIndex));
-		const FVector ScaledVertex(RawVertex.X * MeshScale.X, RawVertex.Y * MeshScale.Y, RawVertex.Z * MeshScale.Z);
-		Out.Vertices.Add(ToSDKDirection(ScaledVertex * 0.01f));
-		GeometryIdentity.Update(reinterpret_cast<const uint8*>(&RawVertex),sizeof(RawVertex));
+		const FVector MeshLocalVertex(MeshPositions.VertexPosition(VertexIndex));
+		const FVector ScaledMeshLocalVertex(
+			MeshLocalVertex.X * InstanceWorldScale.X,
+			MeshLocalVertex.Y * InstanceWorldScale.Y,
+			MeshLocalVertex.Z * InstanceWorldScale.Z);
+		OutSnapshot.Vertices.Add(ToSDKDirection(ScaledMeshLocalVertex * 0.01f));
+		GeometryIdentity.Update(reinterpret_cast<const uint8*>(&MeshLocalVertex),sizeof(MeshLocalVertex));
 	}
 	// UE faces wind CW; IMToSDKDirection (Y,Z,-X, det -1) already converts to
 	// SDK-CCW-outward, so swap only when the instance itself mirrors (det<0).
 	// Swapping det>0 wound the H1 door inward (VOL -0.594) and conducted path
 	// audio through the sealed aperture (inc108; falsifiable by VOL sign).
-	const bool Flip = Transform.GetDeterminant() < 0.0f;
+	const bool bFlipTriangleWinding = InstanceWorldTransform.GetDeterminant() < 0.0f;
 	for (const FStaticMeshSection& Section : LOD.Sections)
 	{
 		const int32 MaterialIndex=MaterialTable.ResolveMesh(Component,Section.MaterialIndex,InstanceIndex);
@@ -1025,26 +1028,26 @@ bool BuildDynamicMeshSnapshot(UStaticMeshComponent* Component, int32 InstanceInd
 			for (uint32 Corner = 0; Corner < 3; ++Corner)
 			{
 				const uint32 Index = LOD.IndexBuffer.GetIndex(Section.FirstIndex + TriangleIndex * 3 + Corner);
-				if (Index >= Positions.GetNumVertices())
+				if (Index >= MeshPositions.GetNumVertices())
 				{
 					Failure = TEXT("Dynamic mesh index exceeds vertex buffer.");
 					return false;
 				}
 				Triangle.indices[Corner] = static_cast<IPLint32>(Index);
 			}
-			if (Flip) { std::swap(Triangle.indices[1], Triangle.indices[2]); }
-			Out.Triangles.Add(Triangle);
-			Out.MaterialIndices.Add(MaterialIndex);
+			if (bFlipTriangleWinding) { std::swap(Triangle.indices[1], Triangle.indices[2]); }
+			OutSnapshot.Triangles.Add(Triangle);
+			OutSnapshot.MaterialIndices.Add(MaterialIndex);
 		}
 	}
 	{
-		const int32 IMergeInTris = Out.Triangles.Num();
-		const int32 IMergeInVerts = Out.Vertices.Num();
-		MergeCoplanarDynamicTris(Out.Vertices, Out.Triangles, Out.MaterialIndices);
+		const int32 IMergeInTris = OutSnapshot.Triangles.Num();
+		const int32 IMergeInVerts = OutSnapshot.Vertices.Num();
+		MergeCoplanarDynamicTris(OutSnapshot.Vertices, OutSnapshot.Triangles, OutSnapshot.MaterialIndices);
 		UE_LOG(LogTemp, Display, TEXT("IMLogs AcousticMergeDynamic in_tris=%d out_tris=%d in_verts=%d out_verts=%d mesh=%s"),
-			IMergeInTris, Out.Triangles.Num(), IMergeInVerts, Out.Vertices.Num(), *Mesh->GetPathName());
+			IMergeInTris, OutSnapshot.Triangles.Num(), IMergeInVerts, OutSnapshot.Vertices.Num(), *Mesh->GetPathName());
 	}
-	if (Out.Triangles.IsEmpty())
+	if (OutSnapshot.Triangles.IsEmpty())
 	{
 		// An explicit NonSolid profile removes this obstacle from the next
 		// snapshot; the worker then removes its previous instance, if any.
@@ -1056,9 +1059,9 @@ bool BuildDynamicMeshSnapshot(UStaticMeshComponent* Component, int32 InstanceInd
 		const int32 Count=Values.Num();GeometryIdentity.Update(reinterpret_cast<const uint8*>(&Count),sizeof(Count));
 		if(Count)GeometryIdentity.Update(reinterpret_cast<const uint8*>(Values.GetData()),Count*sizeof(Values[0]));
 	};
-	HashArray(Out.Vertices);HashArray(Out.Triangles);HashArray(Out.MaterialIndices);HashArray(Out.Materials);
+	HashArray(OutSnapshot.Vertices);HashArray(OutSnapshot.Triangles);HashArray(OutSnapshot.MaterialIndices);HashArray(OutSnapshot.Materials);
 	GeometryIdentity.Final();uint8 Digest[20];GeometryIdentity.GetHash(Digest);
-	FMemory::Memcpy(&Out.GeometryHash,Digest,sizeof(Out.GeometryHash));
+	FMemory::Memcpy(&OutSnapshot.GeometryHash,Digest,sizeof(OutSnapshot.GeometryHash));
 	return true;
 }
 }
