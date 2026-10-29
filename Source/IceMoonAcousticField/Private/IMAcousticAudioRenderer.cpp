@@ -131,15 +131,15 @@ bool FIMAcousticAudioRenderer::Render(const float* DryMono, int Frames,
 		Reset();
 		ActiveGeneration = Frame.Generation;
 	}
-	for (int I = 0; I < Frames; ++I)
+	for (int FrameIndex = 0; FrameIndex < Frames; ++FrameIndex)
 	{
-		if (!IMAcousticAudioRendererPrivate::Finite(DryMono[I])) { if(Metrics)Metrics->Failure=EIMAcousticRenderFailure::NonfiniteInput;Reset(); return false; }
-		Input[I] = DryMono[I];
+		if (!IMAcousticAudioRendererPrivate::Finite(DryMono[FrameIndex])) { if(Metrics)Metrics->Failure=EIMAcousticRenderFailure::NonfiniteInput;Reset(); return false; }
+		Input[FrameIndex] = DryMono[FrameIndex];
 	}
-	for (int C = 0; C < 2; ++C)
+	for (int ChannelIndex = 0; ChannelIndex < 2; ++ChannelIndex)
 	{
-		std::fill(DirectOutput[C].begin(), DirectOutput[C].end(), 0.0f);
-		std::fill(PathOutput[C].begin(), PathOutput[C].end(), 0.0f);
+		std::fill(DirectOutput[ChannelIndex].begin(), DirectOutput[ChannelIndex].end(), 0.0f);
+		std::fill(PathOutput[ChannelIndex].begin(), PathOutput[ChannelIndex].end(), 0.0f);
 	}
 	float* DryChannels[]{Input.data()};
 	float* DirectChannels[]{DirectMono.data()};
@@ -189,27 +189,27 @@ bool FIMAcousticAudioRenderer::Render(const float* DryMono, int Frames,
 	else if (WasPathValid) { iplPathEffectReset(PathEffect); }
 	WasDirectValid = Frame.DirectValid;
 	WasPathValid = Frame.PathValid;
-	for (int I = 0; I < Frames; ++I)
+	for (int FrameIndex = 0; FrameIndex < Frames; ++FrameIndex)
 	{
-		for (int C = 0; C < 2; ++C)
+		for (int ChannelIndex = 0; ChannelIndex < 2; ++ChannelIndex)
 		{
-			const int OutIndex = 2 * I + C;
+			const int InterleavedSampleIndex = 2 * FrameIndex + ChannelIndex;
 			// Audition mutes only the output; both valid DSP histories continue
 			// advancing so re-enabling a route does not restart its filters.
-			const float D = (AudibleRoutes & 1) ? DirectOutput[C][I] : 0.f;
-			const float P = (AudibleRoutes & 2) ? PathOutput[C][I] : 0.f;
-			const float Sum = D + P;
-			if (!IMAcousticAudioRendererPrivate::Finite(DirectOutput[C][I]) || !IMAcousticAudioRendererPrivate::Finite(PathOutput[C][I]) || !IMAcousticAudioRendererPrivate::Finite(Sum))
+			const float DirectSample = (AudibleRoutes & 1) ? DirectOutput[ChannelIndex][FrameIndex] : 0.f;
+			const float PathSample = (AudibleRoutes & 2) ? PathOutput[ChannelIndex][FrameIndex] : 0.f;
+			const float MixedSample = DirectSample + PathSample;
+			if (!IMAcousticAudioRendererPrivate::Finite(DirectOutput[ChannelIndex][FrameIndex]) || !IMAcousticAudioRendererPrivate::Finite(PathOutput[ChannelIndex][FrameIndex]) || !IMAcousticAudioRendererPrivate::Finite(MixedSample))
 			{
-				if(Metrics)Metrics->Failure=!IMAcousticAudioRendererPrivate::Finite(DirectOutput[C][I])?EIMAcousticRenderFailure::NonfiniteDirect:EIMAcousticRenderFailure::NonfinitePath;
+				if(Metrics)Metrics->Failure=!IMAcousticAudioRendererPrivate::Finite(DirectOutput[ChannelIndex][FrameIndex])?EIMAcousticRenderFailure::NonfiniteDirect:EIMAcousticRenderFailure::NonfinitePath;
 				IMAcousticAudioRendererPrivate::ClearStereoOutputs(Stereo, Frames, DirectStereo, PathStereo);
 				Reset();
 				return false;
 			}
-			Stereo[OutIndex] = Sum;
-			if (Metrics) { Metrics->DirectEnergy += double(D)*D; Metrics->PathEnergy += double(P)*P; }
-			if (DirectStereo) { DirectStereo[OutIndex] = D; }
-			if (PathStereo) { PathStereo[OutIndex] = P; }
+			Stereo[InterleavedSampleIndex] = MixedSample;
+			if (Metrics) { Metrics->DirectEnergy += double(DirectSample)*DirectSample; Metrics->PathEnergy += double(PathSample)*PathSample; }
+			if (DirectStereo) { DirectStereo[InterleavedSampleIndex] = DirectSample; }
+			if (PathStereo) { PathStereo[InterleavedSampleIndex] = PathSample; }
 		}
 	}
 	return true;
