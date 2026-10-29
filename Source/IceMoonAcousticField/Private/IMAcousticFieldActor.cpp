@@ -517,25 +517,28 @@ void AIMAcousticFieldActor::AddAudioFieldForLod(const FHitResult& HitResult)
 		}
 #endif
 		// 如果不是最顶层，就需要更新其父层级的掩码（分轴比 + 上界，见 ResolveLodParent）
-		if (LodIndex < CellSubBitMaskArray.Num())
+		if (LodIndex >= CellSubBitMaskArray.Num())
 		{
-			FIntVector ParentGridCoord;
-			int32 RatioXY = 0;
-			int32 RatioZ = 0;
-			uint64 ParentBound = 0;
-			if (ResolveLodParent(LodIndex, GridCoord, ParentGridCoord, RatioXY, RatioZ, ParentBound))
-			{
-				uint64 LocalIndex = 0;
-				if (IMAcousticFieldActorPrivate::TryGetLodChildBitIndex(GridCoord, ParentGridCoord, RatioXY, RatioZ, ParentBound, LocalIndex))
-				{
-					// 获取对应LOD的掩码Map
-					TMap<FIntVector, uint64>& MaskMap = CellSubBitMaskArray[LodIndex];
-
-					// 使用位或操作来设置对应的bit为1
-					MaskMap.FindOrAdd(ParentGridCoord) |= (1ULL << LocalIndex);
-				}
-			}
+			continue;
 		}
+		FIntVector ParentGridCoord;
+		int32 RatioXY = 0;
+		int32 RatioZ = 0;
+		uint64 ParentBound = 0;
+		if (!ResolveLodParent(LodIndex, GridCoord, ParentGridCoord, RatioXY, RatioZ, ParentBound))
+		{
+			continue;
+		}
+		uint64 LocalIndex = 0;
+		if (!IMAcousticFieldActorPrivate::TryGetLodChildBitIndex(GridCoord, ParentGridCoord, RatioXY, RatioZ, ParentBound, LocalIndex))
+		{
+			continue;
+		}
+		// 获取对应LOD的掩码Map
+		TMap<FIntVector, uint64>& MaskMap = CellSubBitMaskArray[LodIndex];
+
+		// 使用位或操作来设置对应的bit为1
+		MaskMap.FindOrAdd(ParentGridCoord) |= (1ULL << LocalIndex);
 	}
 }
 
