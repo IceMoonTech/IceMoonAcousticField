@@ -58,45 +58,45 @@ double ScaleMaximum(const FFloatInterval& Interval, bool RandomScale)
 
 bool ReadVarietyBounds(const FGrassVariety& Variety, double& Radius, FString& Error)
 {
-	const auto ValidInterval = [](const FFloatInterval& Interval)
+	const auto IsValidScaleInterval = [](const FFloatInterval& Interval)
 	{
 		return FMath::IsFinite(Interval.Min) && FMath::IsFinite(Interval.Max)
 			&& Interval.Min <= Interval.Max && FMath::IsFinite(Interval.Size());
 	};
-	bool RandomScale = false;
-	bool ValidScale = ValidInterval(Variety.ScaleX);
+	bool bUsesRandomScale = false;
+	bool bValidScaleIntervals = IsValidScaleInterval(Variety.ScaleX);
 	switch (Variety.Scaling)
 	{
 	case EGrassScaling::Uniform:
-		RandomScale = Variety.ScaleX.Size() > 0.0f;
+		bUsesRandomScale = Variety.ScaleX.Size() > 0.0f;
 		break;
 	case EGrassScaling::Free:
-		ValidScale &= ValidInterval(Variety.ScaleY) && ValidInterval(Variety.ScaleZ);
-		RandomScale = Variety.ScaleX.Size() > 0.0f || Variety.ScaleY.Size() > 0.0f
+		bValidScaleIntervals &= IsValidScaleInterval(Variety.ScaleY) && IsValidScaleInterval(Variety.ScaleZ);
+		bUsesRandomScale = Variety.ScaleX.Size() > 0.0f || Variety.ScaleY.Size() > 0.0f
 			|| Variety.ScaleZ.Size() > 0.0f;
 		break;
 	case EGrassScaling::LockXY:
-		ValidScale &= ValidInterval(Variety.ScaleZ);
-		RandomScale = Variety.ScaleX.Size() > 0.0f || Variety.ScaleZ.Size() > 0.0f;
+		bValidScaleIntervals &= IsValidScaleInterval(Variety.ScaleZ);
+		bUsesRandomScale = Variety.ScaleX.Size() > 0.0f || Variety.ScaleZ.Size() > 0.0f;
 		break;
 	default:
-		ValidScale = false;
+		bValidScaleIntervals = false;
 		break;
 	}
-	if (!ValidScale || (Variety.bWeightAttenuatesMaxScale
+	if (!bValidScaleIntervals || (Variety.bWeightAttenuatesMaxScale
 		&& !FMath::IsFinite(Variety.MaxScaleWeightAttenuation)))
 	{
 		Error = TEXT("Grass variety has invalid static scale intervals: ")
 			+ IMStableBakeObjectPath(Variety.GrassMesh);
 		return false;
 	}
-	const FBox MeshBox = Variety.GrassMesh->GetBounds().GetBox();
-	const double X = ScaleMaximum(Variety.ScaleX, RandomScale);
-	const double Y = Variety.Scaling == EGrassScaling::Free ? ScaleMaximum(Variety.ScaleY, RandomScale) : X;
-	const double Z = Variety.Scaling == EGrassScaling::Uniform ? X : ScaleMaximum(Variety.ScaleZ, RandomScale);
-	const FVector MaxCoordinate = MeshBox.Min.GetAbs().ComponentMax(MeshBox.Max.GetAbs());
-	Radius = (MaxCoordinate * FVector(X, Y, Z)).Size();
-	if (!MeshBox.IsValid || MeshBox.Min.ContainsNaN() || MeshBox.Max.ContainsNaN()
+	const FBox MeshLocalBounds = Variety.GrassMesh->GetBounds().GetBox();
+	const double MaxMeshScaleX = ScaleMaximum(Variety.ScaleX, bUsesRandomScale);
+	const double MaxMeshScaleY = Variety.Scaling == EGrassScaling::Free ? ScaleMaximum(Variety.ScaleY, bUsesRandomScale) : MaxMeshScaleX;
+	const double MaxMeshScaleZ = Variety.Scaling == EGrassScaling::Uniform ? MaxMeshScaleX : ScaleMaximum(Variety.ScaleZ, bUsesRandomScale);
+	const FVector MaxAbsMeshLocalCoordinates = MeshLocalBounds.Min.GetAbs().ComponentMax(MeshLocalBounds.Max.GetAbs());
+	Radius = (MaxAbsMeshLocalCoordinates * FVector(MaxMeshScaleX, MaxMeshScaleY, MaxMeshScaleZ)).Size();
+	if (!MeshLocalBounds.IsValid || MeshLocalBounds.Min.ContainsNaN() || MeshLocalBounds.Max.ContainsNaN()
 		|| !FMath::IsFinite(Radius) || Radius <= 0.0)
 	{
 		Error = TEXT("Grass mesh scale/bounds cannot provide a finite static footprint: ")
