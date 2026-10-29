@@ -173,11 +173,12 @@ void UIMAcousticSourceComponent::OnUnregister()
 	{
 		for (UStaticMeshComponent* WaveMesh : EditorMarkerWaveMeshes)
 		{
-			if (WaveMesh)
+			if (!WaveMesh)
 			{
-				Owner->RemoveInstanceComponent(WaveMesh);
-				WaveMesh->DestroyComponent();
+				continue;
 			}
+			Owner->RemoveInstanceComponent(WaveMesh);
+			WaveMesh->DestroyComponent();
 		}
 	}
 	EditorMarkerWaveMeshes.Empty();
