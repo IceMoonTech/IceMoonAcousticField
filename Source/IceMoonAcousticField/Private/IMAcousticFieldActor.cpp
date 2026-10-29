@@ -1205,7 +1205,7 @@ bool AIMAcousticFieldActor::QueryAcousticFieldSmooth(
 		OutResponse = TargetResponse;
 		return true;
 	}
-	const float CurrentTime = SmoothWorld->GetTimeSeconds();
+	const float CurrentTimeSeconds = SmoothWorld->GetTimeSeconds();
 
 	// 查找缓存；UniqueID 可被 GC 回收复用，以弱引用 Owner 为准，不一致即重置条目
 	FIMAcousticQueryCache* Cache = SmoothQueryCache.Find(QueryID);
@@ -1220,7 +1220,7 @@ bool AIMAcousticFieldActor::QueryAcousticFieldSmooth(
 		// 首次查询，直接使用目标值并缓存
 		FIMAcousticQueryCache NewCache;
 		NewCache.LastResult = TargetResponse;
-		NewCache.LastQueryTime = CurrentTime;
+		NewCache.LastQueryTime = CurrentTimeSeconds;
 		NewCache.LastQueryLocation = QueryLocation;
 		NewCache.SourceObject = SourceObject;
 		SmoothQueryCache.Add(QueryID, NewCache);
@@ -1230,21 +1230,21 @@ bool AIMAcousticFieldActor::QueryAcousticFieldSmooth(
 	}
 
 	// 计算时间增量（限制最大1.0秒，防止暂停后的跳变）
-	const float DeltaTime = FMath::Clamp(CurrentTime - Cache->LastQueryTime, 0.0f, 1.0f);
+	const float QueryDeltaSeconds = FMath::Clamp(CurrentTimeSeconds - Cache->LastQueryTime, 0.0f, 1.0f);
 
 	// 问题：固定SmoothSpeed对大幅度变化响应太慢（如从封闭区域→开阔空间） 解决：根据Wet变化幅度自适应调整平滑速度
 	const float WetChange = FMath::Abs(TargetResponse.Wet - Cache->LastResult.Wet);
 
 	// 自适应因子：小变化→1.0（慢速平滑），大变化→0.25（快速响应，4倍加速）
-	const float AdaptiveFactor = IMCommonMathUtils::RemapSaturated<float>(0.075f, 0.2f, 1.0f, 0.25f, WetChange);
-	const float EffectiveSmoothSpeed = SmoothSpeed * AdaptiveFactor;
+	const float TimeConstantScale = IMCommonMathUtils::RemapSaturated<float>(0.075f, 0.2f, 1.0f, 0.25f, WetChange);
+	const float EffectiveTimeConstantSeconds = SmoothSpeed * TimeConstantScale;
 
 	// 指数平滑：Alpha = 1 - e^(-Δt / τ)
 	// SmoothSpeed (τ) 表示"时间常数"，即达到63.2%收敛所需的时间
 	// - 对于离散采样（脚步声等）：推荐 3.0-5.0 秒（需要多次查询才完全过渡）
 	// - 对于连续采样（环境音等）：推荐 0.5-1.0 秒（快速响应）
 	// - 自适应调整：大变化时自动加快响应速度
-	const float Alpha = 1.0f - FMath::Exp(-DeltaTime / FMath::Max(EffectiveSmoothSpeed, 0.01f));
+	const float Alpha = 1.0f - FMath::Exp(-QueryDeltaSeconds / FMath::Max(EffectiveTimeConstantSeconds, 0.01f));
 
 	// 平滑插值
 	OutResponse.Wet = FMath::Lerp(Cache->LastResult.Wet, TargetResponse.Wet, Alpha);
@@ -1256,7 +1256,7 @@ bool AIMAcousticFieldActor::QueryAcousticFieldSmooth(
 
 	// 更新缓存
 	Cache->LastResult = OutResponse;
-	Cache->LastQueryTime = CurrentTime;
+	Cache->LastQueryTime = CurrentTimeSeconds;
 	Cache->LastQueryLocation = QueryLocation;
 
 #if WITH_EDITOR
@@ -1268,14 +1268,14 @@ bool AIMAcousticFieldActor::QueryAcousticFieldSmooth(
 		if (WetChange > 0.03f)
 		{
 			UE_LOG(LogTemp, Log, TEXT("IMAcousticField: [平滑] Target=%.2f, Current=%.2f, Δ=%.3f → Factor=%.3f, Speed=%.2fs, Alpha=%.3f"),
-				TargetResponse.Wet, Cache->LastResult.Wet, WetChange, AdaptiveFactor, EffectiveSmoothSpeed, Alpha);
+				TargetResponse.Wet, Cache->LastResult.Wet, WetChange, TimeConstantScale, EffectiveTimeConstantSeconds, Alpha);
 		}
 
 		// 检测显著变化（激进加速中）
 		if (WetChange > 0.15f)
 		{
 			UE_LOG(LogTemp, Warning, TEXT("IMAcousticField: [显著变化] Wet: %.2f → %.2f (Δ=%.3f) - 激进加速中 (×%.1f)"),
-				Cache->LastResult.Wet, TargetResponse.Wet, WetChange, 1.0f/AdaptiveFactor);
+				Cache->LastResult.Wet, TargetResponse.Wet, WetChange, 1.0f/TimeConstantScale);
 		}
 	}
 #endif
