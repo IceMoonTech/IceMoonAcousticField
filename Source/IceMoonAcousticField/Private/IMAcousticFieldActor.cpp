@@ -172,13 +172,13 @@ void AIMAcousticFieldActor::Tick(float DeltaTime)
 	DrainPendingProbes();
 
 //状态机
-	float LastQueryTimeOffset = TickWorld->GetTimeSeconds() - LastQueryTime;
+	float SecondsSinceLastQuery = TickWorld->GetTimeSeconds() - LastQueryTime;
 	int32 CurrentState = -1;
-	if (LastQueryTimeOffset < ActiveStateThreshold)
+	if (SecondsSinceLastQuery < ActiveStateThreshold)
 	{
 		CurrentState = 0; // 活跃状态
 		PrimaryActorTick.TickInterval = 0.0f; // 0.0f 表示每帧Tick
-	}else if (LastQueryTimeOffset > DormantStateThreshold)
+	}else if (SecondsSinceLastQuery > DormantStateThreshold)
 	{
 		CurrentState = 2; // 休眠状态
 		PrimaryActorTick.TickInterval = 1.0f;
@@ -254,9 +254,9 @@ void AIMAcousticFieldActor::Tick(float DeltaTime)
 	//如果激活则 启动 清理grid的cell计划  TODO目前写的随意
 	if (TickWorld->TimeSince(LastCleanupTime) > 5.0f)
 	{
-		const float CurrentTime = TickWorld->GetTimeSeconds();
-		TickTrimAudioFieldForLod( CurrentTime );
-		LastCleanupTime = CurrentTime;
+		const float CleanupTimeSeconds = TickWorld->GetTimeSeconds();
+		TickTrimAudioFieldForLod( CleanupTimeSeconds );
+		LastCleanupTime = CleanupTimeSeconds;
 	}
 }
 
