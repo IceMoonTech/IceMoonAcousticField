@@ -54,15 +54,13 @@ TWeakObjectPtr<AIMAcousticFieldActor> GWorldAcousticActor;
 				CosTheta
 			);
 
-			if (!ConeDirection.Equals(FVector::UpVector, KINDA_SMALL_NUMBER))
-			{
-				const FQuat Rotation = FQuat::FindBetweenNormals(FVector::UpVector, ConeDirection);
-				OutDirections.Add(Rotation.RotateVector(PointOnZUpSphere));
-			}
-			else
+			if (ConeDirection.Equals(FVector::UpVector, KINDA_SMALL_NUMBER))
 			{
 				OutDirections.Add(PointOnZUpSphere);
+				continue;
 			}
+			const FQuat Rotation = FQuat::FindBetweenNormals(FVector::UpVector, ConeDirection);
+			OutDirections.Add(Rotation.RotateVector(PointOnZUpSphere));
 		}
 		//UE_LOG(LogUnrealMath, Warning, TEXT("RestDir %.3f,%.3f,%.3f, ConeAngleDegree %.3f OutDirections[0]方向 %.3f,%.3f,%.3f"), ConeDirection.X, ConeDirection.Y, ConeDirection.Z, ConeAngleDegree, OutDirections[0].X, OutDirections[0].Y, OutDirections[0].Z);
 	}
