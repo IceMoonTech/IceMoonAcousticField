@@ -300,20 +300,20 @@ void UIMAcousticSourceComponent::CreateEditorBillboard()
 		FCookLoadScope EditorOnlyScope(ECookLoadType::EditorOnly);
 		EditorMarkerMesh->SetStaticMesh(LoadObject<UStaticMesh>(
 			nullptr, TEXT("/Engine/BasicShapes/Cube.Cube")));
-		if (UMaterialInterface* BaseMaterial = LoadObject<UMaterialInterface>(
-			nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial")))
+		UMaterialInterface* BaseMaterial = LoadObject<UMaterialInterface>(
+			nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
+		UMaterialInstanceDynamic* MarkerMaterial = BaseMaterial
+			? UMaterialInstanceDynamic::Create(BaseMaterial, EditorMarkerMesh)
+			: nullptr;
+		if (MarkerMaterial)
 		{
-			if (UMaterialInstanceDynamic* MarkerMaterial = UMaterialInstanceDynamic::Create(
-				BaseMaterial, EditorMarkerMesh))
-			{
-				const FLinearColor MarkerColor(1.0f, 0.75f, 0.02f, 1.0f);
-				MarkerMaterial->SetVectorParameterValue(TEXT("Color"), MarkerColor);
-				MarkerMaterial->SetVectorParameterValue(TEXT("BaseColor"), MarkerColor);
-				MarkerMaterial->SetVectorParameterValue(TEXT("EmissiveColor"), MarkerColor);
-				MarkerMaterial->SetScalarParameterValue(TEXT("Emissive"), 4.0f);
-				MarkerMaterial->SetScalarParameterValue(TEXT("EmissiveStrength"), 4.0f);
-				EditorMarkerMesh->SetMaterial(0, MarkerMaterial);
-			}
+			const FLinearColor MarkerColor(1.0f, 0.75f, 0.02f, 1.0f);
+			MarkerMaterial->SetVectorParameterValue(TEXT("Color"), MarkerColor);
+			MarkerMaterial->SetVectorParameterValue(TEXT("BaseColor"), MarkerColor);
+			MarkerMaterial->SetVectorParameterValue(TEXT("EmissiveColor"), MarkerColor);
+			MarkerMaterial->SetScalarParameterValue(TEXT("Emissive"), 4.0f);
+			MarkerMaterial->SetScalarParameterValue(TEXT("EmissiveStrength"), 4.0f);
+			EditorMarkerMesh->SetMaterial(0, MarkerMaterial);
 		}
 	}
 	EditorMarkerMesh->SetRelativeLocation(FVector(-60.0f, -50.0f, 80.0f));
