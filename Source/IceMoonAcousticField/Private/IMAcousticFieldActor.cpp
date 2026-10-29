@@ -372,25 +372,8 @@ void AIMAcousticFieldActor::OnAsyncTraceComplete(const FTraceHandle& TraceHandle
 	if (!World) { return; }
 
 	// 核心修复：检查 OutHits 是否为空（未命中时为空）
-	if (TraceDatum.OutHits.Num() > 0)
+	if (TraceDatum.OutHits.Num() <= 0)
 	{
-		// 命中：正常处理所有命中结果
-		for (int i = 0; i < TraceDatum.OutHits.Num(); ++i)
-		{
-			const FHitResult& Hit = TraceDatum.OutHits[i];
-#if WITH_EDITOR
-			if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)
-			{
-				AActor* HitActor = Hit.GetActor();
-				const FString ActorName = HitActor ? HitActor->GetName() : TEXT("None");
-				const float Dist = Hit.Distance;
-				UE_LOG(LogTemp, Log, TEXT("  [命中] %s (%.1fcm)"), *ActorName, Dist);
-				DrawDebugLine(World, Hit.TraceStart, Hit.ImpactPoint, FColor::Yellow, false, 0.5f);
-			}
-#endif
-			PendingProbeQueue.Add(Hit);
-		}
-	}else{
 		// 未命中：OutHits 为空，手动创建未命中的 HitResult
 		FHitResult MissResult;
 		MissResult.TraceStart = TraceDatum.Start;
@@ -405,6 +388,24 @@ void AIMAcousticFieldActor::OnAsyncTraceComplete(const FTraceHandle& TraceHandle
 #endif
 		// 添加未命中记录（只增加 ProbeCount，不增加 RayHitCount）
 		PendingProbeQueue.Add(MissResult);
+		return;
+	}
+
+	// 命中：正常处理所有命中结果
+	for (int i = 0; i < TraceDatum.OutHits.Num(); ++i)
+	{
+		const FHitResult& Hit = TraceDatum.OutHits[i];
+#if WITH_EDITOR
+		if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)
+		{
+			AActor* HitActor = Hit.GetActor();
+			const FString ActorName = HitActor ? HitActor->GetName() : TEXT("None");
+			const float Dist = Hit.Distance;
+			UE_LOG(LogTemp, Log, TEXT("  [命中] %s (%.1fcm)"), *ActorName, Dist);
+			DrawDebugLine(World, Hit.TraceStart, Hit.ImpactPoint, FColor::Yellow, false, 0.5f);
+		}
+#endif
+		PendingProbeQueue.Add(Hit);
 	}
 }
 
