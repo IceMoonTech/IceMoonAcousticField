@@ -723,150 +723,150 @@ bool EarClip(const TArray<FVector2D>& P, TArray<int32>& OutFlat)
 	OutFlat.Add(RemainingVertexIndices[0]); OutFlat.Add(RemainingVertexIndices[1]); OutFlat.Add(RemainingVertexIndices[2]);
 	return true;
 }
-void MergeCoplanarDynamicTris(TArray<IPLVector3>& Verts, TArray<IPLTriangle>& Tris, TArray<int32>& MatIds)
+void MergeCoplanarDynamicTris(TArray<IPLVector3>& Vertices, TArray<IPLTriangle>& Triangles, TArray<int32>& MaterialIndices)
 {
-	const int32 TriCount = Tris.Num();
-	if (TriCount < 2 || MatIds.Num() != TriCount || Verts.Num() <= 0) { return; }
-	for (int32 I = 0; I < TriCount; ++I)
+	const int32 TriangleCount = Triangles.Num();
+	if (TriangleCount < 2 || MaterialIndices.Num() != TriangleCount || Vertices.Num() <= 0) { return; }
+	for (int32 I = 0; I < TriangleCount; ++I)
 	{
 		for (int32 K = 0; K < 3; ++K)
 		{
-			if (Tris[I].indices[K] < 0 || Tris[I].indices[K] >= Verts.Num()) { return; }
+			if (Triangles[I].indices[K] < 0 || Triangles[I].indices[K] >= Vertices.Num()) { return; }
 		}
 	}
-	TMap<FVector, int32> WeldId;
-	TArray<IPLVector3> Welded;
-	TArray<int32> Remap;
-	Remap.SetNum(Verts.Num());
-	for (int32 I = 0; I < Verts.Num(); ++I)
+	TMap<FVector, int32> WeldedIndexByPosition;
+	TArray<IPLVector3> WeldedVertices;
+	TArray<int32> VertexToWeldedIndex;
+	VertexToWeldedIndex.SetNum(Vertices.Num());
+	for (int32 I = 0; I < Vertices.Num(); ++I)
 	{
-		const FVector P(Verts[I].x, Verts[I].y, Verts[I].z);
-		if (const int32* Found = WeldId.Find(P)) { Remap[I] = *Found; }
-		else { Remap[I] = Welded.Num(); WeldId.Add(P, Welded.Num()); Welded.Add(Verts[I]); }
+		const FVector P(Vertices[I].x, Vertices[I].y, Vertices[I].z);
+		if (const int32* Found = WeldedIndexByPosition.Find(P)) { VertexToWeldedIndex[I] = *Found; }
+		else { VertexToWeldedIndex[I] = WeldedVertices.Num(); WeldedIndexByPosition.Add(P, WeldedVertices.Num()); WeldedVertices.Add(Vertices[I]); }
 	}
 	struct FIMWTri { int32 V[3]; int32 Mat; FVector N; float D; };
-	TArray<FIMWTri> Work;
-	Work.Reserve(TriCount);
-	for (int32 I = 0; I < TriCount; ++I)
+	TArray<FIMWTri> WeldedTriangles;
+	WeldedTriangles.Reserve(TriangleCount);
+	for (int32 I = 0; I < TriangleCount; ++I)
 	{
-		const int32 A = Remap[Tris[I].indices[0]];
-		const int32 B = Remap[Tris[I].indices[1]];
-		const int32 C = Remap[Tris[I].indices[2]];
+		const int32 A = VertexToWeldedIndex[Triangles[I].indices[0]];
+		const int32 B = VertexToWeldedIndex[Triangles[I].indices[1]];
+		const int32 C = VertexToWeldedIndex[Triangles[I].indices[2]];
 		if (A == B || B == C || C == A) { continue; }
-		const FVector VA(Welded[A].x, Welded[A].y, Welded[A].z);
-		const FVector VB(Welded[B].x, Welded[B].y, Welded[B].z);
-		const FVector VC(Welded[C].x, Welded[C].y, Welded[C].z);
+		const FVector VA(WeldedVertices[A].x, WeldedVertices[A].y, WeldedVertices[A].z);
+		const FVector VB(WeldedVertices[B].x, WeldedVertices[B].y, WeldedVertices[B].z);
+		const FVector VC(WeldedVertices[C].x, WeldedVertices[C].y, WeldedVertices[C].z);
 		const FVector N = FVector::CrossProduct(VB - VA, VC - VA);
 		if (N.SizeSquared() < 1e-12) { continue; }
-		FIMWTri T; T.V[0] = A; T.V[1] = B; T.V[2] = C; T.Mat = MatIds[I];
+		FIMWTri T; T.V[0] = A; T.V[1] = B; T.V[2] = C; T.Mat = MaterialIndices[I];
 		T.N = N.GetSafeNormal(); T.D = -FVector::DotProduct(T.N, VA);
-		Work.Add(T);
+		WeldedTriangles.Add(T);
 	}
-	if (Work.Num() < 1) { return; }
-	TMap<FIMPlaneKey, TArray<int32>> Groups;
-	for (int32 I = 0; I < Work.Num(); ++I)
+	if (WeldedTriangles.Num() < 1) { return; }
+	TMap<FIMPlaneKey, TArray<int32>> PlaneGroups;
+	for (int32 I = 0; I < WeldedTriangles.Num(); ++I)
 	{
-		const FVector& N = Work[I].N;
+		const FVector& N = WeldedTriangles[I].N;
 		const float AX = FMath::Abs(N.X), AY = FMath::Abs(N.Y), AZ = FMath::Abs(N.Z);
 		FIMPlaneKey K;
 		K.Axis = (AX >= AY && AX >= AZ) ? 0 : ((AY >= AZ) ? 1 : 2);
 		K.Nq = FIntVector(FMath::RoundToInt(N.X * 4096.0f), FMath::RoundToInt(N.Y * 4096.0f), FMath::RoundToInt(N.Z * 4096.0f));
-		K.Dq = FMath::RoundToInt(Work[I].D * 10000.0f);
-		K.Mat = Work[I].Mat;
-		Groups.FindOrAdd(K).Add(I);
+		K.Dq = FMath::RoundToInt(WeldedTriangles[I].D * 10000.0f);
+		K.Mat = WeldedTriangles[I].Mat;
+		PlaneGroups.FindOrAdd(K).Add(I);
 	}
-	TArray<IPLTriangle> NewTris;
-	TArray<int32> NewMats;
-	NewTris.Reserve(TriCount);
-	NewMats.Reserve(TriCount);
+	TArray<IPLTriangle> MergedTriangles;
+	TArray<int32> MergedMaterialIndices;
+	MergedTriangles.Reserve(TriangleCount);
+	MergedMaterialIndices.Reserve(TriangleCount);
 	auto EmitOriginal = [&](int32 WI)
 	{
 		IPLTriangle T{};
-		T.indices[0] = Work[WI].V[0]; T.indices[1] = Work[WI].V[1]; T.indices[2] = Work[WI].V[2];
-		NewTris.Add(T); NewMats.Add(Work[WI].Mat);
+		T.indices[0] = WeldedTriangles[WI].V[0]; T.indices[1] = WeldedTriangles[WI].V[1]; T.indices[2] = WeldedTriangles[WI].V[2];
+		MergedTriangles.Add(T); MergedMaterialIndices.Add(WeldedTriangles[WI].Mat);
 	};
-	TArray<int32> VisitMark;
-	VisitMark.SetNumZeroed(Work.Num());
-	int32 VisitGen = 1;
-	for (auto& KV : Groups)
+	TArray<int32> TriangleVisitMarks;
+	TriangleVisitMarks.SetNumZeroed(WeldedTriangles.Num());
+	int32 VisitGeneration = 1;
+	for (auto& KV : PlaneGroups)
 	{
 		const TArray<int32>& Members = KV.Value;
-		TMap<int64, TArray<int32>> EdgeTris;
+		TMap<int64, TArray<int32>> TrianglesByEdge;
 		for (int32 WI : Members)
 		{
 			for (int32 E = 0; E < 3; ++E)
 			{
-				const int32 U = Work[WI].V[E], W = Work[WI].V[(E + 1) % 3];
+				const int32 U = WeldedTriangles[WI].V[E], W = WeldedTriangles[WI].V[(E + 1) % 3];
 				const int64 Key = ((int64)FMath::Min(U, W) << 32) | (uint32)FMath::Max(U, W);
-				EdgeTris.FindOrAdd(Key).Add(WI);
+				TrianglesByEdge.FindOrAdd(Key).Add(WI);
 			}
 		}
 		for (int32 Seed : Members)
 		{
-			if (VisitMark[Seed] == VisitGen) { continue; }
-			TArray<int32> Comp;
-			TArray<int32> Stack; Stack.Add(Seed); VisitMark[Seed] = VisitGen;
-			while (Stack.Num() > 0)
+			if (TriangleVisitMarks[Seed] == VisitGeneration) { continue; }
+			TArray<int32> ComponentTriangleIndices;
+			TArray<int32> TriangleStack; TriangleStack.Add(Seed); TriangleVisitMarks[Seed] = VisitGeneration;
+			while (TriangleStack.Num() > 0)
 			{
-				const int32 Cur = Stack.Pop();
-				Comp.Add(Cur);
+				const int32 CurrentTriangleIndex = TriangleStack.Pop();
+				ComponentTriangleIndices.Add(CurrentTriangleIndex);
 				for (int32 E = 0; E < 3; ++E)
 				{
-					const int32 U = Work[Cur].V[E], W = Work[Cur].V[(E + 1) % 3];
+					const int32 U = WeldedTriangles[CurrentTriangleIndex].V[E], W = WeldedTriangles[CurrentTriangleIndex].V[(E + 1) % 3];
 					const int64 Key = ((int64)FMath::Min(U, W) << 32) | (uint32)FMath::Max(U, W);
-					if (const TArray<int32>* Adj = EdgeTris.Find(Key))
+					if (const TArray<int32>* AdjacentTriangleIndices = TrianglesByEdge.Find(Key))
 					{
-						for (int32 NX : *Adj)
+						for (int32 NX : *AdjacentTriangleIndices)
 						{
-							if (VisitMark[NX] != VisitGen) { VisitMark[NX] = VisitGen; Stack.Add(NX); }
+							if (TriangleVisitMarks[NX] != VisitGeneration) { TriangleVisitMarks[NX] = VisitGeneration; TriangleStack.Add(NX); }
 						}
 					}
 				}
 			}
-			if (Comp.Num() < 2) { for (int32 WI : Comp) { EmitOriginal(WI); } continue; }
-			TMap<int64, int32> Use;
-			for (int32 WI : Comp)
+			if (ComponentTriangleIndices.Num() < 2) { for (int32 WI : ComponentTriangleIndices) { EmitOriginal(WI); } continue; }
+			TMap<int64, int32> EdgeUseCounts;
+			for (int32 WI : ComponentTriangleIndices)
 			{
 				for (int32 E = 0; E < 3; ++E)
 				{
-					const int32 U = Work[WI].V[E], W = Work[WI].V[(E + 1) % 3];
+					const int32 U = WeldedTriangles[WI].V[E], W = WeldedTriangles[WI].V[(E + 1) % 3];
 					const int64 Key = ((int64)FMath::Min(U, W) << 32) | (uint32)FMath::Max(U, W);
-					Use.FindOrAdd(Key)++;
+					EdgeUseCounts.FindOrAdd(Key)++;
 				}
 			}
-			TMap<int32, TArray<int32>> Adj;
+			TMap<int32, TArray<int32>> BoundaryNeighbors;
 			bool bManifold = true;
-			for (auto& EK : Use)
+			for (auto& EK : EdgeUseCounts)
 			{
 				if (EK.Value != 1) { continue; }
 				const int32 U = int32(EK.Key >> 32), W = int32(EK.Key & 0xFFFFFFFF);
-				Adj.FindOrAdd(U).Add(W); Adj.FindOrAdd(W).Add(U);
+				BoundaryNeighbors.FindOrAdd(U).Add(W); BoundaryNeighbors.FindOrAdd(W).Add(U);
 			}
-			for (auto& AK : Adj) { if (AK.Value.Num() != 2) { bManifold = false; break; } }
-			if (!bManifold || Adj.Num() == 0) { for (int32 WI : Comp) { EmitOriginal(WI); } continue; }
-			TArray<int32> Loop;
+			for (auto& AK : BoundaryNeighbors) { if (AK.Value.Num() != 2) { bManifold = false; break; } }
+			if (!bManifold || BoundaryNeighbors.Num() == 0) { for (int32 WI : ComponentTriangleIndices) { EmitOriginal(WI); } continue; }
+			TArray<int32> BoundaryVertexIndices;
 			int32 Start = INT32_MAX;
-			for (auto& AK : Adj) { Start = FMath::Min(Start, AK.Key); }
-			int32 Prev = -1, Cur = Start;
-			for (int32 Step = 0; Step <= Adj.Num(); ++Step)
+			for (auto& AK : BoundaryNeighbors) { Start = FMath::Min(Start, AK.Key); }
+			int32 Prev = -1, CurrentVertexIndex = Start;
+			for (int32 Step = 0; Step <= BoundaryNeighbors.Num(); ++Step)
 			{
-				Loop.Add(Cur);
-				const TArray<int32>& NB = Adj.FindChecked(Cur);
+				BoundaryVertexIndices.Add(CurrentVertexIndex);
+				const TArray<int32>& NB = BoundaryNeighbors.FindChecked(CurrentVertexIndex);
 				const int32 Next = (NB[0] != Prev) ? NB[0] : NB[1];
-				Prev = Cur; Cur = Next;
-				if (Cur == Start) { break; }
+				Prev = CurrentVertexIndex; CurrentVertexIndex = Next;
+				if (CurrentVertexIndex == Start) { break; }
 			}
-			if (Cur != Start || Loop.Num() < 3) { for (int32 WI : Comp) { EmitOriginal(WI); } continue; }
-			for (int32 Pass = 0; Pass < 4 && Loop.Num() > 3; ++Pass)
+			if (CurrentVertexIndex != Start || BoundaryVertexIndices.Num() < 3) { for (int32 WI : ComponentTriangleIndices) { EmitOriginal(WI); } continue; }
+			for (int32 Pass = 0; Pass < 4 && BoundaryVertexIndices.Num() > 3; ++Pass)
 			{
 				bool bDropped = false;
-				for (int32 I = 0; I < Loop.Num(); ++I)
+				for (int32 I = 0; I < BoundaryVertexIndices.Num(); ++I)
 				{
-					const int32 Ip = (I + Loop.Num() - 1) % Loop.Num();
-					const int32 In = (I + 1) % Loop.Num();
-					const FVector A(Welded[Loop[Ip]].x, Welded[Loop[Ip]].y, Welded[Loop[Ip]].z);
-					const FVector B(Welded[Loop[I]].x, Welded[Loop[I]].y, Welded[Loop[I]].z);
-					const FVector C(Welded[Loop[In]].x, Welded[Loop[In]].y, Welded[Loop[In]].z);
+					const int32 Ip = (I + BoundaryVertexIndices.Num() - 1) % BoundaryVertexIndices.Num();
+					const int32 In = (I + 1) % BoundaryVertexIndices.Num();
+					const FVector A(WeldedVertices[BoundaryVertexIndices[Ip]].x, WeldedVertices[BoundaryVertexIndices[Ip]].y, WeldedVertices[BoundaryVertexIndices[Ip]].z);
+					const FVector B(WeldedVertices[BoundaryVertexIndices[I]].x, WeldedVertices[BoundaryVertexIndices[I]].y, WeldedVertices[BoundaryVertexIndices[I]].z);
+					const FVector C(WeldedVertices[BoundaryVertexIndices[In]].x, WeldedVertices[BoundaryVertexIndices[In]].y, WeldedVertices[BoundaryVertexIndices[In]].z);
 					const FVector AB = B - A, BC = C - B;
 					const float L1 = AB.Size(), L2 = BC.Size();
 					if (L1 < 1e-9 || L2 < 1e-9) { continue; }
@@ -874,59 +874,59 @@ void MergeCoplanarDynamicTris(TArray<IPLVector3>& Verts, TArray<IPLTriangle>& Tr
 					const float Dist = FVector::CrossProduct(B - A, C - A).Size() / (C - A).Size();
 					if (SinA < 1e-6 && Dist < 1e-6 && FVector::DotProduct(AB, BC) > 0.0f)
 					{
-						Loop.RemoveAt(I); bDropped = true; break;
+						BoundaryVertexIndices.RemoveAt(I); bDropped = true; break;
 					}
 				}
 				if (!bDropped) { break; }
 			}
-			if (Loop.Num() < 3) { for (int32 WI : Comp) { EmitOriginal(WI); } continue; }
+			if (BoundaryVertexIndices.Num() < 3) { for (int32 WI : ComponentTriangleIndices) { EmitOriginal(WI); } continue; }
 			const int32 Axis = KV.Key.Axis;
-			TArray<FVector2D> Pts;
-			Pts.Reserve(Loop.Num());
-			for (int32 VI : Loop)
+			TArray<FVector2D> ProjectedBoundaryPoints;
+			ProjectedBoundaryPoints.Reserve(BoundaryVertexIndices.Num());
+			for (int32 VI : BoundaryVertexIndices)
 			{
-				const IPLVector3& P = Welded[VI];
-				Pts.Add(Axis == 0 ? FVector2D(P.y, P.z) : (Axis == 1 ? FVector2D(P.x, P.z) : FVector2D(P.x, P.y)));
+				const IPLVector3& P = WeldedVertices[VI];
+				ProjectedBoundaryPoints.Add(Axis == 0 ? FVector2D(P.y, P.z) : (Axis == 1 ? FVector2D(P.x, P.z) : FVector2D(P.x, P.y)));
 			}
 			double LoopArea = 0.0;
-			for (int32 I = 0; I < Pts.Num(); ++I) { LoopArea += PolyArea2(Pts[I], Pts[(I + 1) % Pts.Num()], Pts[(I + 2) % Pts.Num()]); }
-			if (FMath::Abs(LoopArea) < 1e-9) { for (int32 WI : Comp) { EmitOriginal(WI); } continue; }
+			for (int32 I = 0; I < ProjectedBoundaryPoints.Num(); ++I) { LoopArea += PolyArea2(ProjectedBoundaryPoints[I], ProjectedBoundaryPoints[(I + 1) % ProjectedBoundaryPoints.Num()], ProjectedBoundaryPoints[(I + 2) % ProjectedBoundaryPoints.Num()]); }
+			if (FMath::Abs(LoopArea) < 1e-9) { for (int32 WI : ComponentTriangleIndices) { EmitOriginal(WI); } continue; }
 			if (LoopArea < 0.0)
 			{
-				for (int32 LI = 0, LJ = Loop.Num() - 1; LI < LJ; ++LI, --LJ) { Loop.Swap(LI, LJ); }
-				Pts.Reset();
-				for (int32 VI : Loop)
+				for (int32 LI = 0, LJ = BoundaryVertexIndices.Num() - 1; LI < LJ; ++LI, --LJ) { BoundaryVertexIndices.Swap(LI, LJ); }
+				ProjectedBoundaryPoints.Reset();
+				for (int32 VI : BoundaryVertexIndices)
 				{
-					const IPLVector3& P = Welded[VI];
-					Pts.Add(Axis == 0 ? FVector2D(P.y, P.z) : (Axis == 1 ? FVector2D(P.x, P.z) : FVector2D(P.x, P.y)));
+					const IPLVector3& P = WeldedVertices[VI];
+					ProjectedBoundaryPoints.Add(Axis == 0 ? FVector2D(P.y, P.z) : (Axis == 1 ? FVector2D(P.x, P.z) : FVector2D(P.x, P.y)));
 				}
 			}
-			TArray<int32> Flat;
-			if (!EarClip(Pts, Flat)) { for (int32 WI : Comp) { EmitOriginal(WI); } continue; }
-			const int32 RefA = Work[Comp[0]].V[0], RefB = Work[Comp[0]].V[1], RefC = Work[Comp[0]].V[2];
+			TArray<int32> TriangulatedBoundaryIndices;
+			if (!EarClip(ProjectedBoundaryPoints, TriangulatedBoundaryIndices)) { for (int32 WI : ComponentTriangleIndices) { EmitOriginal(WI); } continue; }
+			const int32 RefA = WeldedTriangles[ComponentTriangleIndices[0]].V[0], RefB = WeldedTriangles[ComponentTriangleIndices[0]].V[1], RefC = WeldedTriangles[ComponentTriangleIndices[0]].V[2];
 			auto ProjOf = [&](int32 VI) -> FVector2D
 			{
-				const IPLVector3& P = Welded[VI];
+				const IPLVector3& P = WeldedVertices[VI];
 				return Axis == 0 ? FVector2D(P.y, P.z) : (Axis == 1 ? FVector2D(P.x, P.z) : FVector2D(P.x, P.y));
 			};
 			const double RefSign = PolyArea2(ProjOf(RefA), ProjOf(RefB), ProjOf(RefC));
-			const double OutSign = PolyArea2(Pts[Flat[0]], Pts[Flat[1]], Pts[Flat[2]]);
+			const double OutSign = PolyArea2(ProjectedBoundaryPoints[TriangulatedBoundaryIndices[0]], ProjectedBoundaryPoints[TriangulatedBoundaryIndices[1]], ProjectedBoundaryPoints[TriangulatedBoundaryIndices[2]]);
 			const bool bSwap = (RefSign < 0.0) != (OutSign < 0.0);
-			for (int32 I = 0; I + 2 < Flat.Num(); I += 3)
+			for (int32 I = 0; I + 2 < TriangulatedBoundaryIndices.Num(); I += 3)
 			{
 				IPLTriangle T{};
-				T.indices[0] = Loop[Flat[I]];
-				T.indices[1] = Loop[bSwap ? Flat[I + 2] : Flat[I + 1]];
-				T.indices[2] = Loop[bSwap ? Flat[I + 1] : Flat[I + 2]];
-				NewTris.Add(T); NewMats.Add(Work[Comp[0]].Mat);
+				T.indices[0] = BoundaryVertexIndices[TriangulatedBoundaryIndices[I]];
+				T.indices[1] = BoundaryVertexIndices[bSwap ? TriangulatedBoundaryIndices[I + 2] : TriangulatedBoundaryIndices[I + 1]];
+				T.indices[2] = BoundaryVertexIndices[bSwap ? TriangulatedBoundaryIndices[I + 1] : TriangulatedBoundaryIndices[I + 2]];
+				MergedTriangles.Add(T); MergedMaterialIndices.Add(WeldedTriangles[ComponentTriangleIndices[0]].Mat);
 			}
 		}
-		++VisitGen;
+		++VisitGeneration;
 	}
-	if (NewTris.Num() < 1) { return; }
-	Verts = MoveTemp(Welded);
-	Tris = MoveTemp(NewTris);
-	MatIds = MoveTemp(NewMats);
+	if (MergedTriangles.Num() < 1) { return; }
+	Vertices = MoveTemp(WeldedVertices);
+	Triangles = MoveTemp(MergedTriangles);
+	MaterialIndices = MoveTemp(MergedMaterialIndices);
 }
 bool BuildDynamicMeshSnapshot(UStaticMeshComponent* Component, int32 InstanceIndex,
 	const FVector& Origin, const FIMAcousticMaterialTable& MaterialTable,
