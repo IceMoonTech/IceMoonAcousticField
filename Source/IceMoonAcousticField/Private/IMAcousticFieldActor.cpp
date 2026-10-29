@@ -905,26 +905,26 @@ FIM_AudioReverbParameters AIMAcousticFieldActor::CalculateCellReverbParameters(c
 	const float SaturationRate = 2.5f;
 	Reverb.Wet = WetParams.MaxWetValue * (1.0f - FMath::Exp(-SaturationRate * WetRaw));
 	
-	FVector3d camPos = IMViewUtils::GetCurrentViewPosition(this);
-	//FVector camPos = FVector();
-	float mindis = CellResults.RayRes.MinDistance;
-	FVector hitPos = CellResults.RayRes.AveHitLocation;
-	hitPos = (hitPos - QueryPos).GetSafeNormal() * mindis + QueryPos;
-	float hitToCameraDis = (hitPos - camPos).Length();
+	FVector3d CameraWorldPosition = IMViewUtils::GetCurrentViewPosition(this);
+	//FVector CameraWorldPosition = FVector();
+	float MinimumHitDistanceCm = CellResults.RayRes.MinDistance;
+	FVector ReflectionWorldPosition = CellResults.RayRes.AveHitLocation;
+	ReflectionWorldPosition = (ReflectionWorldPosition - QueryPos).GetSafeNormal() * MinimumHitDistanceCm + QueryPos;
+	float ReflectionToCameraDistanceCm = (ReflectionWorldPosition - CameraWorldPosition).Length();
 	const float AudioSpeed = 34300.0f;
-	Reverb.Delay = (hitToCameraDis + mindis) / 34300.0;
+	Reverb.Delay = (ReflectionToCameraDistanceCm + MinimumHitDistanceCm) / 34300.0;
 	//Reverb.Delay *= 1000.0f;  //秒变毫秒   修改了 默认用秒做单位
 
 	// 使用加权平均距离计算空间体积（已包含未命中射线的开阔空间影响）
 	// AvgDistanceM已在前面计算（包含未命中射线）
-	float VolueSize = AvgDistanceM * AvgDistanceM * 0.5 * AvgDistanceM; //半box空间
-	float avgDampening = (CellResults.MatRes.LowDampening + CellResults.MatRes.HighDampening) * 0.5;
-	avgDampening = FMath::Lerp(0.1, 1.0, avgDampening);  //暂时写这个
-	Reverb.Decay = VolueSize * 0.161 / avgDampening;
+	float EstimatedRoomVolumeCubicMeters = AvgDistanceM * AvgDistanceM * 0.5 * AvgDistanceM; //半box空间
+	float EffectiveDampening = (CellResults.MatRes.LowDampening + CellResults.MatRes.HighDampening) * 0.5;
+	EffectiveDampening = FMath::Lerp(0.1, 1.0, EffectiveDampening);  //暂时写这个
+	Reverb.Decay = EstimatedRoomVolumeCubicMeters * 0.161 / EffectiveDampening;
 	Reverb.Decay = FMath::Clamp(0.01, 1.0, Reverb.Decay);
 
-	float RayHitRate = (float)CellResults.RayRes.RayHitCount / (float)CellResults.RayRes.ProbeCount;
-	Reverb.Density = FMath::Clamp(0.1, 1.0, RayHitRate);
+	float RayHitFraction = (float)CellResults.RayRes.RayHitCount / (float)CellResults.RayRes.ProbeCount;
+	Reverb.Density = FMath::Clamp(0.1, 1.0, RayHitFraction);
 
 	Reverb.Diffusion = CellResults.MatRes.Diffusion;
 	Reverb.Dampening = CellResults.MatRes.HighDampening;
