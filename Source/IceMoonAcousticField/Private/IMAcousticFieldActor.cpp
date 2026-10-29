@@ -273,11 +273,12 @@ AIMAcousticFieldActor* AIMAcousticFieldActor::GetAcousticFieldActor(const UObjec
 	if (IMAcousticFieldActorPrivate::GWorldAcousticActor.IsValid())
 	{
 		// 如果缓存的 Actor 属于当前 World，直接返回
-		if (IMAcousticFieldActorPrivate::GWorldAcousticActor->GetWorld() == World){ return IMAcousticFieldActorPrivate::GWorldAcousticActor.Get();
-		}else{
-			// 缓存失效或属于其他 World (如从 PIE 切回 Editor)，重置
-			IMAcousticFieldActorPrivate::GWorldAcousticActor.Reset();
+		if (IMAcousticFieldActorPrivate::GWorldAcousticActor->GetWorld() == World)
+		{
+			return IMAcousticFieldActorPrivate::GWorldAcousticActor.Get();
 		}
+		// 缓存属于其他 World (如从 PIE 切回 Editor)，重置
+		IMAcousticFieldActorPrivate::GWorldAcousticActor.Reset();
 	}
 
 	// 3. 场景查找 (慢速路径)
