@@ -793,12 +793,14 @@ bool AIMAcousticFieldActor::GetAcousticFieldExtentCells(int32 LodIndex, FVector 
 		{
 			for (int32 z = MinGrid.Z; z <= MaxGrid.Z; ++z)
 			{
-				if (const FIMGridAudioCell* Cell = AcousticGridArray[LodIndex].Find(FIntVector(x,y,z)))
+				const FIMGridAudioCell* Cell = AcousticGridArray[LodIndex].Find(FIntVector(x,y,z));
+				if (!Cell)
 				{
-					if (FVector::Dist(QueryLocation, Cell->RayRes.AveHitLocation) <= SearchRadius)
-					{
-						OutCells.Add(*Cell);
-					}
+					continue;
+				}
+				if (FVector::Dist(QueryLocation, Cell->RayRes.AveHitLocation) <= SearchRadius)
+				{
+					OutCells.Add(*Cell);
 				}
 			}
 		}
