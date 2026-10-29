@@ -195,38 +195,43 @@ bool AppendSubsectionCameras(ULandscapeComponent* Component, const FVector& Draw
 {
 	// Mirror UE5.8 LandscapeGrass.cpp: density is instances per 1,000,000 cm2.
 	// These are Grass builder subdivisions, not Landscape's asset subsections.
-	const FVector Extent = DrawScale * Component->ComponentSizeQuads;
-	const double RootCount = FMath::Sqrt(FMath::Abs(Extent.X * Extent.Y * Density / 1000.0f / 1000.0f));
-	if (!FMath::IsFinite(RootCount) || RootCount > MAX_int32 - 1)
+	const FVector ComponentScaledSize = DrawScale * Component->ComponentSizeQuads;
+	const double SqrtEstimatedInstanceCount = FMath::Sqrt(FMath::Abs(
+		ComponentScaledSize.X * ComponentScaledSize.Y * Density / 1000.0f / 1000.0f));
+	if (!FMath::IsFinite(SqrtEstimatedInstanceCount) || SqrtEstimatedInstanceCount > MAX_int32 - 1)
 	{
 		Error = TEXT("Grass subdivision input is nonfinite or unaddressable; no density reduction was substituted.");
 		return false;
 	}
-	const int32 SqrtMaxInstances = FMath::CeilToInt(RootCount);
-	const int32 Subsections = FMath::Clamp(FMath::CeilToInt(float(SqrtMaxInstances)
+	const int32 EstimatedInstancesPerAxis = FMath::CeilToInt(SqrtEstimatedInstanceCount);
+	const int32 SubsectionsPerAxis = FMath::Clamp(FMath::CeilToInt(float(EstimatedInstancesPerAxis)
 		/ FMath::Sqrt(float(MaxInstancesPerComponent))), 1, 16);
-	const FBox& Local = Component->CachedLocalBox;
-	const FVector Div = (Local.Max - Local.Min)
-		* FVector(1.0f / float(Subsections), 1.0f / float(Subsections), 1.0f);
-	if (Cameras.Num() > MAX_int32 - Subsections * Subsections)
+	const FBox& ComponentLocalBounds = Component->CachedLocalBox;
+	const FVector SubsectionLocalSize = (ComponentLocalBounds.Max - ComponentLocalBounds.Min)
+		* FVector(1.0f / float(SubsectionsPerAxis), 1.0f / float(SubsectionsPerAxis), 1.0f);
+	if (Cameras.Num() > MAX_int32 - SubsectionsPerAxis * SubsectionsPerAxis)
 	{
 		Error = TEXT("Grass subsection camera array is unaddressable; no reduced coverage was substituted.");
 		return false;
 	}
-	for (int32 X = 0; X < Subsections; ++X)
-		for (int32 Y = 0; Y < Subsections; ++Y)
+	for (int32 X = 0; X < SubsectionsPerAxis; ++X)
+		for (int32 Y = 0; Y < SubsectionsPerAxis; ++Y)
 		{
-			const FVector Min = Local.Min + Div * FVector(float(X), float(Y), 0.0f);
-			const FVector Max = Local.Min + Div * FVector(float(X + 1), float(Y + 1), 1.0f);
-			const FBox WorldBox = FBox(Min, Max).TransformBy(Component->GetComponentTransform());
-			if (!WorldBox.IsValid || WorldBox.Min.ContainsNaN() || WorldBox.Max.ContainsNaN())
+			const FVector SubsectionLocalMin = ComponentLocalBounds.Min
+				+ SubsectionLocalSize * FVector(float(X), float(Y), 0.0f);
+			const FVector SubsectionLocalMax = ComponentLocalBounds.Min
+				+ SubsectionLocalSize * FVector(float(X + 1), float(Y + 1), 1.0f);
+			const FBox SubsectionWorldBounds = FBox(SubsectionLocalMin, SubsectionLocalMax)
+				.TransformBy(Component->GetComponentTransform());
+			if (!SubsectionWorldBounds.IsValid || SubsectionWorldBounds.Min.ContainsNaN()
+				|| SubsectionWorldBounds.Max.ContainsNaN())
 			{
 				Error = TEXT("Grass generation subsection has invalid bounds.");
 				return false;
 			}
 			// Distance to this actual admission AABB is zero, independent of
 			// small cull radii. Same-sized varieties share exactly equal centers.
-			Cameras.AddUnique(WorldBox.GetCenter());
+			Cameras.AddUnique(SubsectionWorldBounds.GetCenter());
 		}
 	return true;
 }
