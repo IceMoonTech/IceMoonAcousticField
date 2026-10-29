@@ -242,20 +242,20 @@ bool ReadSource(ULandscapeComponent* Component, double GuardBand, double CullSca
 {
 	ALandscapeProxy* Proxy = Component->GetLandscapeProxy();
 	const auto& NamedTypes = Component->GetNamedGrassTypes();
-	const auto& Data = *Component->GrassData;
+	const auto& GrassData = *Component->GrassData;
 	if (!Proxy || !Component->IsRegistered() || !Proxy->GetRootComponent()
-		|| Data.NumElements < 0 || (Data.NumElements == 0 && !Data.WeightOffsets.IsEmpty()))
+		|| GrassData.NumElements < 0 || (GrassData.NumElements == 0 && !GrassData.WeightOffsets.IsEmpty()))
 	{
 		Error = FString::Printf(TEXT("Grass source/registered data is unavailable: %s [proxy=%d registered=%d root=%d data_address=%llu elements=%d bytes=%d weight_offsets=%d generation_hash=%u named_types=%d]"),
 			*IMStableBakeObjectPath(Component), Proxy ? 1 : 0,
 			Component->IsRegistered() ? 1 : 0, Proxy && Proxy->GetRootComponent() ? 1 : 0,
-			uint64(reinterpret_cast<UPTRINT>(&Data)), Data.NumElements,
-			Data.HeightWeightData.Num(), Data.WeightOffsets.Num(), Data.GenerationHash, NamedTypes.Num());
+			uint64(reinterpret_cast<UPTRINT>(&GrassData)), GrassData.NumElements,
+			GrassData.HeightWeightData.Num(), GrassData.WeightOffsets.Num(), GrassData.GenerationHash, NamedTypes.Num());
 		return false;
 	}
 #if WITH_EDITOR
 	if (Component->GetWorld()->WorldType == EWorldType::Editor
-		&& Data.GenerationHash != Component->ComputeGrassMapGenerationHash())
+		&& GrassData.GenerationHash != Component->ComputeGrassMapGenerationHash())
 	{
 		Error = TEXT("GrassData is stale; current generated geometry cannot be certified: ")
 			+ IMStableBakeObjectPath(Component);
@@ -265,85 +265,85 @@ bool ReadSource(ULandscapeComponent* Component, double GuardBand, double CullSca
 	Source.Component = Component;
 	Source.GenerationWorldBounds = Component->CachedLocalBox.TransformBy(Component->GetComponentTransform());
 	Source.CreationRadiusCm = TNumericLimits<double>::Max();
-	FSHA1 Input;
-	HashText(Input, IMStableBakeObjectPath(Component));
+	FSHA1 SourceInputHash;
+	HashText(SourceInputHash, IMStableBakeObjectPath(Component));
 	const FIntPoint Section = Component->GetSectionBase();
 	const FIntPoint Offset = Proxy->GetSectionBase();
 	const FVector DrawScale = Proxy->GetRootComponent()->GetRelativeScale3D();
 	const FTransform NoScaleTransform(Proxy->GetRootComponent()->GetComponentTransform().ToMatrixNoScale());
-	HashValue(Input, Section.X); HashValue(Input, Section.Y);
-	HashValue(Input, Offset.X); HashValue(Input, Offset.Y);
-	HashValue(Input, DrawScale.X); HashValue(Input, DrawScale.Y); HashValue(Input, DrawScale.Z);
+	HashValue(SourceInputHash, Section.X); HashValue(SourceInputHash, Section.Y);
+	HashValue(SourceInputHash, Offset.X); HashValue(SourceInputHash, Offset.Y);
+	HashValue(SourceInputHash, DrawScale.X); HashValue(SourceInputHash, DrawScale.Y); HashValue(SourceInputHash, DrawScale.Z);
 	const FVector Location = NoScaleTransform.GetLocation();
 	const FQuat Rotation = NoScaleTransform.GetRotation();
-	HashValue(Input, Location.X); HashValue(Input, Location.Y); HashValue(Input, Location.Z);
-	HashValue(Input, Rotation.X); HashValue(Input, Rotation.Y);
-	HashValue(Input, Rotation.Z); HashValue(Input, Rotation.W);
-	HashValue(Input, Data.NumElements);
-	const int32 DataBytes = Data.HeightWeightData.Num();
-	HashValue(Input, DataBytes);
-	Input.Update(Data.HeightWeightData.GetData(), DataBytes);
+	HashValue(SourceInputHash, Location.X); HashValue(SourceInputHash, Location.Y); HashValue(SourceInputHash, Location.Z);
+	HashValue(SourceInputHash, Rotation.X); HashValue(SourceInputHash, Rotation.Y);
+	HashValue(SourceInputHash, Rotation.Z); HashValue(SourceInputHash, Rotation.W);
+	HashValue(SourceInputHash, GrassData.NumElements);
+	const int32 GrassDataByteCount = GrassData.HeightWeightData.Num();
+	HashValue(SourceInputHash, GrassDataByteCount);
+	SourceInputHash.Update(GrassData.HeightWeightData.GetData(), GrassDataByteCount);
 	TArray<FName> WeightNames;
-	Data.WeightOffsets.GetKeys(WeightNames);
+	GrassData.WeightOffsets.GetKeys(WeightNames);
 	WeightNames.Sort(FNameLexicalLess());
-	HashValue(Input, WeightNames.Num());
+	HashValue(SourceInputHash, WeightNames.Num());
 	for (FName Name : WeightNames)
 	{
-		const int32 WeightOffset = Data.WeightOffsets.FindChecked(Name);
-		if (Data.NumElements <= 0 || int64(WeightOffset) < int64(Data.NumElements) * int64(sizeof(uint16))
-			|| int64(WeightOffset) + Data.NumElements > DataBytes)
+		const int32 WeightOffset = GrassData.WeightOffsets.FindChecked(Name);
+		if (GrassData.NumElements <= 0 || int64(WeightOffset) < int64(GrassData.NumElements) * int64(sizeof(uint16))
+			|| int64(WeightOffset) + GrassData.NumElements > GrassDataByteCount)
 		{
 			Error = TEXT("GrassData named weight range is incomplete: ") + IMStableBakeObjectPath(Component);
 			return false;
 		}
-		HashText(Input, Name.ToString());
-		HashValue(Input, WeightOffset);
+		HashText(SourceInputHash, Name.ToString());
+		HashValue(SourceInputHash, WeightOffset);
 	}
-	TArray<FName> Names;
-	NamedTypes.GetKeys(Names);
-	Names.Sort(FNameLexicalLess());
-	HashValue(Input, Names.Num());
-	for (FName Name : Names)
+	TArray<FName> GrassTypeNames;
+	NamedTypes.GetKeys(GrassTypeNames);
+	GrassTypeNames.Sort(FNameLexicalLess());
+	HashValue(SourceInputHash, GrassTypeNames.Num());
+	for (FName Name : GrassTypeNames)
 	{
-		ULandscapeGrassType* Type = NamedTypes.FindChecked(Name);
-		if (!Type)
+		ULandscapeGrassType* GrassType = NamedTypes.FindChecked(Name);
+		if (!GrassType)
 		{
 			Error = TEXT("Grass producer has an unresolved named type: ") + Name.ToString();
 			return false;
 		}
-		HashText(Input, Name.ToString());
-		HashText(Input, IMStableBakeObjectPath(Type));
-		const uint8 ScalingEnabled = Type->bEnableDensityScaling;
-		HashValue(Input, ScalingEnabled);
-		HashValue(Input, Type->GrassVarieties.Num());
-		for (const FGrassVariety& Variety : Type->GrassVarieties)
+		HashText(SourceInputHash, Name.ToString());
+		HashText(SourceInputHash, IMStableBakeObjectPath(GrassType));
+		const uint8 ScalingEnabled = GrassType->bEnableDensityScaling;
+		HashValue(SourceInputHash, ScalingEnabled);
+		HashValue(SourceInputHash, GrassType->GrassVarieties.Num());
+		for (const FGrassVariety& Variety : GrassType->GrassVarieties)
 		{
-			HashVariety(Input, Variety);
+			HashVariety(SourceInputHash, Variety);
 			if (!Variety.GrassMesh || Variety.GetDensity() <= 0 || Variety.GetEndCullDistance() <= 0) continue;
 			// A stripped all-zero named weight has no generated instances.
-			if (!Data.WeightOffsets.Contains(Name)) continue;
-			const float Density = Variety.GetDensity() * (Type->bEnableDensityScaling ? DensityScale : 1.0f);
+			if (!GrassData.WeightOffsets.Contains(Name)) continue;
+			const float Density = Variety.GetDensity() * (GrassType->bEnableDensityScaling ? DensityScale : 1.0f);
 			if (Density <= 0.0f) continue;
-			double Radius;
-			if (!ReadVarietyBounds(Variety, Radius, Error)) return false;
-			Source.MeshRadiusCm = FMath::Max(Source.MeshRadiusCm, Radius);
+			double VarietyMeshRadiusCm;
+			if (!ReadVarietyBounds(Variety, VarietyMeshRadiusCm, Error)) return false;
+			Source.MeshRadiusCm = FMath::Max(Source.MeshRadiusCm, VarietyMeshRadiusCm);
 			Source.CreationRadiusCm = FMath::Min(Source.CreationRadiusCm,
 				GuardBand * CullScale * Variety.GetEndCullDistance());
 			if (!AppendSubsectionCameras(Component, DrawScale, Density, MaxInstancesPerComponent,
 				Source.GenerationCameras, Error)) return false;
 		}
 	}
-	Source.SourceInputSha1 = FinishHash(Input);
-	if (Data.NumElements == 0 || Data.WeightOffsets.IsEmpty()) return true;
-	const int64 Expected = int64(Component->ComponentSizeQuads + 1) * (Component->ComponentSizeQuads + 1);
-	if (Data.NumElements != Expected || int64(DataBytes) < Expected * int64(sizeof(uint16)))
+	Source.SourceInputSha1 = FinishHash(SourceInputHash);
+	if (GrassData.NumElements == 0 || GrassData.WeightOffsets.IsEmpty()) return true;
+	const int64 ExpectedHeightSampleCount = int64(Component->ComponentSizeQuads + 1) * (Component->ComponentSizeQuads + 1);
+	if (GrassData.NumElements != ExpectedHeightSampleCount || int64(GrassDataByteCount) < ExpectedHeightSampleCount * int64(sizeof(uint16)))
 	{
 		Error = TEXT("GrassData height dimensions are incomplete: ") + IMStableBakeObjectPath(Component);
 		return false;
 	}
 	// UE's GetHeightData exposes only a mutable view. Read the same packed
 	// prefix as const after validating its exact dimensions and byte range.
-	const TConstArrayView<uint16> Heights(reinterpret_cast<const uint16*>(Data.HeightWeightData.GetData()), Data.NumElements);
+	const TConstArrayView<uint16> Heights(reinterpret_cast<const uint16*>(GrassData.HeightWeightData.GetData()), GrassData.NumElements);
 	uint16 MinHeight = MAX_uint16, MaxHeight = 0;
 	for (uint16 Height : Heights)
 	{
