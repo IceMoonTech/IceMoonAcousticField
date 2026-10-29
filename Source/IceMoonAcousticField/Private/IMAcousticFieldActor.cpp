@@ -1130,20 +1130,19 @@ void AIMAcousticFieldActor::TickTrimAudioFieldForLod(const float GameTime)
 			}
 
 			// 在父LOD的Mask Map中查找
-			if (uint64* Mask = CellSubBitMaskArray[LodIndex].Find(ParentGridCoord))
+			uint64* Mask = CellSubBitMaskArray[LodIndex].Find(ParentGridCoord);
+			if (!Mask) continue;
+			uint64 LocalIndex = 0;
+			if (IMAcousticFieldActorPrivate::TryGetLodChildBitIndex(RemovedGridCoord, ParentGridCoord, RatioXY, RatioZ, ParentBound, LocalIndex))
 			{
-				uint64 LocalIndex = 0;
-				if (IMAcousticFieldActorPrivate::TryGetLodChildBitIndex(RemovedGridCoord, ParentGridCoord, RatioXY, RatioZ, ParentBound, LocalIndex))
-				{
-					// 使用位与非 (AND NOT) 操作，将对应的bit清零
-					*Mask &= ~(1ULL << LocalIndex);
-				}
+				// 使用位与非 (AND NOT) 操作，将对应的bit清零
+				*Mask &= ~(1ULL << LocalIndex);
+			}
 
-				// (可选优化): 如果这个Mask的所有bit都为0了，可以从Map中移除，节省内存
-				if (*Mask == 0u)
-				{
-					CellSubBitMaskArray[LodIndex].Remove(ParentGridCoord);
-				}
+			// (可选优化): 如果这个Mask的所有bit都为0了，可以从Map中移除，节省内存
+			if (*Mask == 0u)
+			{
+				CellSubBitMaskArray[LodIndex].Remove(ParentGridCoord);
 			}
 		}
 	}
@@ -1151,17 +1150,19 @@ void AIMAcousticFieldActor::TickTrimAudioFieldForLod(const float GameTime)
 	// 清理超过30秒未使用的平滑查询缓存 + Owner 已失效条目（UniqueID 可回收，弱引用为准）
 	for (auto It = SmoothQueryCache.CreateIterator(); It; ++It)
 	{
-		if (!It.Value().SourceObject.IsValid() || GameTime - It.Value().LastQueryTime > 30.0f)
+		const bool bShouldRemoveCachedQuery = !It.Value().SourceObject.IsValid() || GameTime - It.Value().LastQueryTime > 30.0f;
+		if (!bShouldRemoveCachedQuery)
 		{
-#if WITH_EDITOR
-			if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)
-			{
-				UE_LOG(LogTemp, Log, TEXT("IMAcousticField: 清理平滑查询缓存 ID=%s (Age: %.2fs)"),
-					*It.Key().ToString(), GameTime - It.Value().LastQueryTime);
-			}
-#endif
-			It.RemoveCurrent();
+			continue;
 		}
+#if WITH_EDITOR
+		if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)
+		{
+			UE_LOG(LogTemp, Log, TEXT("IMAcousticField: 清理平滑查询缓存 ID=%s (Age: %.2fs)"),
+				*It.Key().ToString(), GameTime - It.Value().LastQueryTime);
+		}
+#endif
+		It.RemoveCurrent();
 	}
 }
 
