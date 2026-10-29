@@ -1345,11 +1345,12 @@ void AIMAcousticFieldActor::ClearSmoothQueryCache(UObject* SourceObject, FName S
 
 		for (auto It = SmoothQueryCache.CreateIterator(); It; ++It)
 		{
-			if (It.Key().ToString().StartsWith(ObjectIDPrefix))
+			if (!It.Key().ToString().StartsWith(ObjectIDPrefix))
 			{
-				It.RemoveCurrent();
-				RemovedCount++;
+				continue;
 			}
+			It.RemoveCurrent();
+			RemovedCount++;
 		}
 
 #if WITH_EDITOR
@@ -1359,22 +1360,20 @@ void AIMAcousticFieldActor::ClearSmoothQueryCache(UObject* SourceObject, FName S
 				*SourceObject->GetName(), RemovedCount);
 		}
 #endif
+		return;
 	}
-	else
-	{
-		// 清理特定槽位的缓存
-		const FName QueryID = FName(FString::Printf(TEXT("%d_%s"),
-			SourceObject->GetUniqueID(),
-			*SoundSlot.ToString()));
+	// 清理特定槽位的缓存
+	const FName QueryID = FName(FString::Printf(TEXT("%d_%s"),
+		SourceObject->GetUniqueID(),
+		*SoundSlot.ToString()));
 
-		const int32 RemovedCount = SmoothQueryCache.Remove(QueryID);
+	const int32 RemovedCount = SmoothQueryCache.Remove(QueryID);
 
 #if WITH_EDITOR
-		if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)
-		{
-			UE_LOG(LogTemp, Log, TEXT("IMAcousticField: ClearSmoothQueryCache - ID=%s, 移除=%d"),
-				*QueryID.ToString(), RemovedCount);
-		}
-#endif
+	if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)
+	{
+		UE_LOG(LogTemp, Log, TEXT("IMAcousticField: ClearSmoothQueryCache - ID=%s, 移除=%d"),
+			*QueryID.ToString(), RemovedCount);
 	}
+#endif
 }
