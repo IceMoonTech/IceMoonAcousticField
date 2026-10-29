@@ -569,20 +569,20 @@ FString BakeMetadata(const AIMAcousticBakeVolume& Volume,const FIMAcousticSceneI
 bool PointInsideAcousticTriangleRange(const FIMAcousticSceneInput& Geometry, int32 StartTriangle, int32 EndTriangle, const IPLVector3& Point)
 {
 	const int32 TriangleCount = static_cast<int32>(Geometry.Triangles.size());
-	const int32 Start = FMath::Clamp(StartTriangle, 0, TriangleCount);
-	const int32 End = FMath::Clamp(EndTriangle, Start, TriangleCount);
-	if (End <= Start) return false;
+	const int32 ClampedStartTriangle = FMath::Clamp(StartTriangle, 0, TriangleCount);
+	const int32 ClampedEndTriangle = FMath::Clamp(EndTriangle, ClampedStartTriangle, TriangleCount);
+	if (ClampedEndTriangle <= ClampedStartTriangle) return false;
 
-	const FVector P(Point.x, Point.y, Point.z);
-	const FVector Directions[] = {
+	const FVector QueryPoint(Point.x, Point.y, Point.z);
+	const FVector RayDirections[] = {
 		FVector(1.0f, 0.371f, 0.173f).GetSafeNormal(),
 		FVector(0.271f, 1.0f, 0.133f).GetSafeNormal(),
 		FVector(0.163f, 0.239f, 1.0f).GetSafeNormal()};
-	int32 InsideVotes = 0;
-	for (const FVector& Direction : Directions)
+	int32 InsideRayCount = 0;
+	for (const FVector& RayDirection : RayDirections)
 	{
-		int32 Hits = 0;
-		for (int32 TriangleIndex = Start; TriangleIndex < End; ++TriangleIndex)
+		int32 RayHitCount = 0;
+		for (int32 TriangleIndex = ClampedStartTriangle; TriangleIndex < ClampedEndTriangle; ++TriangleIndex)
 		{
 			const IPLTriangle& Triangle = Geometry.Triangles[TriangleIndex];
 			const int32 IA = Triangle.indices[0];
@@ -600,22 +600,22 @@ bool PointInsideAcousticTriangleRange(const FIMAcousticSceneInput& Geometry, int
 			const FVector C(Geometry.Vertices[IC].x, Geometry.Vertices[IC].y, Geometry.Vertices[IC].z);
 			const FVector E1 = B - A;
 			const FVector E2 = C - A;
-			const FVector H = FVector::CrossProduct(Direction, E2);
+			const FVector H = FVector::CrossProduct(RayDirection, E2);
 			const double Det = FVector::DotProduct(E1, H);
 			if (FMath::Abs(Det) < 1.e-9) continue;
 			const double InvDet = 1.0 / Det;
-			const FVector S = P - A;
+			const FVector S = QueryPoint - A;
 			const double U = InvDet * FVector::DotProduct(S, H);
 			if (U <= 1.e-7 || U >= 1.0 - 1.e-7) continue;
 			const FVector Q = FVector::CrossProduct(S, E1);
-			const double V = InvDet * FVector::DotProduct(Direction, Q);
+			const double V = InvDet * FVector::DotProduct(RayDirection, Q);
 			if (V <= 1.e-7 || U + V >= 1.0 - 1.e-7) continue;
 			const double T = InvDet * FVector::DotProduct(E2, Q);
-			if (T > 1.e-7) ++Hits;
+			if (T > 1.e-7) ++RayHitCount;
 		}
-		if ((Hits & 1) != 0) ++InsideVotes;
+		if ((RayHitCount & 1) != 0) ++InsideRayCount;
 	}
-	return InsideVotes >= 2;
+	return InsideRayCount >= 2;
 }
 
 bool PointInsideAcousticGeometry(const FIMAcousticSceneInput& Geometry, const TArray<TPair<int32, int32>>& TriangleRanges, const IPLVector3& Point)
