@@ -19,15 +19,15 @@ bool ValidFrame(const FIMAcousticAudioFrame& Frame)
 			if (!Finite(D.airAbsorption[B]) || !Finite(D.transmission[B])) { return false; }
 		}
 	}
-	if (Frame.PathValid)
-	{
-		if (!Finite(Frame.Listener.origin) || !Finite(Frame.Listener.right)
-			|| !Finite(Frame.Listener.up) || !Finite(Frame.Listener.ahead)) { return false; }
-		for (float V : Frame.PathEQ) { if (!Finite(V) || V < 0.0f) { return false; } }
-		for (float V : Frame.PathSH) { if (!Finite(V)) { return false; } }
-	}
+	// Without a path payload, only the direct checks above apply.
+	if (!Frame.PathValid) { return true; }
+	if (!Finite(Frame.Listener.origin) || !Finite(Frame.Listener.right)
+		|| !Finite(Frame.Listener.up) || !Finite(Frame.Listener.ahead)) { return false; }
+	for (float V : Frame.PathEQ) { if (!Finite(V) || V < 0.0f) { return false; } }
+	for (float V : Frame.PathSH) { if (!Finite(V)) { return false; } }
 	return true;
 }
+
 
 void ClearStereoOutputs(float* Stereo, int Frames, float* DirectStereo, float* PathStereo)
 {
