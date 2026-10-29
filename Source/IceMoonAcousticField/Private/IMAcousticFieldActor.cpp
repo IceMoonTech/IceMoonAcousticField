@@ -699,59 +699,42 @@ bool AIMAcousticFieldActor::QueryAcousticField(FVector QueryLocation, FIM_AudioR
 		int32 Cells = 0, Probes = 0, Hits = 0;
 
 		// 每个LOD都做插值查询（搜索周围格子）
-		if (InterpolateAtLod(LodIndex, QueryLocation, LodResponse, &Cells, &Probes, &Hits))
+		if (!InterpolateAtLod(LodIndex, QueryLocation, LodResponse, &Cells, &Probes, &Hits))
 		{
-			// 获取该LOD的固定权重
-			const float LodWeight = (LodIndex < LodWeights.Num()) ? LodWeights[LodIndex] : 0.1f;
-
-			// 累加加权结果
-			AccumulatedResponse.Wet += LodResponse.Wet * LodWeight;
-			AccumulatedResponse.Delay += LodResponse.Delay * LodWeight;
-			AccumulatedResponse.Decay += LodResponse.Decay * LodWeight;
-			AccumulatedResponse.Density += LodResponse.Density * LodWeight;
-			AccumulatedResponse.Diffusion += LodResponse.Diffusion * LodWeight;
-			AccumulatedResponse.Dampening += LodResponse.Dampening * LodWeight;
-			TotalWeight += LodWeight;
-			bFoundData = true;
-
 #if WITH_EDITOR
 			if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)
 			{
-				const float HitRate = Probes > 0 ? static_cast<float>(Hits) / static_cast<float>(Probes) : 0.0f;
-				UE_LOG(LogTemp, Log, TEXT("IMAcousticField: -> LOD %d: W=%.2f, Wet=%.2f [C=%d, P=%d, H=%d, HR=%.2f]"),
-					LodIndex, LodWeight, LodResponse.Wet, Cells, Probes, Hits, HitRate);
+				UE_LOG(LogTemp, Warning, TEXT("IMAcousticField: -> LOD %d 无数据"), LodIndex);
 			}
 #endif
+			continue;
 		}
+
+		// 获取该LOD的固定权重
+		const float LodWeight = (LodIndex < LodWeights.Num()) ? LodWeights[LodIndex] : 0.1f;
+
+		// 累加加权结果
+		AccumulatedResponse.Wet += LodResponse.Wet * LodWeight;
+		AccumulatedResponse.Delay += LodResponse.Delay * LodWeight;
+		AccumulatedResponse.Decay += LodResponse.Decay * LodWeight;
+		AccumulatedResponse.Density += LodResponse.Density * LodWeight;
+		AccumulatedResponse.Diffusion += LodResponse.Diffusion * LodWeight;
+		AccumulatedResponse.Dampening += LodResponse.Dampening * LodWeight;
+		TotalWeight += LodWeight;
+		bFoundData = true;
+
 #if WITH_EDITOR
-		else if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)
+		if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)
 		{
-			UE_LOG(LogTemp, Warning, TEXT("IMAcousticField: -> LOD %d 无数据"), LodIndex);
+			const float HitRate = Probes > 0 ? static_cast<float>(Hits) / static_cast<float>(Probes) : 0.0f;
+			UE_LOG(LogTemp, Log, TEXT("IMAcousticField: -> LOD %d: W=%.2f, Wet=%.2f [C=%d, P=%d, H=%d, HR=%.2f]"),
+				LodIndex, LodWeight, LodResponse.Wet, Cells, Probes, Hits, HitRate);
 		}
 #endif
 	}
 
 	// 归一化结果
-	if (bFoundData && TotalWeight > 0.001f)
-	{
-		// 注意：由于权重总和可能不是1.0（某些LOD可能无数据），需要归一化
-		const float NormalizeFactor = 1.0f / TotalWeight;
-		OutResponse.Wet = AccumulatedResponse.Wet * NormalizeFactor;
-		OutResponse.Delay = AccumulatedResponse.Delay * NormalizeFactor;
-		OutResponse.Decay = AccumulatedResponse.Decay * NormalizeFactor;
-		OutResponse.Density = AccumulatedResponse.Density * NormalizeFactor;
-		OutResponse.Diffusion = AccumulatedResponse.Diffusion * NormalizeFactor;
-		OutResponse.Dampening = AccumulatedResponse.Dampening * NormalizeFactor;
-
-#if WITH_EDITOR
-		if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)
-		{
-			UE_LOG(LogTemp, Log, TEXT("IMAcousticField: [最终结果] Wet=%.2f (归一化因子=%.2f)"),
-				OutResponse.Wet, NormalizeFactor);
-		}
-#endif
-	}
-	else
+	if (!(bFoundData && TotalWeight > 0.001f))
 	{
 		// 没有任何数据，返回默认值
 		OutResponse = FIM_AudioReverbParameters();
@@ -759,10 +742,29 @@ bool AIMAcousticFieldActor::QueryAcousticField(FVector QueryLocation, FIM_AudioR
 #if WITH_EDITOR
 		if(CVar_DebugLevelStat.GetValueOnGameThread() > 0) UE_LOG(LogTemp, Warning, TEXT("IMAcousticField: -> 所有LOD均无数据，返回默认值"));
 #endif
+		return bFoundData;
 	}
+
+	// 注意：由于权重总和可能不是1.0（某些LOD可能无数据），需要归一化
+	const float NormalizeFactor = 1.0f / TotalWeight;
+	OutResponse.Wet = AccumulatedResponse.Wet * NormalizeFactor;
+	OutResponse.Delay = AccumulatedResponse.Delay * NormalizeFactor;
+	OutResponse.Decay = AccumulatedResponse.Decay * NormalizeFactor;
+	OutResponse.Density = AccumulatedResponse.Density * NormalizeFactor;
+	OutResponse.Diffusion = AccumulatedResponse.Diffusion * NormalizeFactor;
+	OutResponse.Dampening = AccumulatedResponse.Dampening * NormalizeFactor;
+
+#if WITH_EDITOR
+	if(CVar_DebugLevelStat.GetValueOnGameThread() > 0)
+	{
+		UE_LOG(LogTemp, Log, TEXT("IMAcousticField: [最终结果] Wet=%.2f (归一化因子=%.2f)"),
+			OutResponse.Wet, NormalizeFactor);
+	}
+#endif
 
 	return bFoundData;
 }
+
 // 使用lod 这个查询只会查询最稀疏版本
 bool AIMAcousticFieldActor::GetAcousticFieldExtentCells(int32 LodIndex, FVector QueryLocation, float SearchRadius,
 	TArray<FIMGridAudioCell>& OutCells)
