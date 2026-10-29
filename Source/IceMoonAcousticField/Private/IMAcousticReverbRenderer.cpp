@@ -104,16 +104,16 @@ bool FIMAcousticReverbRenderer::Render(const float* Mono, int Frames,
 		Reset();
 		return false;
 	}
-	for (int I = 0; I < Frames; ++I)
+	for (int FrameIndex = 0; FrameIndex < Frames; ++FrameIndex)
 	{
-		if (!IMAcousticReverbRendererPrivate::ReverbFinite(Mono[I]))
+		if (!IMAcousticReverbRendererPrivate::ReverbFinite(Mono[FrameIndex]))
 		{
 			IMAcousticReverbRendererPrivate::ReverbClear(Stereo, Frames);
 			Reset();
 			return false;
 		}
-		Input[static_cast<std::size_t>(I)] = Mono[I];
-		if(Metrics)Metrics->InputEnergy+=double(Mono[I])*Mono[I];
+		Input[static_cast<std::size_t>(FrameIndex)] = Mono[FrameIndex];
+		if(Metrics)Metrics->InputEnergy+=double(Mono[FrameIndex])*Mono[FrameIndex];
 	}
 	for (auto& Channel : Ambi) { std::fill(Channel.begin(), Channel.end(), 0.0f); }
 	for (auto& Channel : Decoded) { std::fill(Channel.begin(), Channel.end(), 0.0f); }
@@ -138,18 +138,18 @@ bool FIMAcousticReverbRenderer::Render(const float* Mono, int Frames,
 	DecodeParams.orientation = Listener;
 	DecodeParams.binaural = IPL_TRUE;
 	iplAmbisonicsDecodeEffectApply(DecodeEffect, &DecodeParams, &AmbiBuffer, &StereoBuffer);
-	for (int I = 0; I < Frames; ++I)
+	for (int FrameIndex = 0; FrameIndex < Frames; ++FrameIndex)
 	{
-		for (int C = 0; C < IMAcousticReverbRendererPrivate::ReverbStereoChannels; ++C)
+		for (int ChannelIndex = 0; ChannelIndex < IMAcousticReverbRendererPrivate::ReverbStereoChannels; ++ChannelIndex)
 		{
-			const float Sample = Decoded[static_cast<std::size_t>(C)][static_cast<std::size_t>(I)];
+			const float Sample = Decoded[static_cast<std::size_t>(ChannelIndex)][static_cast<std::size_t>(FrameIndex)];
 			if (!IMAcousticReverbRendererPrivate::ReverbFinite(Sample))
 			{
 				IMAcousticReverbRendererPrivate::ReverbClear(Stereo, Frames);
 				Reset();
 				return false;
 			}
-			Stereo[2 * I + C] = Sample;
+			Stereo[2 * FrameIndex + ChannelIndex] = Sample;
 		}
 	}
 	return true;
