@@ -1000,9 +1000,9 @@ bool AIMAcousticFieldActor::InterpolateAtLod(const int32 LodIndex, const FVector
 	for (const FIMGridAudioCell& Cell : NearbyCells)
 	{
 		//注意这里是距离平方 1 4 16 查询周围1.5倍单元格  16最大可能查询到3格=48米外 4800*4800=23040000的点 1.0f / DistanceSqr直接炸了别说Confidence方差也是一个巨幅缩减的玩意
-		const float DistanceSqr = FVector::DistSquared(QueryLocation, Cell.RayRes.AveHitLocation) / 10000.0f;   // /10000 转换为米单位平方
-		const float MinDistanceSqr = 1.0f;
-		if (DistanceSqr < MinDistanceSqr) // 如果点1m内 就直接用这个单元格的数据
+		const float DistanceSquaredMeters = FVector::DistSquared(QueryLocation, Cell.RayRes.AveHitLocation) / 10000.0f;   // /10000 转换为米单位平方
+		const float DirectHitDistanceSquaredMeters = 1.0f;
+		if (DistanceSquaredMeters < DirectHitDistanceSquaredMeters) // 如果点1m内 就直接用这个单元格的数据
 		{
 			OutInterpolatedResponse = CalculateCellReverbParameters(QueryLocation, Cell);
 #if WITH_EDITOR
@@ -1021,28 +1021,28 @@ bool AIMAcousticFieldActor::InterpolateAtLod(const int32 LodIndex, const FVector
 			return true;
 		}
 
-		const float TimeSinceUpdate = InterpWorld->GetTimeSeconds() - Cell.LastUpdateTime;
-		const float TimeWeight = IMCommonMathUtils::RemapSaturated<float>(5.0f, 30.0f, 1.0f, 0.2f, TimeSinceUpdate); //时间权重
-		const float ClampedVariance = Cell.RayRes.AveVariance / 2000.0;  // todo 有问题 1m平方就 10000了
-		const float Confidence = 1.0f / (1.0f + ClampedVariance *  0.0001f); // 方差越大，可信度越低 说明空间均匀性很差  todo 默认先0.0001f后面调整 暴露出来
-		const float Weight = (1.0f / DistanceSqr) * TimeWeight * Confidence;
+		const float SecondsSinceCellUpdate = InterpWorld->GetTimeSeconds() - Cell.LastUpdateTime;
+		const float TimeWeight = IMCommonMathUtils::RemapSaturated<float>(5.0f, 30.0f, 1.0f, 0.2f, SecondsSinceCellUpdate); //时间权重
+		const float ScaledHitVariance = Cell.RayRes.AveVariance / 2000.0;  // todo 有问题 1m平方就 10000了
+		const float Confidence = 1.0f / (1.0f + ScaledHitVariance *  0.0001f); // 方差越大，可信度越低 说明空间均匀性很差  todo 默认先0.0001f后面调整 暴露出来
+		const float Weight = (1.0f / DistanceSquaredMeters) * TimeWeight * Confidence;
 
 		const float MinWeight = 1e-6f; // 最小权重阈值
 		if (Weight < MinWeight)
 		{
 			UE_LOG(LogTemp, Warning, TEXT("IMAcousticField: Skipping cell 权重错误请检查 (%.8f < %.8f)"), Weight, MinWeight);
-			UE_LOG(LogTemp, Warning, TEXT("IMAcousticField: Skipping cell 距离权重 %.8f 时间权重 %.8f  方差权重%.8f"), (1.0f / DistanceSqr), TimeWeight, Confidence);
+			UE_LOG(LogTemp, Warning, TEXT("IMAcousticField: Skipping cell 距离权重 %.8f 时间权重 %.8f  方差权重%.8f"), (1.0f / DistanceSquaredMeters), TimeWeight, Confidence);
 			continue; // 跳过权重过小的单元格
 		}
 
-		FIM_AudioReverbParameters currnetParameter = CalculateCellReverbParameters(QueryLocation, Cell);
+		FIM_AudioReverbParameters CellResponse = CalculateCellReverbParameters(QueryLocation, Cell);
 		// 累加所有参数
-		AccumulatedResponse.Wet +=  currnetParameter.Wet * Weight;
-		AccumulatedResponse.Delay += currnetParameter.Delay * Weight;
-		AccumulatedResponse.Decay += currnetParameter.Decay * Weight;
-		AccumulatedResponse.Density += currnetParameter.Density * Weight;
-		AccumulatedResponse.Diffusion += currnetParameter.Diffusion * Weight;
-		AccumulatedResponse.Dampening += currnetParameter.Dampening * Weight;
+		AccumulatedResponse.Wet +=  CellResponse.Wet * Weight;
+		AccumulatedResponse.Delay += CellResponse.Delay * Weight;
+		AccumulatedResponse.Decay += CellResponse.Decay * Weight;
+		AccumulatedResponse.Density += CellResponse.Density * Weight;
+		AccumulatedResponse.Diffusion += CellResponse.Diffusion * Weight;
+		AccumulatedResponse.Dampening += CellResponse.Dampening * Weight;
 		TotalWeight += Weight;
 
 		// 统计探针信息
@@ -1062,28 +1062,28 @@ bool AIMAcousticFieldActor::InterpolateAtLod(const int32 LodIndex, const FVector
 #endif
 	}
 
-	if (TotalWeight > 1e-5f)
-	{
-		AccumulatedResponse.Wet =  AccumulatedResponse.Wet / TotalWeight;
-		AccumulatedResponse.Delay = AccumulatedResponse.Delay / TotalWeight;
-		AccumulatedResponse.Decay = AccumulatedResponse.Decay / TotalWeight;
-		AccumulatedResponse.Density = AccumulatedResponse.Density / TotalWeight;
-		AccumulatedResponse.Diffusion = AccumulatedResponse.Diffusion / TotalWeight;
-		AccumulatedResponse.Dampening = AccumulatedResponse.Dampening / TotalWeight;
-		OutInterpolatedResponse = AccumulatedResponse;
-
-		// 返回统计信息（可选）
-		if (OutCells) *OutCells = CellsUsed;
-		if (OutProbes) *OutProbes = TotalProbes;
-		if (OutHits) *OutHits = TotalHits;
-
-		return true;
-	}else
+	const bool bCanNormalizeWeights = TotalWeight > 1e-5f;
+	if (!bCanNormalizeWeights)
 	{
 		// 确保数值正常 数值爆炸了 数值错误再钳制也没用
 		UE_LOG(LogTemp, Warning, TEXT("IMAcousticField: TotalWeight <= 1e-5f error"));
+		return false;
 	}
-	return false;
+
+	AccumulatedResponse.Wet =  AccumulatedResponse.Wet / TotalWeight;
+	AccumulatedResponse.Delay = AccumulatedResponse.Delay / TotalWeight;
+	AccumulatedResponse.Decay = AccumulatedResponse.Decay / TotalWeight;
+	AccumulatedResponse.Density = AccumulatedResponse.Density / TotalWeight;
+	AccumulatedResponse.Diffusion = AccumulatedResponse.Diffusion / TotalWeight;
+	AccumulatedResponse.Dampening = AccumulatedResponse.Dampening / TotalWeight;
+	OutInterpolatedResponse = AccumulatedResponse;
+
+	// 返回统计信息（可选）
+	if (OutCells) *OutCells = CellsUsed;
+	if (OutProbes) *OutProbes = TotalProbes;
+	if (OutHits) *OutHits = TotalHits;
+
+	return true;
 }
 
 void AIMAcousticFieldActor::TickTrimAudioFieldForLod(const float GameTime)
