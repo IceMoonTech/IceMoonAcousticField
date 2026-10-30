@@ -305,13 +305,13 @@ uint32 FIMAcousticSimulationWorker::Run()
 		ProbeLocal.SnapValid = SnapshotValid ? 1 : 0;
 		ProbeLocal.EvalOk = 2;
 		ProbeLocal.PushOk = 2; // no result to push unless a batch publishes below
-		for (int32 I = 0; I < Leases.Num(); ++I)
+		for (int32 VoiceIndex = 0; VoiceIndex < Leases.Num(); ++VoiceIndex)
 		{
-			auto& Lease = Leases[I];
+			auto& Lease = Leases[VoiceIndex];
 			FIMAcousticVoiceRequest Request;
-			while (Bridge->Voices[I]->Requests.Pop(Request))
+			while (Bridge->Voices[VoiceIndex]->Requests.Pop(Request))
 			{
-				if (Request.Voice == static_cast<uint32>(I)) { Lease.Request = Request; Lease.Seen = Started; }
+				if (Request.Voice == static_cast<uint32>(VoiceIndex)) { Lease.Request = Request; Lease.Seen = Started; }
 			}
 			const FIMAcousticSourceSnapshot* Source = nullptr;
 			if (GeometrySnapshotValid && Lease.Request.Active && Started - Lease.Seen <= LeaseSeconds)
@@ -321,11 +321,11 @@ uint32 FIMAcousticSimulationWorker::Run()
 			}
 			if (!Source)
 			{
-				if (Lease.InSimulator) { Simulation.Remove(I); Lease.InSimulator = false; }
+				if (Lease.InSimulator) { Simulation.Remove(VoiceIndex); Lease.InSimulator = false; }
 				continue;
 			}
-			Inputs.push_back({static_cast<uint64>(I), Lease.Request.Generation, Source->Source});
-			VoiceIndices.push_back(I);
+			Inputs.push_back({static_cast<uint64>(VoiceIndex), Lease.Request.Generation, Source->Source});
+			VoiceIndices.push_back(VoiceIndex);
 			Lease.InSimulator = true;
 		}
 		// Sub-phase diagnostic: snapshot drain + lease/request match (zero behavior).
@@ -356,15 +356,15 @@ uint32 FIMAcousticSimulationWorker::Run()
 				// Sub-phase diagnostic: result-push loop isolated from solve.
 				const uint64 PubStart=ProfileStart?FPlatformTime::Cycles64():0;
 				bool AllPushed = true;
-				for (size_t I = 0; I < Outputs.size(); ++I)
+				for (size_t BatchIndex = 0; BatchIndex < Outputs.size(); ++BatchIndex)
 				{
-					const uint32 Voice = VoiceIndices[I];
+					const uint32 VoiceIndex = VoiceIndices[BatchIndex];
 					FIMAcousticVoiceResult Result;
-					Result.Frame = Outputs[I];
-					Result.Frame.Sequence=++Leases[Voice].PublicationSequence;
-					if (I == 0)
+					Result.Frame = Outputs[BatchIndex];
+					Result.Frame.Sequence=++Leases[VoiceIndex].PublicationSequence;
+					if (BatchIndex == 0)
 					{
-						ProbeLocal.FirstVoice = Voice;
+						ProbeLocal.FirstVoice = VoiceIndex;
 						ProbeLocal.FirstVoiceGen = Result.Frame.Generation;
 						ProbeLocal.FirstSeq = Result.Frame.Sequence;
 						ProbeLocal.DirectFlags = static_cast<uint32>(Result.Frame.Direct.flags);
@@ -380,7 +380,7 @@ uint32 FIMAcousticSimulationWorker::Run()
 						ProbeLocal.PathValid0 = Result.Frame.PathValid ? 1 : 0;
 					}
 					if(Result.Frame.Sequence==1)
-						UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticFirstFrame voice=%u source=(%g,%g,%g) listener=(%g,%g,%g) direct=%d occlusion=%g path=%d eq=(%g,%g,%g)"),Voice,Inputs[I].Source.origin.x,Inputs[I].Source.origin.y,Inputs[I].Source.origin.z,Latest->Listener.origin.x,Latest->Listener.origin.y,Latest->Listener.origin.z,int(Result.Frame.DirectValid),Result.Frame.Direct.occlusion,int(Result.Frame.PathValid),Result.Frame.PathEQ[0],Result.Frame.PathEQ[1],Result.Frame.PathEQ[2]);
+						UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticFirstFrame voice=%u source=(%g,%g,%g) listener=(%g,%g,%g) direct=%d occlusion=%g path=%d eq=(%g,%g,%g)"),VoiceIndex,Inputs[BatchIndex].Source.origin.x,Inputs[BatchIndex].Source.origin.y,Inputs[BatchIndex].Source.origin.z,Latest->Listener.origin.x,Latest->Listener.origin.y,Latest->Listener.origin.z,int(Result.Frame.DirectValid),Result.Frame.Direct.occlusion,int(Result.Frame.PathValid),Result.Frame.PathEQ[0],Result.Frame.PathEQ[1],Result.Frame.PathEQ[2]);
 					// Single-source occlusion flip detector (zero behavior):
 					// static scene + static transforms must hold occlusion
 					// constant; any flip with movement-free inputs proves
@@ -389,19 +389,19 @@ uint32 FIMAcousticSimulationWorker::Run()
 					{
 						static bool OccInit=false;static float OccLast=0;static IPLVector3 SrcLast{0,0,0};static IPLVector3 LisLast{0,0,0};
 						const float OccNow=Result.Frame.Direct.occlusion;
-						const IPLVector3 SrcNow=Inputs[I].Source.origin;const IPLVector3 LisNow=Latest->Listener.origin;
+						const IPLVector3 SrcNow=Inputs[BatchIndex].Source.origin;const IPLVector3 LisNow=Latest->Listener.origin;
 						const bool Moved=SrcNow.x!=SrcLast.x||SrcNow.y!=SrcLast.y||SrcNow.z!=SrcLast.z||LisNow.x!=LisLast.x||LisNow.y!=LisLast.y||LisNow.z!=LisLast.z;
 						if(OccInit&&(OccNow!=OccLast||Moved))
 							UE_LOG(LogTemp,Display,TEXT("IMLogs AcousticOccFlip seq=%llu occ_old=%g occ_new=%g moved=%d src=(%g,%g,%g) lis=(%g,%g,%g)"),Result.Frame.Sequence,OccLast,OccNow,int(Moved),SrcNow.x,SrcNow.y,SrcNow.z,LisNow.x,LisNow.y,LisNow.z);
 						OccInit=true;OccLast=OccNow;SrcLast=SrcNow;LisLast=LisNow;
 					}
-					Result.AudioComponentId = Leases[Voice].Request.AudioComponentId;
-					if (I == 0) { ProbeLocal.FirstAudioId = Result.AudioComponentId; }
+					Result.AudioComponentId = Leases[VoiceIndex].Request.AudioComponentId;
+					if (BatchIndex == 0) { ProbeLocal.FirstAudioId = Result.AudioComponentId; }
 					Result.WorldGeneration = WorldGeneration;
 					Result.SpatialVersion = Latest->SpatialVersion;
 					// Age is based on the original GT snapshot, not republished now.
 					Result.PublishedSeconds = Latest->CapturedSeconds;
-					if (!Bridge->Voices[Voice]->Results.Push(Result)) { AllPushed = false; }
+					if (!Bridge->Voices[VoiceIndex]->Results.Push(Result)) { AllPushed = false; }
 				}
 				if(PubStart)Bridge->WorkerPublishTiming.Record(PubStart);
 				ProbeLocal.PushSeconds = FPlatformTime::Seconds();
