@@ -1051,8 +1051,12 @@ public:
 			const bool bWetBypassed = !Device.Enabled.load(std::memory_order_acquire)
 				|| !(Device.RenderRoutes.load(std::memory_order_relaxed) & 4u)
 				|| DeviceWorldGeneration != Context->Pool->WorldGeneration;
-			if (bWetBypassed) { ReleaseCurrent(); ContinuityGain = 0.f; }
-			if (bWetBypassed) ReleaseFuture();
+			if (bWetBypassed)
+			{
+				ReleaseCurrent();
+				ContinuityGain = 0.f;
+				ReleaseFuture();
+			}
 			Context->NoIRBlocks.fetch_add(1, std::memory_order_relaxed);
 		}
 		// Retire only after Apply, preserving SDK's mutable triple-buffer lease.
