@@ -500,10 +500,10 @@ public:
 				ObserveTransport(EIMAcousticTransportOrderPhase::SourceAfterRenderer, TransportGroup, bCompleteAfterThisBlock,
 					-1, -1, EIMAcousticTransportOrderReason::None, MAX_uint32, AfterCycles, AfterWorkFlags, AfterThreadCpuCycles);
 			}
-			const float Gain = Context->ReverbSendGains[Slot].load(std::memory_order_relaxed);
-			if (FMath::IsFinite(Gain))
+			const float ReverbSendGain = Context->ReverbSendGains[Slot].load(std::memory_order_relaxed);
+			if (FMath::IsFinite(ReverbSendGain))
 				for (int32 I = 0; I < Frames; ++I)
-					Send->GetData()[I] = FMath::IsFinite(DelayedInputBlock[I]) ? DelayedInputBlock[I] * Gain : 0.f;
+					Send->GetData()[I] = FMath::IsFinite(DelayedInputBlock[I]) ? DelayedInputBlock[I] * ReverbSendGain : 0.f;
 			else Send->Zero();
 		}
 		if (!Rendered)
@@ -544,10 +544,10 @@ public:
 				}
 			}
 			if (Fresh) ProbeReject = EIMAcousticProbeReject::RendererFailed;
-			const float Gain = (Routes & 1u) ? 0.7071067811865475f * Context->DistanceGains[Slot].load(std::memory_order_relaxed) : 0.f;
+			const float FallbackDryGain = (Routes & 1u) ? 0.7071067811865475f * Context->DistanceGains[Slot].load(std::memory_order_relaxed) : 0.f;
 			for (int32 I = 0; I < Frames; ++I)
 			{
-				const float Value = FMath::IsFinite(DelayedInputBlock[I]) ? DelayedInputBlock[I] * Gain : 0.f;
+				const float Value = FMath::IsFinite(DelayedInputBlock[I]) ? DelayedInputBlock[I] * FallbackDryGain : 0.f;
 				Stereo[2 * I] = Value; Stereo[2 * I + 1] = Value;
 			}
 			if (!Fresh) Send->Zero();
