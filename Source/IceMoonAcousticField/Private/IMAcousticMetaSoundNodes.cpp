@@ -1149,15 +1149,13 @@ private:
 					Candidate.State.store(EIMAcousticIRState::Free, std::memory_order_release);
 					continue;
 				}
-				if (!Next || Candidate.Sequence > Next->Sequence)
-				{
-					if (Next) Next->State.store(EIMAcousticIRState::Free, std::memory_order_release);
-					Next = &Candidate;
-				}
-				else
+				if (Next && Candidate.Sequence <= Next->Sequence)
 				{
 					Candidate.State.store(EIMAcousticIRState::Free, std::memory_order_release);
+					continue;
 				}
+				if (Next) Next->State.store(EIMAcousticIRState::Free, std::memory_order_release);
+				Next = &Candidate;
 				continue;
 			}
 
