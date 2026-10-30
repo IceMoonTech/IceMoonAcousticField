@@ -807,31 +807,35 @@ bool FIMAcousticSimulation::EvaluateBatch(const std::vector<FIMAcousticSourceInp
 	if (ApertureTransitPolicy.Enabled)
 	{
 		const uint64 TransitStart = FPlatformTime::Cycles64();
-		const IPLVector3& C = ApertureTransitPolicy.Center;
-		const IPLVector3& E = ApertureTransitPolicy.HalfExtent;
-		const auto Contains = [&C, &E](const FIMDynamicMeshRecord& Record)
+		const IPLVector3& ApertureCenter = ApertureTransitPolicy.Center;
+		const IPLVector3& ApertureHalfExtent = ApertureTransitPolicy.HalfExtent;
+		const auto OverlapsApertureBounds = [&ApertureCenter, &ApertureHalfExtent](const FIMDynamicMeshRecord& Record)
 		{
-			const float Inf = (std::numeric_limits<float>::max)();
-			IPLVector3 Min{Inf, Inf, Inf};
-			IPLVector3 Max{-Inf, -Inf, -Inf};
+			const float MaxFiniteValue = (std::numeric_limits<float>::max)();
+			IPLVector3 WorldBoundsMin{MaxFiniteValue, MaxFiniteValue, MaxFiniteValue};
+			IPLVector3 WorldBoundsMax{-MaxFiniteValue, -MaxFiniteValue, -MaxFiniteValue};
 			for (int X = 0; X < 2; ++X)
 				for (int Y = 0; Y < 2; ++Y)
 					for (int Z = 0; Z < 2; ++Z)
 					{
-						const IPLVector3 P{X ? Record.LocalMax.x : Record.LocalMin.x,
+						const IPLVector3 LocalCorner{X ? Record.LocalMax.x : Record.LocalMin.x,
 							Y ? Record.LocalMax.y : Record.LocalMin.y,
 							Z ? Record.LocalMax.z : Record.LocalMin.z};
-						const IPLVector3 W = IMAcousticSimulationPrivate::TransformPoint(Record.Transform, P);
-						Min.x = (std::min)(Min.x, W.x); Min.y = (std::min)(Min.y, W.y); Min.z = (std::min)(Min.z, W.z);
-						Max.x = (std::max)(Max.x, W.x); Max.y = (std::max)(Max.y, W.y); Max.z = (std::max)(Max.z, W.z);
+						const IPLVector3 WorldCorner = IMAcousticSimulationPrivate::TransformPoint(Record.Transform, LocalCorner);
+						WorldBoundsMin.x = (std::min)(WorldBoundsMin.x, WorldCorner.x);
+						WorldBoundsMin.y = (std::min)(WorldBoundsMin.y, WorldCorner.y);
+						WorldBoundsMin.z = (std::min)(WorldBoundsMin.z, WorldCorner.z);
+						WorldBoundsMax.x = (std::max)(WorldBoundsMax.x, WorldCorner.x);
+						WorldBoundsMax.y = (std::max)(WorldBoundsMax.y, WorldCorner.y);
+						WorldBoundsMax.z = (std::max)(WorldBoundsMax.z, WorldCorner.z);
 					}
-			return C.x >= Min.x - E.x && C.x <= Max.x + E.x
-				&& C.y >= Min.y - E.y && C.y <= Max.y + E.y
-				&& C.z >= Min.z - E.z && C.z <= Max.z + E.z;
+			return ApertureCenter.x >= WorldBoundsMin.x - ApertureHalfExtent.x && ApertureCenter.x <= WorldBoundsMax.x + ApertureHalfExtent.x
+				&& ApertureCenter.y >= WorldBoundsMin.y - ApertureHalfExtent.y && ApertureCenter.y <= WorldBoundsMax.y + ApertureHalfExtent.y
+				&& ApertureCenter.z >= WorldBoundsMin.z - ApertureHalfExtent.z && ApertureCenter.z <= WorldBoundsMax.z + ApertureHalfExtent.z;
 		};
 		for (const auto& Entry : DynamicMeshes)
 		{
-			if (Contains(Entry.second)) { LastApertureTransitBlocked = true; break; }
+			if (OverlapsApertureBounds(Entry.second)) { LastApertureTransitBlocked = true; break; }
 		}
 		LastApertureTransitCycles = FPlatformTime::Cycles64() - TransitStart;
 	}
