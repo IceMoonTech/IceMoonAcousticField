@@ -373,28 +373,7 @@ public:
 		const bool Rendered = Voice.Renderer->Render(In.AudioBuffer->GetData(), Bridge->BlockFrames,
 				Voice.Latest.Frame, Out.AudioBuffer.GetData(), nullptr, nullptr, &Metrics, Routes);
 		CallbackRenderEnd = CallbackTrace ? FPlatformTime::Cycles64() : 0;
-		if (Rendered)
-		{
-			Bridge->RenderedBlocks.fetch_add(1, std::memory_order_relaxed);
-			if (Metrics.DirectEnergy > 0.0) { Bridge->DirectNonzeroBlocks.fetch_add(1, std::memory_order_relaxed); }
-			if (Metrics.PathEnergy > 0.0) { Bridge->PathNonzeroBlocks.fetch_add(1, std::memory_order_relaxed); }
-			FIMAcousticBlockProbe Hit{}; // Consumed render: energies join the PCM window by ConsumedSeconds.
-			FillAcousticProbeFromLatest(Hit,static_cast<uint32>(In.SourceId),In.AudioComponentId,Voice.Latest,Routes,FPlatformTime::Seconds());
-			Hit.Reject=EIMAcousticProbeReject::Accepted;Hit.Fallback=0;Hit.ResetReason=WorldReset;
-			// A' evidence: measurement only; the accepted path's distance is
-			// applied by the SDK, so DegradedGain records unity (not applied).
-			{ float HitDistanceCm=0.0f; DegradedDistanceGain(In,HitDistanceCm);
-				Hit.CallbackDistanceCm=HitDistanceCm; Hit.DegradedGain=1.0f; }
-			Hit.InputEnergy=RenderInputEnergy;Hit.DirectEnergy=Metrics.DirectEnergy;Hit.PathEnergy=Metrics.PathEnergy;
-			double HitOutputEnergy=0;for(int32 SI=0;SI<Out.AudioBuffer.Num();++SI){const double S=Out.AudioBuffer[SI];HitOutputEnergy+=S*S;}
-			Hit.OutputEnergy=HitOutputEnergy;
-			Hit.RenderedAt=Bridge->RenderedBlocks.load(std::memory_order_relaxed);
-			Hit.RejectedAt=Bridge->RejectedBlocks.load(std::memory_order_relaxed);
-			Bridge->TraceBlock(Hit);
-			FIMAcousticCallbackProbe CallbackProbe{};CallbackProbe.Voice=static_cast<uint32>(In.SourceId);CallbackProbe.Valid=1;CallbackProbe.Outcome=0;
-			EmitCallbackTrace(CallbackProbe,CallbackTrace?FPlatformTime::Cycles64():0);
-		}
-		else
+		if (!Rendered)
 		{
 			// A' (Astra 2026-09-13): same degraded distance factor as the stale /
 			// missing branch, taken from this block's callback params.
@@ -420,7 +399,26 @@ public:
 			Bridge->TraceBlock(Fail);
 			FIMAcousticCallbackProbe CallbackProbe{};CallbackProbe.Voice=static_cast<uint32>(In.SourceId);CallbackProbe.Outcome=2;CallbackProbe.RejectDetail=uint32(Metrics.Failure);
 			EmitCallbackTrace(CallbackProbe,CallbackTrace?FPlatformTime::Cycles64():0);
+			return;
 		}
+		Bridge->RenderedBlocks.fetch_add(1, std::memory_order_relaxed);
+		if (Metrics.DirectEnergy > 0.0) { Bridge->DirectNonzeroBlocks.fetch_add(1, std::memory_order_relaxed); }
+		if (Metrics.PathEnergy > 0.0) { Bridge->PathNonzeroBlocks.fetch_add(1, std::memory_order_relaxed); }
+		FIMAcousticBlockProbe Hit{}; // Consumed render: energies join the PCM window by ConsumedSeconds.
+		FillAcousticProbeFromLatest(Hit,static_cast<uint32>(In.SourceId),In.AudioComponentId,Voice.Latest,Routes,FPlatformTime::Seconds());
+		Hit.Reject=EIMAcousticProbeReject::Accepted;Hit.Fallback=0;Hit.ResetReason=WorldReset;
+		// A' evidence: measurement only; the accepted path's distance is
+		// applied by the SDK, so DegradedGain records unity (not applied).
+		{ float HitDistanceCm=0.0f; DegradedDistanceGain(In,HitDistanceCm);
+			Hit.CallbackDistanceCm=HitDistanceCm; Hit.DegradedGain=1.0f; }
+		Hit.InputEnergy=RenderInputEnergy;Hit.DirectEnergy=Metrics.DirectEnergy;Hit.PathEnergy=Metrics.PathEnergy;
+		double HitOutputEnergy=0;for(int32 SI=0;SI<Out.AudioBuffer.Num();++SI){const double S=Out.AudioBuffer[SI];HitOutputEnergy+=S*S;}
+		Hit.OutputEnergy=HitOutputEnergy;
+		Hit.RenderedAt=Bridge->RenderedBlocks.load(std::memory_order_relaxed);
+		Hit.RejectedAt=Bridge->RejectedBlocks.load(std::memory_order_relaxed);
+		Bridge->TraceBlock(Hit);
+		FIMAcousticCallbackProbe CallbackProbe{};CallbackProbe.Voice=static_cast<uint32>(In.SourceId);CallbackProbe.Valid=1;CallbackProbe.Outcome=0;
+		EmitCallbackTrace(CallbackProbe,CallbackTrace?FPlatformTime::Cycles64():0);
 	}
 
 	void OnAllSourcesProcessed() override
