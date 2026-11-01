@@ -941,36 +941,20 @@ bool AIMAcousticFieldActor::InterpolateAtLod(const int32 LodIndex, const FVector
 
 	TArray<FIMGridAudioCell> NearbyCells;
 
-	// ========== 自适应搜索半径 ==========
-	// 根据LOD倍增器调整搜索策略：
-	// - 2x倍增器 (2-4-8m): 每个LOD间隔较小，需要更紧凑的搜索半径
-	// - 4x倍增器 (2-8-32m): LOD 2很大，需要缩小搜索半径避免污染
+	// 2x倍增器的LOD尺寸为2/4/8m，4x为2/8/32m。
+	// LOD 1共用1.5倍搜索半径；LOD 0和更高LOD按间距选择，限制跨房间污染。
 	float SearchRadiusFactor;
-	if (LodMultiplier == 2)
+	if (LodIndex == 0)
 	{
-		// 2x倍增器：紧凑模式（适合室内）
-		// LOD 0 (2m): 2.0x = 4m  - 精确局部查询
-		// LOD 1 (4m): 1.5x = 6m  - 中等范围
-		// LOD 2 (8m): 1.0x = 8m  - 保守范围，避免跨房间
-		if (LodIndex == 0)
-			SearchRadiusFactor = 2.0f;
-		else if (LodIndex == 1)
-			SearchRadiusFactor = 1.5f;
-		else
-			SearchRadiusFactor = 1.0f;
+		SearchRadiusFactor = LodMultiplier == 2 ? 2.0f : 3.0f;
 	}
-	else // LodMultiplier == 4
+	else if (LodIndex == 1)
 	{
-		// 4x倍增器：激进模式（适合室外）
-		// LOD 0 (2m): 3.0x = 6m  - 扩大搜索以弥补cell稀疏性
-		// LOD 1 (8m): 1.5x = 12m - 中等范围
-		// LOD 2 (32m): 0.6x = 19.2m - 严格限制，避免远距离污染
-		if (LodIndex == 0)
-			SearchRadiusFactor = 3.0f;
-		else if (LodIndex == 1)
-			SearchRadiusFactor = 1.5f;
-		else
-			SearchRadiusFactor = 0.6f;
+		SearchRadiusFactor = 1.5f;
+	}
+	else
+	{
+		SearchRadiusFactor = LodMultiplier == 2 ? 1.0f : 0.6f;
 	}
 
 	const float SearchRadius = LodCellSizes[LodIndex] * SearchRadiusFactor;
