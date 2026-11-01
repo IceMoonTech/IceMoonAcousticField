@@ -106,6 +106,11 @@ bool ReadVarietyBounds(const FGrassVariety& Variety, double& Radius, FString& Er
 	return true;
 }
 
+bool ShouldSkipGrassVariety(const FGrassVariety& Variety)
+{
+	return !Variety.GrassMesh || Variety.GetDensity() <= 0 || Variety.GetEndCullDistance() <= 0;
+}
+
 bool ClassifyXYDisjoint(ULandscapeComponent* Component, const FBox& Region,
 	bool& Disjoint, FString& Error)
 {
@@ -140,7 +145,7 @@ bool ClassifyXYDisjoint(ULandscapeComponent* Component, const FBox& Region,
 		}
 		for (const FGrassVariety& Variety : Type->GrassVarieties)
 		{
-			if (!Variety.GrassMesh || Variety.GetDensity() <= 0 || Variety.GetEndCullDistance() <= 0) continue;
+			if (ShouldSkipGrassVariety(Variety)) continue;
 			double VarietyRadius = 0.0;
 			if (!ReadVarietyBounds(Variety, VarietyRadius, Error)) return false;
 			Radius = FMath::Max(Radius, VarietyRadius);
@@ -319,7 +324,7 @@ bool ReadSource(ULandscapeComponent* Component, double GuardBand, double CullSca
 		for (const FGrassVariety& Variety : GrassType->GrassVarieties)
 		{
 			HashVariety(SourceInputHash, Variety);
-			if (!Variety.GrassMesh || Variety.GetDensity() <= 0 || Variety.GetEndCullDistance() <= 0) continue;
+			if (ShouldSkipGrassVariety(Variety)) continue;
 			// A stripped all-zero named weight has no generated instances.
 			if (!GrassData.WeightOffsets.Contains(Name)) continue;
 			const float Density = Variety.GetDensity() * (GrassType->bEnableDensityScaling ? DensityScale : 1.0f);
